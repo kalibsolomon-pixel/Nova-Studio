@@ -1,0 +1,18 @@
+{
+  "variants": {
+    "facing=north": [
+      {
+        "model": "nova:block/check",
+        "weight": 1
+      },
+      {
+        "model": "nova:block/complex",
+        "weight": 2
+      }
+    ],
+    "facing=east": {
+      "model": "nova:block/check",
+      "y": 90
+    }
+  }
+}

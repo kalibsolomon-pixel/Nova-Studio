@@ -1,0 +1,6 @@
+{
+  "parent": "nova:block/check",
+  "textures": {
+    "all": "nova:block/animated"
+  }
+}

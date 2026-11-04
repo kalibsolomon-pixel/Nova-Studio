@@ -1,0 +1,1 @@
+All fixture artwork and JSON are original procedural Nova Studio test material, CC0-1.0. No vanilla client artwork is included. C5 fixtures are copied, not modified.

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Nova Studio starburst mark</title>
+  <desc id="desc">An eight-point geometric starburst with teal, cyan, indigo and violet gem facets.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#25262e"/><stop offset="1" stop-color="#060609"/>
+    </linearGradient>
+    <linearGradient id="gem" gradientUnits="userSpaceOnUse" x1="310" y1="250" x2="690" y2="780">
+      <stop stop-color="#27e3d2"/><stop offset=".35" stop-color="#65dce8"/>
+      <stop offset=".66" stop-color="#5d5ce8"/><stop offset="1" stop-color="#b17bfa"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <path d="M512 180 L566 370 L730 294 L654 458 L844 512 L654 566 L730 730 L566 654 L512 844 L458 654 L294 730 L370 566 L180 512 L370 458 L294 294 L458 370Z" fill="url(#gem)"/>
+    <path d="M512 512 L512 180 L566 370Z" fill="#d8ffff" fill-opacity="0.34"/>
+    <path d="M512 512 L566 370 L730 294Z" fill="#1244a5" fill-opacity="0.08"/>
+    <path d="M512 512 L730 294 L654 458Z" fill="#d8ffff" fill-opacity="0.15"/>
+    <path d="M512 512 L654 458 L844 512Z" fill="#1244a5" fill-opacity="0.19"/>
+    <path d="M512 512 L844 512 L654 566Z" fill="#d8ffff" fill-opacity="0.16"/>
+    <path d="M512 512 L654 566 L730 730Z" fill="#1244a5" fill-opacity="0.25"/>
+    <path d="M512 512 L730 730 L566 654Z" fill="#d8ffff" fill-opacity="0.12"/>
+    <path d="M512 512 L566 654 L512 844Z" fill="#563cb6" fill-opacity="0.26"/>
+    <path d="M512 512 L512 844 L458 654Z" fill="#d8ffff" fill-opacity="0.13"/>
+    <path d="M512 512 L458 654 L294 730Z" fill="#1244a5" fill-opacity="0.28"/>
+    <path d="M512 512 L294 730 L370 566Z" fill="#d8ffff" fill-opacity="0.12"/>
+    <path d="M512 512 L370 566 L180 512Z" fill="#1244a5" fill-opacity="0.25"/>
+    <path d="M512 512 L180 512 L370 458Z" fill="#d8ffff" fill-opacity="0.14"/>
+    <path d="M512 512 L370 458 L294 294Z" fill="#138aab" fill-opacity="0.24"/>
+    <path d="M512 512 L294 294 L458 370Z" fill="#d8ffff" fill-opacity="0.26"/>
+    <path d="M512 512 L458 370 L512 180Z" fill="#138aab" fill-opacity="0.16"/>
+  </g>
+</svg>

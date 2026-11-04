@@ -1,0 +1,13 @@
+Nova Studio @NOVA_DISPLAY_VERSION@
+@NOVA_COPYRIGHT@
+
+Nova Studio is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (@NOVA_LICENSE@).
+
+Nova Studio is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License below for more details.
+
+You do not have to accept this license to install or use Nova Studio. It gives you permission to copy, modify and share Nova Studio under its terms.
+
+Third-party components keep their own licenses: see licenses\THIRD_PARTY_NOTICES.md in the installation folder. The complete corresponding source code of this version is installed in the source folder.
+
+------------------------------------------------------------------------------
+

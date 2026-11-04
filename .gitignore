@@ -1,0 +1,35 @@
+/target/
+/build/
+/.tools/
+/fixtures/generated/
+/benchmarks/runs/
+/benchmarks/*.json
+/.nova/
+**/__pycache__/
+*.user
+*.log
+*.tmp
+# Retained Phase 3 package rehearsals (binaries/sources are local build artifacts).
+/docs/phase-3/package-acceptance*/fresh install Ω/
+/docs/phase-3/package-acceptance*/side by side replacement/
+/docs/phase-3/package-acceptance*/removed application retained for evidence/
+/docs/phase-3/package-acceptance*/user data/
+/docs/phase-3/package-acceptance*/test pack/
+/docs/phase-3/package-acceptance*/tamper-copy.dll
+# Phase 3-C retains task-owned fixture/settings copies locally; commit results only.
+/docs/phase-3c/**/pack/
+/docs/phase-3c/**/diagnostics/
+/docs/phase-3c/**/*.ini
+/docs/phase-3c/**/*.start
+/docs/phase-3c/**/driver/
+/docs/phase-3c/tests-*/**/*.png
+/docs/phase-3c/gallery-baseline/
+/docs/phase-3c/gallery-final/
+/docs/phase-3c/final-shutdown/large-pack/
+/docs/phase-3c/final-shutdown/batch-pack/
+# Phase 3-D retains probe fixture copies locally; commit results only.
+/docs/phase-3d/**/pack/
+/docs/phase-3d/**/diagnostics/
+# Phase 3-D.1 retains probe fixture copies locally; commit results only.
+/docs/phase-3d1/**/pack/
+/docs/phase-3d1/**/diagnostics/

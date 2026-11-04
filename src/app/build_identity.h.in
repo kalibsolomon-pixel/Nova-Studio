@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+namespace nova {
+inline constexpr char AppVersion[] = "@NOVA_DISPLAY_VERSION@";
+inline constexpr char BuildRevision[] = "@NOVA_GIT_REVISION@@NOVA_SOURCE_DIRTY@";
+inline constexpr char ProductLicense[] = "@NOVA_LICENSE@";
+inline constexpr char ProductCopyright[] = "@NOVA_COPYRIGHT@";
+inline constexpr char SourceUrl[] = "@NOVA_SOURCE_URL@";
+}

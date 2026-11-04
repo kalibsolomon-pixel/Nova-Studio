@@ -1,0 +1,15 @@
+{
+  "parent": "minecraft:builtin/generated",
+  "textures": {
+    "layer0": "nova:item/gem"
+  },
+  "display": {
+    "gui": {
+      "rotation": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

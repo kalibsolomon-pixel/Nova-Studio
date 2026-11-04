@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "nova:block/check"
+  },
+  "nova_note": "Editable child; geometry supplied by explicit vanilla fallback"
+}

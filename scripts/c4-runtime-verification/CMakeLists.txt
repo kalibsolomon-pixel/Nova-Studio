@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.24)
+project(C4RuntimeArtifactVerification LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+find_package(Qt6 REQUIRED COMPONENTS Gui)
+get_filename_component(NOVA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+add_executable(c4-artifact-verification verify.cpp)
+target_include_directories(c4-artifact-verification PRIVATE "${NOVA_ROOT}/src/core")
+target_link_libraries(c4-artifact-verification PRIVATE
+  "${NOVA_ROOT}/build/studio-c4-acceptance-release/src/nova-core.lib" Qt6::Gui)
+if(MSVC)
+  target_compile_options(c4-artifact-verification PRIVATE /utf-8)
+endif()

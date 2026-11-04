@@ -1,0 +1,47 @@
+{
+  "credit": "Original Nova Studio test geometry and texture",
+  "custom_root": {
+    "preserve": true
+  },
+  "textures": {
+    "all": "nova:block/check",
+    "particle": "nova:block/check"
+  },
+  "elements": [
+    {
+      "name": "Main cuboid",
+      "from": [
+        2,
+        0,
+        2
+      ],
+      "to": [
+        14,
+        14,
+        14
+      ],
+      "shade": false,
+      "faces": {
+        "down": {
+          "texture": "#all"
+        },
+        "up": {
+          "texture": "#all"
+        },
+        "north": {
+          "texture": "#all"
+        },
+        "south": {
+          "texture": "#all",
+          "custom_face": "preserved"
+        },
+        "west": {
+          "texture": "#all"
+        },
+        "east": {
+          "texture": "#all"
+        }
+      }
+    }
+  ]
+}

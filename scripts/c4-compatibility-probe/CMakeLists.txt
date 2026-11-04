@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.24)
+project(C4CompatibilityProbe LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+find_package(Qt6 REQUIRED COMPONENTS Gui OpenGL)
+add_executable(c4-compatibility-probe probe.cpp)
+target_link_libraries(c4-compatibility-probe PRIVATE Qt6::Gui Qt6::OpenGL)

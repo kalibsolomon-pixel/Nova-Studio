@@ -1,0 +1,7 @@
+{
+  "parent": "nova:block/check",
+  "textures": {
+    "all": "#skin",
+    "skin": "nova:block/alternate"
+  }
+}

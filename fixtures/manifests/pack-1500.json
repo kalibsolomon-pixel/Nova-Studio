@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "count": 1500,
+  "seed": 20261027,
+  "sizes": [
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
+  "sha256": "35a89a57c8fb70847997b3088bf741d6ce08bb827f68b04e810c654f34c926bb",
+  "generator": "nova-fixture-v1"
+}

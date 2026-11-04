@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,1
+ PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,1
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS VS_FF_PRERELEASE
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Nova Studio\0"
+      VALUE "FileDescription", "Nova Studio MCP bridge\0"
+      VALUE "FileVersion", "@NOVA_DISPLAY_VERSION@\0"
+      VALUE "InternalName", "nova-mcp\0"
+      VALUE "OriginalFilename", "nova-mcp.exe\0"
+      VALUE "ProductName", "Nova Studio\0"
+      VALUE "ProductVersion", "@NOVA_DISPLAY_VERSION@\0"
+      VALUE "LegalCopyright", "@NOVA_COPYRIGHT@. Licensed under @NOVA_LICENSE@.\0"
+      VALUE "Comments", "Source @NOVA_GIT_REVISION@@NOVA_SOURCE_DIRTY@\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

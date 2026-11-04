@@ -1,0 +1,42 @@
+{
+  "model": {
+    "type": "minecraft:composite",
+    "transformation": {
+      "translation": [
+        0.15,
+        0,
+        0
+      ]
+    },
+    "models": [
+      {
+        "type": "minecraft:model",
+        "model": "nova:block/tinted",
+        "transformation": {
+          "scale": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        },
+        "tints": [
+          {
+            "type": "minecraft:constant",
+            "value": 6736998
+          }
+        ]
+      },
+      {
+        "type": "minecraft:model",
+        "model": "nova:item/silhouette",
+        "transformation": {
+          "translation": [
+            0.65,
+            0,
+            0
+          ]
+        }
+      }
+    ]
+  }
+}
