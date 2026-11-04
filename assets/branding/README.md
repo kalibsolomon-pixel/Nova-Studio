@@ -8,9 +8,9 @@ are also provided at 16, 24, 32, 48, 64, 128, 256 and 512 pixels.
 a transparent 1024 × 1024 canvas.
 
 The eight-point starburst uses paired triangular gem facets. Palette and app
-tile treatment follow the current Aurora native launcher reference:
-`C:/Dev/aurora-launcher-native/native/assets/aurora.svg` and its icon generator
-(November 1, 2026). The tile uses the same dark gradient, n=5 superellipse and
+tile treatment follow the Aurora native launcher icon (MIT, by the same author),
+`native/assets/aurora.svg` in https://github.com/kalibsolomon-pixel/Aurora-Launcher,
+and its icon generator (as of November 1, 2026). No Aurora file is copied. The tile uses the same dark gradient, n=5 superellipse and
 40 px outer inset. The mark retains Aurora's teal, cyan, indigo and violet.
 
 Regenerate from the repository root with Node.js and a build-time Sharp install:

@@ -13,7 +13,9 @@ QString notice() {
                    "without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. "
                    "See the GNU General Public License for more details.\n\n"
                    "Help > Licenses and Source Code shows the full license, the third-party notices and "
-                   "where to get the source code.")
+                   "where to get the source code.\n\n"
+                   "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "
+                   "\"Minecraft\" is a trademark of Mojang AB and Microsoft Corporation.")
         .arg(ProductCopyright, ProductLicense);
 }
 

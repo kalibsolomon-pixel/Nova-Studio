@@ -3,6 +3,11 @@
 **Preview release.** This is the first public preview of Nova Studio for Windows. It is suitable
 for trying the editor and giving feedback. Keep backups of resource packs you care about.
 
+**NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
+Nova Studio is developed and published by the Nova Studio contributors, who are solely responsible
+for it. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation. Nova Studio contains no
+Minecraft game assets.
+
 ## What Nova Studio does
 
 - Edits Minecraft Java Edition resource-pack textures with layers, selections, transforms,
@@ -59,5 +64,5 @@ Third-party notices are in `licenses/THIRD_PARTY_NOTICES.md`, and **Help › Lic
 Code** shows all of them.
 
 The complete corresponding source code of this build is in `source/` and is published next to
-the installer as `nova-studio-0.1.0-preview.1-source.zip`. `docs/BUILDING.md` explains how to
-build it.
+the installer as `nova-studio-0.1.0-preview.1-source.zip`. `docs\BUILDING.md` in the package
+(`docs/release/BUILDING.md` in the source) explains how to build it.

@@ -39,6 +39,10 @@ The script finds Visual Studio with `vswhere`, configures with CMake and Ninja a
 `.tools\qt` (use `-QtRoot <folder>` for another Qt 6.12.0), builds, and runs the tests.
 `scripts/run-ctest.ps1 -BuildName studio-release` reruns the tests.
 
+`NOVA_SOURCE_URL` (default `https://github.com/kalibsolomon-pixel/Nova-Studio`) is the repository
+address shown in **Help › Licenses and Source Code**. Pass `-DNOVA_SOURCE_URL=` to clear it, or your
+own address for a fork.
+
 The programs are `build\studio-release\src\nova-studio.exe` and `build\studio-release\src\nova-mcp.exe`.
 **Help › About Nova Studio** shows the source revision. A build from the source archive shows the archive's
 revision followed by `+source-archive`, because the archive cannot prove that its files were not

@@ -6,6 +6,11 @@ animations, models and UVs, with a managed test runtime for Minecraft Java Editi
 
 This is a PREVIEW release. Keep backups of resource packs you care about.
 
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+Nova Studio is developed and published by the Nova Studio contributors, who are solely
+responsible for it. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation.
+Nova Studio contains no Minecraft game assets.
+
 Requirements
   * Windows 11, 64-bit (x64). Other Windows versions are not tested.
   * A graphics driver with OpenGL 2.1 or later.

@@ -6,8 +6,10 @@ set(NOVA_DISPLAY_VERSION "${PROJECT_VERSION}-preview.1")
 # the installer and the package README. Keep in step with COPYRIGHT.md.
 set(NOVA_LICENSE "GPL-3.0-or-later")
 set(NOVA_COPYRIGHT "Copyright (C) 2026 Nova Studio contributors")
-# Optional public location of the source repository, shown with the source-code notice.
-set(NOVA_SOURCE_URL "" CACHE STRING "Public URL of the Nova Studio source repository (optional)")
+# Upstream source repository, shown with the source-code notice. Forks may set their own
+# (-DNOVA_SOURCE_URL=...) or clear it. Every release still ships its own source archive.
+set(NOVA_SOURCE_URL "https://github.com/kalibsolomon-pixel/Nova-Studio" CACHE STRING
+  "URL of the Nova Studio source repository, or empty")
 execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   OUTPUT_VARIABLE NOVA_GIT_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 set(NOVA_SOURCE_DIRTY "")

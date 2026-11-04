@@ -96,6 +96,7 @@ private slots:
         QVERIFY(copyright.contains(ProductCopyright));
         QVERIFY(copyright.contains("SPDX-License-Identifier: GPL-3.0-or-later"));
         QVERIFY(copyright.contains("gradle-wrapper-9.8.2.jar"));
+        QVERIFY(copyright.contains("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT."));
         const auto notices = legal::document("THIRD_PARTY_NOTICES.md");
         QVERIFY(notices.contains("Qt Base 6.12.0"));
         QVERIFY(notices.contains("LGPL-3.0-only"));
@@ -109,10 +110,13 @@ private slots:
                                      QString("WITHOUT ANY WARRANTY"), QString("Licenses and Source Code")})
             QVERIFY2(text.contains(required), qPrintable(required));
         QVERIFY(!text.contains("not authorized"));
+        QVERIFY(text.contains("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT."));
         const auto source = legal::sourceNotice();
         QVERIFY(source.contains(AppVersion));
         QVERIFY(source.contains(BuildRevision));
         QVERIFY(source.contains("qtbase-everywhere-src-6.12.0.tar.xz"));
+        if (qstrlen(SourceUrl))
+            QVERIFY(source.contains(QString("Source repository: %1").arg(SourceUrl)));
     }
     void licensesCommand() {
         auto action = helpAction(*window, "licensesCommand");
