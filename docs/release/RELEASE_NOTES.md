@@ -1,7 +1,8 @@
 # Nova Studio 0.1.0-preview.1 — release notes
 
-**Preview release.** This is the first public preview of Nova Studio for Windows. It is suitable
-for trying the editor and giving feedback. Keep backups of resource packs you care about.
+**Preview source.** Public source access does not publish or approve the existing unsigned,
+experimental Windows candidate. Binary release and owner acceptance remain pending. Keep backups
+of resource packs you care about. See [exact source correspondence](SOURCE_CORRESPONDENCE.md).
 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 Nova Studio is developed and published by the Nova Studio contributors, who are solely responsible
@@ -23,7 +24,7 @@ Minecraft game assets.
 
 - **Windows installer.** A per-user installer (no administrator rights) with a Start menu entry
   and an uninstaller that keeps your projects, settings and recovery data. A portable ZIP of the
-  same files is also available.
+  same files is also prepared locally; neither is published by this source consolidation.
 - **Search (Ctrl+K).** One search box for commands, tools, settings, workspaces, panels and
   textures. It finds things by name, alias or shortcut and explains when a command is unavailable.
   The previous command palette shortcut, Ctrl+Shift+P, still works.
@@ -63,11 +64,11 @@ Nova Studio is free software under the GNU General Public License version 3 or l
 Third-party notices are in `licenses/THIRD_PARTY_NOTICES.md`, and **Help › Licenses and Source
 Code** shows all of them.
 
-The Microsoft Visual C++ runtime files in the package (`concrt140.dll`, `msvcp140*.dll`,
-`vccorlib140.dll`, `vcruntime140*.dll`) are Microsoft software and are not covered by the GPL. By
-installing or using them you agree to `licenses/MICROSOFT-VC-RUNTIME-TERMS.txt`; the installer
-shows these terms on its license page. Microsoft does not endorse Nova Studio.
+The reviewed GCC/MinGW candidate carries Qt, GCC runtime and MinGW notices; it ships no Microsoft
+VC runtime DLLs. MSVC is a separate regression-test layout with Microsoft tool/runtime terms.
+See `packaging/mingw/THIRD_PARTY_NOTICES.md` and the source-correspondence record.
 
-The complete corresponding source code of this build is in `source/` and is published next to
-the installer as `nova-studio-0.1.0-preview.1-source.zip`. `docs\BUILDING.md` in the package
+The candidate's complete corresponding source is in `source/` and retained alongside the local
+installer as `nova-studio-0.1.0-preview.1-source.zip`. A future authorized binary distribution must
+provide matching source and sidecars alongside its downloads. `docs\BUILDING.md` in the package
 (`docs/release/BUILDING.md` in the source) explains how to build it.

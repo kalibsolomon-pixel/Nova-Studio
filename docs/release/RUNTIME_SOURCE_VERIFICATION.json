@@ -1,0 +1,153 @@
+{
+  "format": "nova-runtime-source-verification/1",
+  "verified_at_utc": "2026-11-10T02:03:01.996835+00:00",
+  "candidate_source_tree": "de1095db4cfd318fecf729de1965f71b7bd7562b",
+  "candidate_source_commit": "9db2242c79be508eb870d69a3157055d0205097d",
+  "repository": "https://repo.msys2.org/mingw/ucrt64",
+  "target": "x86_64-w64-mingw32; UCRT64; PE machine 0x8664",
+  "packages": [
+    {
+      "name": "mingw-w64-ucrt-x86_64-crt",
+      "version": "14.0.0.r598.ge3d18511f-1",
+      "filename": "mingw-w64-ucrt-x86_64-crt-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-crt-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst",
+      "sha256": "e863d0d1c5cef1269738f23dcc155b9b0d161d198b93d9d5aa481cb3a2f2cf53",
+      "base": "mingw-w64-crt",
+      "license": [
+        "spdx:ZPL-2.1"
+      ],
+      "package_architecture": "any",
+      "local_and_downloaded_hash_match": true,
+      "signature_valid": true,
+      "signing_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+      "shipped_dlls": []
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libgcc",
+      "version": "16.2.0-6",
+      "filename": "mingw-w64-ucrt-x86_64-libgcc-16.2.0-6-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libgcc-16.2.0-6-any.pkg.tar.zst",
+      "sha256": "80b2497f019977dd9528b1abc8621b1328a0115ab1f724047ccbb56bf323f11d",
+      "base": "mingw-w64-gcc",
+      "license": [
+        "spdx:GPL-3.0-or-later WITH GCC-exception-3.1 AND GFDL-1.3-or-later"
+      ],
+      "package_architecture": "any",
+      "local_and_downloaded_hash_match": true,
+      "signature_valid": true,
+      "signing_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+      "shipped_dlls": [
+        {
+          "member": "ucrt64/bin/libgcc_s_seh-1.dll",
+          "sha256": "791ebf66e99c7c1b4ed3666468cec45a0172b4c8942ac6c84c3e9cab3e1b5270",
+          "identical": true
+        }
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libstdc++",
+      "version": "16.2.0-6",
+      "filename": "mingw-w64-ucrt-x86_64-libstdc++-16.2.0-6-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libstdc++-16.2.0-6-any.pkg.tar.zst",
+      "sha256": "33c5e58a85a538cf843a8672991cce591f0231d66da3b66a57629712d64be17f",
+      "base": "mingw-w64-gcc",
+      "license": [
+        "spdx:GPL-3.0-or-later WITH GCC-exception-3.1 AND GFDL-1.3-or-later"
+      ],
+      "package_architecture": "any",
+      "local_and_downloaded_hash_match": true,
+      "signature_valid": true,
+      "signing_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+      "shipped_dlls": [
+        {
+          "member": "ucrt64/bin/libstdc++-6.dll",
+          "sha256": "4e4822dc4aaa99383f581dae7ab9464ae89346c5ca742f7efbcdebe20b0fe7b5",
+          "identical": true
+        }
+      ]
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-libwinpthread",
+      "version": "14.0.0.r598.ge3d18511f-1",
+      "filename": "mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst",
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-libwinpthread-14.0.0.r598.ge3d18511f-1-any.pkg.tar.zst",
+      "sha256": "c35d6be83d141c8cfbb61f1637dd4b53aac8f5562d766aa26d0741c40bad4e4d",
+      "base": "mingw-w64-winpthreads",
+      "license": [
+        "spdx:MIT AND BSD-3-Clause"
+      ],
+      "package_architecture": "any",
+      "local_and_downloaded_hash_match": true,
+      "signature_valid": true,
+      "signing_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+      "shipped_dlls": [
+        {
+          "member": "ucrt64/bin/libwinpthread-1.dll",
+          "sha256": "94a9a4e2fe27b4bc827a4b209e9deb4cc3dc34bc025df06b849144f9d4c588f8",
+          "identical": true
+        }
+      ]
+    }
+  ],
+  "gcc_source": {
+    "file": "mingw-w64-gcc-16.2.0-6.src.tar.zst",
+    "url": "https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.2.0-6.src.tar.zst",
+    "sha256": "a901d8afb78438abcff9ed020cd9aa9431db76de1992171c2454c3c07ad289e8",
+    "bytes": 107229138,
+    "official_download_identical": true,
+    "source_package_signature_valid": true,
+    "source_package_signing_fingerprint": "5F944B027F7FE2091985AA2EFA11531AA0AA7F57",
+    "PKGBUILD_sha256": "1a123ea062e01beb611c4375999492b0f41ef2d92d03e38cb29e7c23e855ad45",
+    "binary_BUILDINFO_PKGBUILD_match": true,
+    "recipe_source_checks": 20,
+    "recipe_source_checks_pass": true,
+    "gcc_upstream_url": "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.xz",
+    "gcc_upstream_sha256": "e6738e29597f733270731aa90600f37ffdc045079dfc27ec7e8192cc81085c3e",
+    "gcc_upstream_signature_valid": true,
+    "gcc_signing_subkey": "7F74F97C103468EE5D750B583AB00996FC26A641",
+    "gcc_signing_primary_key": "13975A70E63C361C73AE69EF6EEB81F8981C74C7"
+  },
+  "mingw_sources": [
+    {
+      "file": "mingw-w64-winpthreads-14.0.0.r598.ge3d18511f-1.src.tar.zst",
+      "url": "https://repo.msys2.org/mingw/sources/mingw-w64-winpthreads-14.0.0.r598.ge3d18511f-1.src.tar.zst",
+      "sha256": "1da3dad4f6916d0c23e8fe76c38ed79946fb32078f94047c0475229b8112a1db",
+      "bytes": 59897216,
+      "source_package_signature_valid": true,
+      "source_commit": "e3d18511f9759d455cae20c34703eea4a0723cf3",
+      "git_fsck_pass": true,
+      "makepkg_git_archive_sha256": "f96372df71b5f32f54e0c3d37e59dfc4628b41137f64a87e7ca67eda6d197185",
+      "makepkg_checksum_match": true,
+      "PKGBUILD_sha256": "b533e6c7a634ceb574ad3e8db356bb9dbf63bb0d59e944f880be1d640c644c61",
+      "binary_BUILDINFO_PKGBUILD_match": true
+    },
+    {
+      "file": "mingw-w64-crt-14.0.0.r598.ge3d18511f-1.src.tar.zst",
+      "url": "https://repo.msys2.org/mingw/sources/mingw-w64-crt-14.0.0.r598.ge3d18511f-1.src.tar.zst",
+      "sha256": "a6df84c851473c2b293f36a8864b52980a5d875b1c7e2fbfb01dece3f400256a",
+      "bytes": 59897640,
+      "source_package_signature_valid": true,
+      "source_commit": "e3d18511f9759d455cae20c34703eea4a0723cf3",
+      "git_fsck_pass": true,
+      "makepkg_git_archive_sha256": "f96372df71b5f32f54e0c3d37e59dfc4628b41137f64a87e7ca67eda6d197185",
+      "makepkg_checksum_match": true,
+      "PKGBUILD_sha256": "18a0d7c5e32a7a118f220c681f3acccc8210a77bc1a08b4ef0b823932c8b9422",
+      "binary_BUILDINFO_PKGBUILD_match": true
+    }
+  ],
+  "limitations": [
+    "Source correspondence and signatures were verified; no independent compiler rebuild or reproducibility claim.",
+    "GCC sidecar contains GCC source and packaging; MinGW CRT/winpthreads have separate official source packages.",
+    "Binary distribution, sidecar hosting commitment and legal sufficiency remain owner/counsel decisions."
+  ],
+  "keyrings": [
+    {
+      "url": "https://ftp.gnu.org/gnu/gnu-keyring.gpg",
+      "sha256": "8013de59880f7a59f53b6bd207f4d2a408d67b84a82fa9cba1dbbf443428e2db"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/msys2/MSYS2-keyring/master/msys2.gpg",
+      "sha256": "1257d4ccc536c53333445a618039af4c3ea3f56b96601de9af89151ea529c19a"
+    }
+  ]
+}

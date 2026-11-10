@@ -22,7 +22,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 The GPL-3.0-or-later grant above covers the original Nova Studio work in this repository: the
 application and MCP bridge source (`src/`), tests (`tests/`), build and packaging files
-(`CMakeLists.txt`, `cmake/`, `packaging/`, `scripts/`), the Phase 1 prototypes (`prototypes/`),
+(`CMakeLists.txt`, `cmake/`, `packaging/`, `scripts/`), the historical Phase 1 prototypes (in earlier commits),
 the Nova Studio icon artwork (`assets/branding/`) and the documentation (`README.md`, `docs/`),
 **except** for the material listed below.
 
@@ -50,4 +50,5 @@ trademark of Mojang AB and Microsoft Corporation. Nova Studio contains no Minecr
 
 Every Nova Studio binary release is accompanied by the complete corresponding source code for that
 exact build: inside the package (`source/`) and as a separate download next to the installer.
-See `docs/release/BUILDING.md`.
+See `docs/release/BUILDING.md` and `docs/release/SOURCE_CORRESPONDENCE.md` for exact commit,
+archive, Qt and runtime-source identities. Source publication is separate from binary release approval.

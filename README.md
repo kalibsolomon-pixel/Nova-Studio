@@ -47,6 +47,8 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 | [Known limitations](docs/release/KNOWN_LIMITATIONS.md) | What is not tested or not supported yet |
 | [Release notes](docs/release/RELEASE_NOTES.md) | 0.1.0-preview.1 |
 | [Building from source](docs/release/BUILDING.md) | Toolchain, build, tests and packaging |
+| [Source correspondence](docs/release/SOURCE_CORRESPONDENCE.md) | Exact candidate commit, archives, hashes and runtime source |
+| [Public-source preparation](docs/release/PUBLIC_SOURCE_PREPARATION.md) | Provenance, privacy scope, deletions and pending review |
 
 ## Building
 
@@ -97,7 +99,11 @@ See [COPYRIGHT.md](COPYRIGHT.md) and the [GCC notices](packaging/mingw/THIRD_PAR
 
 ## Source code for binary releases
 
-Every binary release includes the complete corresponding source code of that exact build, in the
+The source home is https://github.com/kalibsolomon-pixel/Nova-Studio (`main`). Publishing source
+does not approve or publish the unsigned binary candidate. The [correspondence record](docs/release/SOURCE_CORRESPONDENCE.md)
+identifies its exact source commit and hashes.
+
+Every binary release must include the complete corresponding source code of that exact build, in the
 package's `source` folder and as a separate `nova-studio-<version>-source.zip` download. In the
 application, **Help › Licenses and Source Code** shows where it is. The source revision of a build is
 shown in **Help › About Nova Studio**.

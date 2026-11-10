@@ -1,7 +1,7 @@
 # Building Nova Studio with GCC/MinGW-w64 (Phase 4-I, experimental)
 
-Status: **executed in Phase 4-I.1** (owner approval of §1 given; results in
-[`PHASE_4I1_REPORT.md`](PHASE_4I1_REPORT.md)). The toolchain is installed in
+Status: **executed in Phase 4-I.1** (owner approval of §1 given; historical raw results remain
+private; see the [public qualification summary](../release/PUBLIC_SOURCE_PREPARATION.md)). The toolchain is installed in
 `C:\Dev\nova-toolchains`; §7 is the complete, repeatable procedure that produced the experimental
 candidate. §1 is kept as the approved request. The MSVC build (`docs/release/BUILDING.md`,
 `scripts/build-studio.ps1`) is unchanged and unaffected.

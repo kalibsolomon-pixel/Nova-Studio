@@ -1,5 +1,11 @@
 # Installing Nova Studio
 
+The current GitHub publication provides source only. The unsigned GCC/MinGW candidate remains
+local and experimental, with binary release acceptance pending. These are installation instructions
+for an independently identified binary download; the filenames below are legacy examples. Use the
+actual filename and checksum from that candidate's manifest, and see
+[source correspondence](SOURCE_CORRESPONDENCE.md) for the existing candidate's exact identity.
+
 ## Check the download
 
 Compare the SHA-256 checksum of the file you downloaded with the published `SHA256SUMS.txt`.

@@ -1,7 +1,8 @@
 # Nova Studio 0.1.0-preview.1 — release notes
 
-**Preview release.** This is the first public preview of Nova Studio for Windows. It is suitable
-for trying the editor and giving feedback. Keep backups of resource packs you care about.
+**Experimental preview candidate.** These notes describe an unsigned local qualification build.
+Public source access does not publish or approve its binaries. Owner acceptance remains pending.
+Keep backups of resource packs you care about.
 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 Nova Studio is developed and published by the Nova Studio contributors, who are solely responsible
@@ -23,7 +24,7 @@ Minecraft game assets.
 
 - **Windows installer.** A per-user installer (no administrator rights) with a Start menu entry
   and an uninstaller that keeps your projects, settings and recovery data. A portable ZIP of the
-  same files is also available.
+  same files is also prepared locally; source publication does not publish these binaries.
 - **Search (Ctrl+K).** One search box for commands, tools, settings, workspaces, panels and
   textures. It finds things by name, alias or shortcut and explains when a command is unavailable.
   The previous command palette shortcut, Ctrl+Shift+P, still works.
@@ -56,7 +57,8 @@ Minecraft game assets.
 
 ## Installing
 
-See [INSTALLATION.md](INSTALLATION.md). The installer is **not code-signed**, so Windows SmartScreen
+See `INSTALLATION.md` in the installed `docs/` folder (repository copy:
+`docs/release/INSTALLATION.md`). The installer is **not code-signed**, so Windows SmartScreen
 may say it does not recognize the app. Choose **More info**, check that the file name and the
 SHA-256 checksum match the published ones, then choose **Run anyway**. Do not turn off Windows
 security features to install Nova Studio.
@@ -83,6 +85,7 @@ GCC runtime and winpthreads, with their license texts and source-access instruct
 `licenses/THIRD_PARTY_NOTICES.md`. No separate compiler redistributable installation is needed.
 This is an unsigned, unpublished qualification candidate, not an authorized release.
 
-The complete corresponding source code of this build is in `source/` and is published next to
-the installer as `nova-studio-0.1.0-preview.1-source.zip`. `docs\BUILDING.md` in the package
+The complete corresponding source code of this build is in `source/` and retained alongside
+the local installer as `nova-studio-0.1.0-preview.1-source.zip`. Future authorized binary downloads
+must provide matching source and sidecars. `docs\BUILDING.md` in the package
 (`packaging/mingw/docs/BUILDING.md` in the source) explains how to build it.

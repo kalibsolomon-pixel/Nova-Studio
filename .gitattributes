@@ -2,3 +2,5 @@
 # The GPL text must stay byte-identical to https://www.gnu.org/licenses/gpl-3.0.txt
 # (SHA-256 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986) on every checkout.
 LICENSE text eol=lf
+# Unified-diff context lines contain a required leading space; preserve exact Qt patch bytes.
+*.patch whitespace=-blank-at-eol

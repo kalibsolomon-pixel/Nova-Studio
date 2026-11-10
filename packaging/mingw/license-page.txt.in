@@ -15,4 +15,3 @@ GCC RUNTIME. Nova Studio includes the unmodified GCC runtime libraries libstdc++
 Third-party components keep their own licenses: see licenses\THIRD_PARTY_NOTICES.md in the installation folder. The complete corresponding source code of this version is installed in the source folder.
 
 ------------------------------------------------------------------------------
-

@@ -1,7 +1,9 @@
 # Local release review: 0.1.0-preview.1
 
-This source is for owner review only. It is unsigned, unpublished and retains the owner's
-experimental / not-for-publication labels. A local commit is not release or legal approval.
+Source access is authorized separately from binary release acceptance. The existing candidate is
+unsigned and unpublished and retains the owner's experimental / not-for-publication labels.
+[Source correspondence](SOURCE_CORRESPONDENCE.md) identifies its exact tree and public-history
+commit. Source publication is not binary release or legal approval.
 
 The starting release commit is `046d6d0e26b1579dc962386e4cd678ac66a71341` (RC1). The later
 review snapshot was `5fb6fa1b9d9269e50347bf84dd3dde6be1e854b2`: GCC 66/67 (ACP fixture failure),
@@ -47,4 +49,6 @@ qualification report; a portable launch is not installer acceptance.
 
 Before public preview: owner approval of the [licensing/source/signing checklist](RELEASE_CHECKLIST.md),
 the [source-sync review](SOURCE_SYNC.md), visual/compatibility review and an explicit decision on
-experimental labels/filenames. No public source URL has been invented or asserted.
+experimental labels/filenames. The existing GitHub repository is the verified source destination;
+final public visibility is checked separately from this preparation record. No binary download URL
+is claimed.

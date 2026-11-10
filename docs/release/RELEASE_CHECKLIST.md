@@ -13,13 +13,15 @@ Engineering evidence for review; no legal conclusion or approval is recorded.
   and source sidecars will be hosted together and how continued availability will be ensured.
 - MSVC: the candidate ships GCC runtimes; MSVC only builds local regression tests. Confirm the
   relevance of the previously recorded Microsoft Build Tools licensing gate to that use.
-- Source hosting: approve a real accessible source location and verify sanitized source against
-  the reviewed local commit. Set `NOVA_SOURCE_URL` only when that location exists and holds the
-  corresponding source, then rebuild/requalify. Help currently names installed source/license files.
+- Source hosting: the owner authorized the existing GitHub source repository and home consolidation.
+  Verify visibility and exact source correspondence as documented in SOURCE_CORRESPONDENCE.md.
+  No binary/sidecar hosting is implied. Set `NOVA_SOURCE_URL` for a future build only after access
+  and correspondence are verified, then rebuild/requalify. Existing Help names installed files.
 - Minecraft: confirm the trademark disclaimer and a suitable non-chat contact method. Only
   original synthetic fixtures and Nova artwork belong in the source/package; no game assets.
 - Signing: choose a policy, certificate and file scope (installer, application, bridge,
   uninstaller). Signing changes hashes and requires a newly identified candidate. Nothing is signed.
+  See [current options and process](SIGNING_OPTIONS.md).
 - Owner review: Phase 1 visuals, physical presentation, Ctrl+S behavior, compatibility limitations,
   recorded intermittent incidents and the temporary 50k performance exception remain explicit gates.
 

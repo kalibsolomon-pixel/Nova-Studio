@@ -5,6 +5,10 @@ Nova Studio is free software under the GNU General Public License version 3 or l
 corresponding source archive (`source\nova-studio-<version>-source.zip` in a release download) or
 from a Git checkout.
 
+For the existing unsigned candidate, use the exact commit and archive hashes in
+[SOURCE_CORRESPONDENCE.md](SOURCE_CORRESPONDENCE.md). The current branch also contains later
+documentation; a rebuild is a new artifact requiring its own qualification.
+
 ## GCC/MinGW candidate package
 
 The packaged candidate uses GCC 16.2.0 (MSYS2 UCRT64), CMake 4.4.5, Ninja 1.13.2 and Qt Base

@@ -1,28 +1,35 @@
-# Sanitized source synchronization
+# Canonical source and synchronization
 
-`scripts/sync-public-source.py` prepares one committed revision for the separately configured
-destination checkout. Its historical name does not make that repository public. No sync, remote
-contact or publication is part of local release qualification.
+The home repository holds release source and release-facing documentation on its public-source
+integration branch. GitHub's default branch is `main`. See [source correspondence](SOURCE_CORRESPONDENCE.md)
+for the exact candidate commit, tree, archive hashes and upstream source materials.
 
-Run without `--apply` to inspect a plan. Review the expected destination URL, branch, cleanliness,
-object-store separation and every proposed file before any separately authorized write. The script
-never commits or pushes. Deletions require explicit `--allow-deletions` after review.
+The consolidation starts from the existing sanitized GitHub ancestry, not the private development
+ancestry. Its exact candidate-source commit is `9db2242c79be508eb870d69a3157055d0205097d`. Historical development branches, tags
+and private evidence stay local; they must not be included in a push of all refs or a mirror push.
+Private evidence retained in the home folder is untracked on this branch and excluded through
+local Git metadata. It is not part of a fresh clone or a source archive. Existing files were
+preserved; exactly 26 approved obsolete Phase 1 prototype paths were removed from the home tree.
+Those prototypes remain in older public commits; current-tree removal does not erase history.
 
-The required-file lists cover common source/license inputs, MSVC and GCC/MinGW independently.
-Toolchain locations are configured through the documented environment/command options rather than
-a developer workspace path. Workspace privacy patterns come from Git's current worktree list;
-profile/login patterns are derived from the local environment.
+`scripts/sync-public-source.py` remains a legacy isolation helper for copying a committed snapshot
+between disposable repositories. It expects a remote-free development copy and a clean destination
+on `main`, the exact configured destination URL and separate object stores. Those checks deliberately
+refuse direct use against the canonical home repository, which now has a remote and both preserved
+private and public history locally. A separate maintained public-source checkout is not required.
 
-The copy excludes private phase/benchmark/review/session evidence and developer-only generators.
-`docs/phase-4i/MINGW_BUILD_GUIDE.md` is the explicit exception because it is a corresponding-source
-build guide. Historical private material and unused prototypes have also been archived outside
-this release tree, with per-file hash verification before duplicate removal.
+Run without `--apply` to inspect a plan; deletions require reviewed `--allow-deletions`. The script
+never commits or pushes. Required-file checks cover both MSVC and GCC/MinGW layouts. Privacy
+checks refuse credentials, profile/workspace paths, unexpected images, private evidence copies,
+build outputs, unexpected archives, large files, links, submodules and junction traversal.
+Documented toolchain defaults remain overridable, generic paths.
 
-Secret/profile patterns, unexpected images, known private-evidence images, executable/build outputs,
-archives (except the pinned Gradle wrapper), links/junctions, submodules and unexpected large files
-are refused. The pinned font exception requires its exact blob identity. The destination's `.tools`
-and virtual-environment junctions must never be written through.
+`python scripts/test-sync-public-source.py` passed 34/34 on throwaway repositories during this
+consolidation. Additional disposable dry runs of the exact 595-file candidate-source tree checked
+both toolchain layouts, refused the 26 deletions without the flag, and passed with it. No dry run
+modified its destination. See [public-source preparation](PUBLIC_SOURCE_PREPARATION.md) for scope.
 
-Run `python scripts/test-sync-public-source.py` for the self-tests. Qualification additionally scans
-the exact staged tree and dry-runs sanitized throwaway source copies. A passing scan cannot prove
-legal sufficiency or public visibility; owner review of the actual destination remains necessary.
+Publishing uses an explicit reviewed branch/refspec with a normal fast-forward push to GitHub
+`main`; no private branch or local RC1 tag is published. Full reachable history, commit metadata
+and enabled GitHub surfaces must be reviewed before changing visibility. A clean scanner result
+alone does not establish privacy, legal sufficiency or release acceptance.
