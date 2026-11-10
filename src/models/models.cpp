@@ -471,7 +471,9 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
         }
     }
     if ((m.resolved.contains("elements") && !m.resolved["elements"].isArray()) ||
-        m.resolved["elements"].toArray().size() > MaxElements ||
+        // value(), not operator[]: a lookup must not insert "elements": null, which every
+        // child without its own elements would inherit and fail on (item/generated chains).
+        m.resolved.value("elements").toArray().size() > MaxElements ||
         (m.resolved.contains("textures") && !m.resolved["textures"].isObject()) ||
         (m.resolved.contains("display") && !m.resolved["display"].isObject())) {
         m.diagnostics << "Invalid elements/textures/display or element allocation limit";
@@ -576,6 +578,57 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
     m.valid = true;
     m.diagnostics.removeDuplicates();
     return m;
+}
+PreviewChoice previewModelFor(Library &library, const QString &texture) {
+    PreviewChoice choice;
+    const auto location = Location::parse(Location::fromAsset(texture, "textures"));
+    if (!location.valid()) {
+        choice.reason = "Not a resource-pack texture (expected assets/<namespace>/textures/...png)";
+        return choice;
+    }
+    QStringList named{location.id()};
+    if (location.path.startsWith("block/"))
+        named << location.nameSpace + ":item/" + location.path.mid(6);
+    const auto users = library.modelsForTexture(texture);
+    QStringList invalid;
+    QStringList valid;
+    for (const auto &id : users)
+        (library.model(id).valid ? valid : invalid) << id;
+    std::stable_sort(valid.begin(), valid.end(), [&](const QString &a, const QString &b) {
+        const int ia = named.indexOf(a), ib = named.indexOf(b);
+        if ((ia >= 0) != (ib >= 0))
+            return ia >= 0;
+        if (ia >= 0)
+            return ia < ib;
+        return a.size() != b.size() ? a.size() < b.size() : a < b;
+    });
+    choice.candidates = valid;
+    if (!valid.isEmpty()) {
+        choice.model = valid.first();
+        return choice;
+    }
+    // No usable model: explain with the model named like the texture if it exists,
+    // otherwise with the first broken model that uses the texture.
+    const auto known = library.modelIds();
+    QStringList explain;
+    for (const auto &id : named)
+        if (known.contains(id))
+            explain << id;
+    explain += invalid;
+    for (const auto &id : explain) {
+        const auto model = library.model(id);
+        if (!model.valid) {
+            choice.reason = id + " could not be resolved: " +
+                            model.diagnostics.value(0, QStringLiteral("unknown error"));
+            return choice;
+        }
+        if (named.contains(id)) {
+            choice.reason = id + " does not use this texture";
+            return choice;
+        }
+    }
+    choice.reason = "No model in the resource pack or resource stack uses this texture";
+    return choice;
 }
 QStringList Library::modelsForTexture(const QString &asset) {
     QStringList out;

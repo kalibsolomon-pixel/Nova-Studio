@@ -24,7 +24,7 @@ add_executable(nova-c7-bench c7_bench.cpp)
 target_link_libraries(nova-c7-bench PRIVATE nova-workspace Qt6::Test)
 add_executable(nova-c6-storage-bench c6_storage_bench.cpp)
 target_link_libraries(nova-c6-storage-bench PRIVATE nova-application)
-if(MSVC)
+if(WIN32)
  target_link_libraries(nova-c6-storage-bench PRIVATE Psapi)
 endif()
 add_executable(nova-c6-idle-probe EXCLUDE_FROM_ALL c6_idle_probe.cpp)
@@ -35,17 +35,17 @@ add_executable(nova-c8-runtime-fixture c8_runtime_fixture.cpp)
 target_link_libraries(nova-c8-runtime-fixture PRIVATE nova-models nova-application)
 add_executable(nova-c8-bench c8_bench.cpp)
 target_link_libraries(nova-c8-bench PRIVATE nova-models nova-application)
-if(MSVC)
+if(WIN32)
  target_link_libraries(nova-c8-bench PRIVATE Psapi)
 endif()
 add_executable(nova-c8-memory-probe c8_memory_probe.cpp)
 target_link_libraries(nova-c8-memory-probe PRIVATE nova-workspace Qt6::Test)
-if(MSVC)
+if(WIN32)
  target_link_libraries(nova-c8-memory-probe PRIVATE Psapi)
 endif()
 add_executable(nova-c8-activity c8_activity_probe.cpp)
 target_link_libraries(nova-c8-activity PRIVATE nova-workspace Qt6::Test)
-if(MSVC)
+if(WIN32)
  target_link_libraries(nova-c8-activity PRIVATE Psapi)
 endif()
 add_executable(nova-c6-lifecycle-tests c6_lifecycle_test.cpp)
@@ -112,6 +112,38 @@ add_test(NAME ops COMMAND nova-ops-tests)
 add_executable(nova-editing-tests editing_test.cpp)
 target_link_libraries(nova-editing-tests PRIVATE nova-application Qt6::Test)
 add_test(NAME editing COMMAND nova-editing-tests)
+add_executable(nova-fill-modes-tests fill_modes_test.cpp)
+target_link_libraries(nova-fill-modes-tests PRIVATE nova-application Qt6::Test)
+add_test(NAME fill-modes COMMAND nova-fill-modes-tests)
+add_executable(nova-fill-mode-gui-tests fill_mode_gui_test.cpp)
+target_link_libraries(nova-fill-mode-gui-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME fill-mode-gui COMMAND nova-fill-mode-gui-tests)
+add_executable(nova-model-preview-resolution-tests model_preview_resolution_test.cpp)
+target_link_libraries(nova-model-preview-resolution-tests PRIVATE nova-models Qt6::Test)
+add_test(NAME model-preview-resolution COMMAND nova-model-preview-resolution-tests)
+add_executable(nova-model-preview-gui-tests model_preview_gui_test.cpp)
+target_link_libraries(nova-model-preview-gui-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME model-preview-gui COMMAND nova-model-preview-gui-tests)
+add_executable(nova-checkerboard-theme-tests checkerboard_theme_test.cpp)
+target_link_libraries(nova-checkerboard-theme-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME checkerboard-theme COMMAND nova-checkerboard-theme-tests)
+add_executable(nova-preview-notice-tests preview_notice_test.cpp)
+target_link_libraries(nova-preview-notice-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME preview-notice COMMAND nova-preview-notice-tests)
+add_test(NAME preview-notice-scale150 COMMAND nova-preview-notice-tests)
+set_tests_properties(preview-notice-scale150 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=1.5")
+add_test(NAME preview-notice-scale200 COMMAND nova-preview-notice-tests)
+set_tests_properties(preview-notice-scale200 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=2")
+add_executable(nova-tool-placement-tests tool_placement_test.cpp)
+target_link_libraries(nova-tool-placement-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME tool-placement COMMAND nova-tool-placement-tests)
+# The narrow-column and keyboard checks again at 150% and 200% (QT_SCALE_FACTOR).
+add_test(NAME tool-strip-wrap-scale150 COMMAND nova-tool-placement-tests
+  narrowNormalAndWideColumnsKeepEveryToolReachable keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepTargetsInside)
+set_tests_properties(tool-strip-wrap-scale150 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=1.5")
+add_test(NAME tool-strip-wrap-scale200 COMMAND nova-tool-placement-tests
+  narrowNormalAndWideColumnsKeepEveryToolReachable keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepTargetsInside)
+set_tests_properties(tool-strip-wrap-scale200 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=2")
 add_executable(nova-editor-gui-tests editor_gui_test.cpp)
 target_link_libraries(nova-editor-gui-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME editor-gui COMMAND nova-editor-gui-tests)
@@ -138,12 +170,12 @@ add_executable(nova-animation-bench animation_bench.cpp)
 add_executable(nova-animation-acceptance-probe animation_acceptance_probe.cpp)
 target_link_libraries(nova-animation-acceptance-probe PRIVATE nova-workspace Qt6::Test)
 target_link_libraries(nova-animation-bench PRIVATE nova-workspace Qt6::Test)
-if(MSVC)
+if(WIN32)
   target_link_libraries(nova-animation-bench PRIVATE Psapi)
 endif()
 add_executable(nova-editor-bench editor_bench.cpp)
 target_link_libraries(nova-editor-bench PRIVATE nova-application)
-if(MSVC)
+if(WIN32)
   target_link_libraries(nova-editor-bench PRIVATE Psapi)
 endif()
 add_executable(nova-minecraft-testing-tests minecraft_testing_test.cpp)
@@ -154,6 +186,13 @@ target_link_libraries(nova-phase3d-gallery PRIVATE nova-workspace Qt6::Test)
 # Phase 3-D.1: Fabric development runtime (offline: mock HTTP + scripted fake Gradle).
 add_executable(nova-fake-gradle fake_gradle.cpp)
 target_link_libraries(nova-fake-gradle PRIVATE Qt6::Core)
+if(MINGW)
+  # FabricRuntime starts Gradle with PATH reduced to the JDK and System32. The MSVC-built fake finds
+  # its C++ runtime there only because an installed Visual C++ redistributable puts it in System32;
+  # the GCC runtime (libstdc++, libgcc, winpthreads) is never there, so this stand-in for Gradle carries
+  # it statically.
+  target_link_options(nova-fake-gradle PRIVATE -static)
+endif()
 add_executable(nova-fabric-runtime-tests fabric_runtime_test.cpp)
 target_link_libraries(nova-fabric-runtime-tests PRIVATE nova-workspace Qt6::Test Qt6::CorePrivate)
 if(WIN32)
@@ -172,12 +211,75 @@ target_compile_definitions(nova-mcp-tests PRIVATE
   NOVA_MCP_TEST_SDK="${CMAKE_CURRENT_SOURCE_DIR}/mcp_sdk_client.py")
 add_dependencies(nova-mcp-tests nova-mcp)
 add_test(NAME mcp COMMAND nova-mcp-tests)
+# MCP Phase 1: instructions, versioned guides (resource/tool parity, verified 1.21.11 facts) and
+# field-specific argument errors; protocol-level, no project access.
+add_executable(nova-mcp-guidance-tests mcp_guidance_test.cpp)
+target_link_libraries(nova-mcp-guidance-tests PRIVATE nova-mcp-protocol nova-application Qt6::Test)
+target_compile_definitions(nova-mcp-guidance-tests PRIVATE
+  NOVA_GUIDE_FACTS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/guides/minecraft-1.21.11-facts.json")
+add_test(NAME mcp-guidance COMMAND nova-mcp-guidance-tests)
+# MCP Phase 1: Save writes into the pack, Save All, unsaved state, style notes, and the MCP draft
+# list / adoption / save tools with authorization, conflicts and draft-aware validation.
+add_executable(nova-save-drafts-tests save_drafts_test.cpp)
+target_link_libraries(nova-save-drafts-tests PRIVATE nova-workspace nova-mcp-service Qt6::Test)
+target_compile_definitions(nova-save-drafts-tests PRIVATE
+  NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>"
+  NOVA_MCP_TEST_SDK="${CMAKE_CURRENT_SOURCE_DIR}/mcp_sdk_client.py")
+add_dependencies(nova-save-drafts-tests nova-mcp)
+add_test(NAME save-drafts COMMAND nova-save-drafts-tests)
+# MCP Phase 2: compact texture tools (put_pixels, palette_remap, gradient_map, erase): exact pixels,
+# selection and layers, atomicity, history, schema compatibility, authorization, drafts and saving.
+add_executable(nova-texture-pixels-tests texture_pixels_test.cpp)
+target_link_libraries(nova-texture-pixels-tests PRIVATE nova-workspace nova-mcp-service Qt6::Test)
+if(WIN32)
+  target_link_libraries(nova-texture-pixels-tests PRIVATE Psapi)
+endif()
+target_compile_definitions(nova-texture-pixels-tests PRIVATE
+  NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>"
+  NOVA_MCP_TEST_SDK="${CMAKE_CURRENT_SOURCE_DIR}/mcp_sdk_client.py"
+  NOVA_PHASE1_TOOLS="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/mcp/phase1-tool-definitions.json"
+  NOVA_TEXTURE_TOOLS_DOC="${PROJECT_SOURCE_DIR}/docs/release/MCP_TEXTURE_TOOLS.md")
+add_dependencies(nova-texture-pixels-tests nova-mcp)
+add_test(NAME texture-pixels COMMAND nova-texture-pixels-tests)
+# MCP Phase 3: read-only vanilla texture cache tools, asset relationships and source-aware pack
+# validation, with synthetic caches, packs and resource stacks only.
+add_executable(nova-mcp-relationships-tests mcp_relationships_test.cpp)
+target_link_libraries(nova-mcp-relationships-tests PRIVATE nova-workspace nova-mcp-service nova-vanilla Qt6::Test)
+target_compile_definitions(nova-mcp-relationships-tests PRIVATE
+  NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>"
+  NOVA_MCP_TEST_SDK="${CMAKE_CURRENT_SOURCE_DIR}/mcp_sdk_client.py"
+  NOVA_ASSET_TOOLS_DOC="${PROJECT_SOURCE_DIR}/docs/release/MCP_ASSET_TOOLS.md")
+add_dependencies(nova-mcp-relationships-tests nova-mcp)
+add_test(NAME mcp-relationships COMMAND nova-mcp-relationships-tests)
+# MCP reliability: distinct creation-destination errors and stale index reconciliation.
+add_executable(nova-mcp-reliability-tests mcp_reliability_test.cpp)
+target_link_libraries(nova-mcp-reliability-tests PRIVATE nova-workspace nova-mcp-service Qt6::Test)
+target_compile_definitions(nova-mcp-reliability-tests PRIVATE NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>")
+add_dependencies(nova-mcp-reliability-tests nova-mcp)
+add_test(NAME mcp-reliability COMMAND nova-mcp-reliability-tests)
+# ACP prototype: a scripted ACP agent starts the real bridge from session/new; consent, process-bound
+# grants, revoke, project switch, crash and stop cleanup, cancel, permissions, editing, secrets.
+add_executable(nova-fake-acp-agent fake_acp_agent.cpp)
+target_link_libraries(nova-fake-acp-agent PRIVATE Qt6::Core)
+add_executable(nova-acp-session-tests acp_session_test.cpp)
+target_link_libraries(nova-acp-session-tests PRIVATE nova-workspace nova-mcp-service nova-acp Qt6::Test)
+target_compile_definitions(nova-acp-session-tests PRIVATE
+  NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>"
+  NOVA_FAKE_ACP_AGENT="$<TARGET_FILE:nova-fake-acp-agent>")
+add_dependencies(nova-acp-session-tests nova-mcp nova-fake-acp-agent)
+add_test(NAME acp-session COMMAND nova-acp-session-tests)
+# Manual live probe against an installed ACP agent (for example opencode acp); never registered with
+# CTest. See tests/acp_live_probe.cpp for the isolated environment it gives the agent.
+add_executable(nova-acp-live-probe acp_live_probe.cpp)
+target_link_libraries(nova-acp-live-probe PRIVATE nova-mcp-service nova-acp Qt6::Core Qt6::Gui)
+target_compile_definitions(nova-acp-live-probe PRIVATE NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>")
+add_dependencies(nova-acp-live-probe nova-mcp)
 add_executable(nova-phase4f-filesystem-tests phase4f_filesystem_test.cpp)
 target_link_libraries(nova-phase4f-filesystem-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME phase4f-filesystem COMMAND nova-phase4f-filesystem-tests)
 add_executable(nova-phase4f-resize-probe phase4f_resize_probe.cpp)
 target_link_libraries(nova-phase4f-resize-probe PRIVATE nova-workspace Qt6::Test)
-if(MSVC)
+if(WIN32)
   target_link_libraries(nova-phase4f-resize-probe PRIVATE Psapi Dbghelp)
 endif()
 add_executable(nova-phase4f-security-tests phase4f_security_test.cpp)
@@ -188,6 +290,23 @@ target_link_libraries(nova-phase4f-lifecycle-probe PRIVATE nova-workspace nova-m
 add_test(NAME phase4f-lifecycle COMMAND nova-phase4f-lifecycle-probe "${CMAKE_CURRENT_BINARY_DIR}/phase4f-lifecycle-work" "${CMAKE_CURRENT_BINARY_DIR}/phase4f-lifecycle.json" 24 --assert)
 set_tests_properties(phase4f-lifecycle PROPERTIES TIMEOUT 600)
 add_executable(nova-phase4f-uia-client phase4f_uia_client.cpp)
+add_executable(nova-phase4i2-native-probe phase4i2_native_probe.cpp)
+target_link_libraries(nova-phase4i2-native-probe PRIVATE nova-workspace Qt6::Test)
+# Phase 4-I.3: the tool options row must fully show its controls while a
+# horizontal scrollbar is present, including pages first shown by the lazy
+# page stack, and stay compact when no scrollbar is needed.
+add_executable(nova-phase4i3-tool-options-tests phase4i3_tool_options_test.cpp)
+target_link_libraries(nova-phase4i3-tool-options-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME phase4i3-tool-options COMMAND nova-phase4i3-tool-options-tests)
+# Recovery prompt: only an earlier session's snapshots are offered; discarding from it never deletes
+# this session's own recovery copy.
+add_executable(nova-recovery-session-tests recovery_session_test.cpp)
+target_link_libraries(nova-recovery-session-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME recovery-session COMMAND nova-recovery-session-tests)
+# Material Symbols: exact embedded font, validated glyph mapping, themed ink and native DPR sizes.
+add_executable(nova-material-icons-tests material_icons_test.cpp)
+target_link_libraries(nova-material-icons-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME material-icons COMMAND nova-material-icons-tests)
 target_link_libraries(nova-phase4f-uia-client PRIVATE ole32 oleaut32 uuid shell32)
 add_executable(nova-phase4f-uia-probe phase4f_uia_probe.cpp phase4f_probe_support.h)
 target_link_libraries(nova-phase4f-uia-probe PRIVATE nova-workspace Qt6::Test Psapi Dbghelp)
@@ -203,10 +322,18 @@ target_link_libraries(nova-fake-agent-cli PRIVATE Qt6::Core)
 add_executable(nova-phase4g-mcp-setup-tests phase4g_mcp_setup_test.cpp)
 target_link_libraries(nova-phase4g-mcp-setup-tests PRIVATE nova-workspace nova-mcp-service nova-mcp-clients Qt6::Test Advapi32)
 add_dependencies(nova-phase4g-mcp-setup-tests nova-mcp nova-fake-agent-cli)
-# The Agent Setup page looks for nova-mcp.exe beside the running executable, as in an install.
+# The Agent Setup page looks for nova-mcp.exe beside the running executable, as in an install, and its
+# diagnostics start it with only the Windows folders on PATH, so the copy gets its runtime DLLs too,
+# plus the build-folder qt.conf that keeps every test here on the Qt installation's plugins.
 add_custom_command(TARGET nova-phase4g-mcp-setup-tests POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:nova-mcp>" "$<TARGET_FILE_DIR:nova-phase4g-mcp-setup-tests>")
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:nova-mcp>" "$<TARGET_FILE_DIR:nova-phase4g-mcp-setup-tests>"
+  COMMAND "${CMAKE_COMMAND}" "-DBRIDGE=$<TARGET_FILE_DIR:nova-phase4g-mcp-setup-tests>/nova-mcp.exe"
+          ${NOVA_BRIDGE_DEPLOY_ARGUMENTS}
+  VERBATIM)
 add_test(NAME phase4g-mcp-setup COMMAND nova-phase4g-mcp-setup-tests)
+add_executable(nova-mcp-dialog-ui-tests mcp_dialog_ui_test.cpp)
+target_link_libraries(nova-mcp-dialog-ui-tests PRIVATE nova-workspace nova-mcp-service nova-mcp-clients Qt6::Test)
+add_test(NAME mcp-dialog-ui COMMAND nova-mcp-dialog-ui-tests)
 
 # Phase 4-G: application-wide search.
 add_executable(nova-phase4g-search-tests phase4g_search_test.cpp)
@@ -220,9 +347,44 @@ add_executable(nova-phase4g1-licensing-tests phase4g1_licensing_test.cpp)
 target_link_libraries(nova-phase4g1-licensing-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME phase4g1-licensing COMMAND nova-phase4g1-licensing-tests)
 
+# Vanilla baseline: shared cache, Mojang metadata, population and overlay. Offline only
+# (loopback mock server, synthetic jars and textures).
+add_executable(nova-baseline-cache-tests baseline_cache_test.cpp)
+target_link_libraries(nova-baseline-cache-tests PRIVATE nova-vanilla Qt6::Test Qt6::CorePrivate)
+add_test(NAME baseline-cache COMMAND nova-baseline-cache-tests)
+# Vanilla baseline project data: .nova/project.json, virtual baseline documents, reset journal, sparse export.
+add_executable(nova-baseline-project-tests baseline_project_test.cpp)
+target_link_libraries(nova-baseline-project-tests PRIVATE nova-application nova-asset-index Qt6::Test)
+add_test(NAME baseline-project COMMAND nova-baseline-project-tests)
+# Vanilla baseline in the workspace: browser overlay, virtual documents, reset history, dialogs.
+add_executable(nova-baseline-gui-tests baseline_gui_test.cpp)
+target_link_libraries(nova-baseline-gui-tests PRIVATE nova-workspace Qt6::Test Qt6::Network Qt6::CorePrivate)
+add_test(NAME baseline-gui COMMAND nova-baseline-gui-tests)
+set_tests_properties(baseline-gui PROPERTIES RUN_SERIAL TRUE TIMEOUT 600)
+
 # Every suite gets its own MCP connection-offer folder inside the build tree, never the user profile.
+add_library(nova-test-display OBJECT test_display.cpp)
+target_link_libraries(nova-test-display PRIVATE Qt6::Widgets)
+get_property(nova_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(nova_target IN LISTS nova_test_targets)
+  get_target_property(nova_target_type "${nova_target}" TYPE)
+  if(nova_target_type STREQUAL "EXECUTABLE")
+    get_target_property(nova_target_sources "${nova_target}" SOURCES)
+    foreach(nova_source IN LISTS nova_target_sources)
+      if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${nova_source}" AND nova_source MATCHES "\\.cpp$")
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${nova_source}" nova_source_text)
+        if(nova_source_text MATCHES "QApplication|QTEST_MAIN")
+          target_link_libraries("${nova_target}" PRIVATE nova-test-display)
+          break()
+        endif()
+      endif()
+    endforeach()
+  endif()
+endforeach()
+
 get_property(nova_all_tests DIRECTORY PROPERTY TESTS)
 foreach(nova_test IN LISTS nova_all_tests)
   set_property(TEST "${nova_test}" APPEND PROPERTY ENVIRONMENT
-    "NOVA_MCP_HANDOFF_DIR=${CMAKE_CURRENT_BINARY_DIR}/mcp-handoff/${nova_test}")
+    "NOVA_MCP_HANDOFF_DIR=${CMAKE_CURRENT_BINARY_DIR}/mcp-handoff/${nova_test}"
+    "NOVA_VANILLA_BASELINE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/vanilla-baseline/${nova_test}")
 endforeach()

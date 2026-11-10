@@ -6,8 +6,11 @@
 #include "layers.h"
 #include "modelpanel.h"
 #include "theme.h"
+#include "tool_placement.h"
 #include "timeline.h"
 #include "window.h"
+#include "vanilla/cache.h"
+#include <QtConcurrent>
 #include <QtWidgets>
 
 namespace nova {
@@ -64,7 +67,8 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     form->setRowWrapPolicy(QFormLayout::DontWrapRows);
     for (const auto &[key, label] : std::initializer_list<std::pair<const char *, const char *>>{
              {"name", "Name"}, {"size", "Size"}, {"layers", "Layers"}, {"frames", "Frames"}, {"state", "Status"},
-             {"source", "Editable source"}, {"export", "Minecraft PNG"}, {"history", "Undo memory"}}) {
+             {"source", "Editable source"}, {"export", "Minecraft PNG"}, {"history", "Undo memory"},
+             {"origin", "Origin"}}) {
         auto value = new QLabel;
         value->setObjectName(QString("inspector-") + key);
         value->setProperty("role", "value");
@@ -154,6 +158,7 @@ void Window::updateInspector() {
         set("export", {});
     }
     set("history", QString("%1 KiB of %2 MiB").arg(doc->historyBytes() / 1024).arg(preferences.historyMiB));
+    set("origin", baselineOrigin(*doc)); // baseline projects only
     zoomLabel->setText(QString("%1%").arg(qRound(canvas->zoom * 100)));
     const auto &info = toolInfo(toolState.tool);
     inspectorTool->setText(info.shortcut.isEmpty() ? info.name : QString("%1  (%2)").arg(info.name, info.shortcut));
@@ -235,6 +240,8 @@ void Window::buildWorkspaceMenu(QMenu *view) {
     toolBox->toggleViewAction()->setText("Tool Strip");
     toolOptions->toggleViewAction()->setText("Tool Options Bar");
     panelsMenu->addAction(toolBox->toggleViewAction());
+    panelsMenu->addMenu(toolPlacement->menu());
+    panelsMenu->addAction(toolPlacement->dockWidget()->toggleViewAction());
     panelsMenu->addAction(toolOptions->toggleViewAction());
     view->addMenu(panelsMenu);
     view->addSeparator();
@@ -372,10 +379,41 @@ void Window::refreshThemeIcons() {
 }
 
 // ------------------------------------------------------------------ presets
-void Window::applyPreset(const QString &requested) {
+QByteArray Window::currentLayout() {
+    return packLayout(toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge, saveState(1));
+}
+// Restores a packed layout: the tool strip goes to its saved position first, so the
+// saved state then finds it in the right container (main-window toolbar or tools dock).
+bool Window::applyLayout(const QByteArray &packed) {
+    ToolPlacement placement;
+    QByteArray state;
+    unpackLayout(packed, &placement, &state); // unknown positions read as the left edge
+    if (state.isEmpty())
+        return false;
+    const auto previous = toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge;
+    if (toolPlacement)
+        toolPlacement->place(placement);
+    if (!restoreState(state, 1)) {
+        if (toolPlacement)
+            toolPlacement->place(previous);
+        return false;
+    }
+    return true;
+}
+// Keeps the outgoing workspace's arrangement only if the user changed it.
+void Window::rememberPresetLayout() {
+    if (preset.isEmpty() || presetBaseline.isEmpty())
+        return;
+    const auto now = currentLayout();
+    if (now != presetBaseline)
+        preferences.presetLayouts.insert(preset, now);
+}
+void Window::applyPreset(const QString &requested, bool useSaved) {
     QElapsedTimer timer;
     timer.start();
     const auto name = presetName(requested).isEmpty() ? QString("essentials") : requested;
+    if (useSaved && name != preset)
+        rememberPresetLayout();
     preset = name;
     if (presetBox) {
         QSignalBlocker block(presetBox);
@@ -392,6 +430,23 @@ void Window::applyPreset(const QString &requested) {
     QScopedValueRollback<bool> arranging(animationSyncing, true);
     // One repaint for the final arrangement instead of one per intermediate step.
     setUpdatesEnabled(false);
+    // The user's own arrangement of this workspace, if any; otherwise the product default.
+    if (useSaved && preferences.presetLayouts.contains(name) && applyLayout(preferences.presetLayouts.value(name))) {
+        if (problems)
+            problemsDock->show();
+        animationRefresh();
+        keepOnScreen();
+        setUpdatesEnabled(true);
+        QTimer::singleShot(0, this, [this, name] {
+            if (preset == name)
+                presetBaseline = preferences.presetLayouts.value(name);
+        });
+        metrics.record("workspace_switch", timer);
+        statusBar()->showMessage("Workspace: " + presetName(name) + " (your layout)", 3000);
+        return;
+    }
+    if (toolPlacement)
+        toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
     resizeDocks({assetsDock}, {std::clamp(w / 6, 180, 300)}, Qt::Horizontal);
@@ -433,6 +488,12 @@ void Window::applyPreset(const QString &requested) {
         resizeDocks({animationDock}, {std::clamp(h / 3, 200, 300)}, Qt::Vertical);
     keepOnScreen();
     setUpdatesEnabled(true);
+    // Baseline after the deferred relayout, so settling sizes do not count as user changes.
+    presetBaseline.clear();
+    QTimer::singleShot(0, this, [this, name] {
+        if (preset == name)
+            presetBaseline = currentLayout();
+    });
     metrics.record("workspace_switch", timer);
     statusBar()->showMessage("Workspace: " + presetName(name), 3000);
 }
@@ -526,6 +587,32 @@ void Window::preferencesDialog(const QString &focus) {
     reset->setToolTip("Restore the Essentials arrangement now (documents are not affected)");
     connect(reset, &QPushButton::clicked, this, &Window::resetWorkspace);
     workspace->addRow("Panels", reset);
+    auto textures = form("Vanilla textures");
+    auto cacheLocation = new QLineEdit(QDir::toNativeSeparators(vanilla::BaselineCache::defaultRoot()));
+    cacheLocation->setObjectName("preferenceBaselineLocation");
+    cacheLocation->setReadOnly(true);
+    cacheLocation->setToolTip("Shared per-user cache of vanilla textures downloaded for baseline projects");
+    textures->addRow("Cache location", cacheLocation);
+    auto cacheSize = new QLabel("Calculating…");
+    cacheSize->setObjectName("preferenceBaselineSize");
+    textures->addRow("Cache size", cacheSize);
+    auto sizeWatcher = new QFutureWatcher<qint64>(&dialog);
+    connect(sizeWatcher, &QFutureWatcherBase::finished, &dialog, [sizeWatcher, cacheSize] {
+        cacheSize->setText(QString("%1 MB").arg(sizeWatcher->result() / 1048576.0, 0, 'f', 1));
+    });
+    sizeWatcher->setFuture(QtConcurrent::run([] { return vanilla::BaselineCache().totalBytes(); }));
+    auto manageCache = new QPushButton("Manage…");
+    manageCache->setObjectName("preferenceBaselineManage");
+    manageCache->setToolTip("Review, verify or remove cached vanilla textures");
+    connect(manageCache, &QPushButton::clicked, this, [this] { manageBaselines(); });
+    textures->addRow("Cached baselines", manageCache);
+    auto experimental = form("Experimental");
+    auto agentSession = new QCheckBox("Show Agent Session (ACP) in the Resources menu");
+    agentSession->setObjectName("preferenceExperimentalAgentSession");
+    agentSession->setChecked(preferences.experimentalAgentSession);
+    agentSession->setToolTip("Experimental: tested only with a scripted agent and OpenCode start-up. Conversations "
+                             "with a real AI model and other agents have not been tested.");
+    experimental->addRow(agentSession);
     v->addStretch();
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -539,6 +626,8 @@ void Window::preferencesDialog(const QString &focus) {
         return;
     preferences.reopenLast = reopen->isChecked();
     preferences.showTips = tips->isChecked();
+    preferences.experimentalAgentSession = agentSession->isChecked();
+    updateExperimentalActions();
     if (preferences.historyMiB != history->value()) {
         preferences.historyMiB = history->value();
         for (auto &doc : session.all())

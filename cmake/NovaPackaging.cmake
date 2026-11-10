@@ -21,10 +21,14 @@ install(TARGETS nova-studio nova-mcp RUNTIME DESTINATION . COMPONENT runtime)
 # Qt: windeployqt on the installed executables with the Phase 4-F options, then the single
 # platform plugin and a qt.conf that keeps Qt inside the installation folder.
 find_program(NOVA_WINDEPLOYQT windeployqt HINTS "${QT6_INSTALL_PREFIX}/bin" NO_DEFAULT_PATH)
+# Phase 4-H.2: --no-system-d3d-compiler/--no-system-dxc-compiler, because windeployqt otherwise
+# copies d3dcompiler_47.dll, dxcompiler.dll and dxil.dll whenever a Windows SDK is on PATH. The
+# accepted payloads never contained them; this makes that independent of the shell.
 install(CODE "
   foreach(exe nova-studio.exe nova-mcp.exe)
     execute_process(COMMAND \"${NOVA_WINDEPLOYQT}\" --release --no-plugins --no-translations
-                            --no-compiler-runtime --no-opengl-sw \"\${CMAKE_INSTALL_PREFIX}/\${exe}\"
+                            --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler
+                            --no-system-dxc-compiler \"\${CMAKE_INSTALL_PREFIX}/\${exe}\"
                     RESULT_VARIABLE deployed OUTPUT_VARIABLE log ERROR_VARIABLE log)
     if(NOT deployed EQUAL 0)
       message(FATAL_ERROR \"windeployqt failed for \${exe}: \${log}\")
@@ -37,18 +41,29 @@ install(FILES "${PROJECT_BINARY_DIR}/packaging/qt.conf" DESTINATION . COMPONENT 
 # MSVC runtime, app-local, only from the installed Visual Studio redistributable folder.
 file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" NOVA_VC_REDIST)
 file(TO_CMAKE_PATH "$ENV{VSINSTALLDIR}" NOVA_VS_ROOT)
+# Phase 4-H.2: exactly the 10 DLLs of cmake/NovaMsvcRuntime.cmake; a different folder layout is
+# reported here and refused by scripts/package-phase4g.py and scripts/check-release-payload.py.
+include("${PROJECT_SOURCE_DIR}/cmake/NovaMsvcRuntime.cmake")
+set(NOVA_MSVC_RUNTIME "")
 if(NOT NOVA_VC_REDIST OR NOT NOVA_VS_ROOT)
-  message(STATUS "Release payload: configure from a Visual Studio developer environment to include the MSVC runtime")
+  message(STATUS "Release payload: configure with scripts/build-studio.ps1 to include the MSVC runtime")
+else()
+  nova_select_msvc_runtime("${NOVA_VC_REDIST}" NOVA_MSVC_RUNTIME nova_runtime_problems)
+  foreach(problem IN LISTS nova_runtime_problems)
+    message(WARNING "Release payload MSVC runtime: ${problem}")
+  endforeach()
 endif()
-file(GLOB NOVA_MSVC_RUNTIME "${NOVA_VC_REDIST}/x64/Microsoft.VC*.CRT/*.dll")
 install(FILES ${NOVA_MSVC_RUNTIME} DESTINATION . COMPONENT runtime)
 
 # Nova Studio's own license (GPL-3.0-or-later), then third-party notices and license material.
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" DESTINATION . RENAME LICENSE.txt COMPONENT runtime)
 install(FILES "${PROJECT_SOURCE_DIR}/COPYRIGHT.md" "${PROJECT_SOURCE_DIR}/packaging/THIRD_PARTY_NOTICES.md"
+              "${PROJECT_SOURCE_DIR}/assets/fonts/MaterialSymbolsOutlined-LICENSE.txt"
         DESTINATION licenses COMPONENT runtime)
 install(FILES "${NOVA_VS_ROOT}/Licenses/1033/Redist.txt" DESTINATION licenses RENAME MICROSOFT-REDIST.txt
         COMPONENT runtime)
+# End-user terms for the Microsoft runtime files (Distributable Code requirement), Phase 4-H.2.
+install(FILES "${PROJECT_SOURCE_DIR}/packaging/MICROSOFT-VC-RUNTIME-TERMS.txt" DESTINATION licenses COMPONENT runtime)
 install(FILES "${NOVA_RELEASE_DEPENDENCIES}/qtbase-everywhere-src-6.12.0.tar.xz"
               "${NOVA_RELEASE_DEPENDENCIES}/qt-source.json"
               "${QT6_INSTALL_PREFIX}/sbom/qtbase-6.12.0.spdx.json"
@@ -85,13 +100,17 @@ set(CPACK_NSIS_UNINSTALL_NAME "Uninstall Nova Studio")
 set(CPACK_NSIS_COMPRESSOR "/SOLID zlib")
 set(CPACK_NSIS_MUI_ICON "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-icon.ico")
 set(CPACK_NSIS_MUI_UNIICON "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-icon.ico")
-# Installer license page: Nova's notice, then the unmodified GPL text. It is information, not an
-# agreement: the GPL does not have to be accepted to install or run the program (section 9).
+# Installer license page: Nova's notice, then the unmodified GPL text, then the end-user terms for
+# the Microsoft runtime files. The GPL part is information, not an agreement: the GPL does not have
+# to be accepted to install or run the program (section 9). The Microsoft runtime terms are
+# accepted by installing those files (Phase 4-H.2), without an extra prompt.
 # One file(CONFIGURE) pass fills in the version and copyright and writes Windows line endings
 # for the installer's rich-edit control (configure_file/file(WRITE) translate newlines here).
 file(READ "${PROJECT_SOURCE_DIR}/packaging/nsis/license-page.txt.in" NOVA_LICENSE_PAGE)
 file(READ "${PROJECT_SOURCE_DIR}/LICENSE" NOVA_GPL_TEXT)
-string(REPLACE "\r\n" "\n" NOVA_LICENSE_PAGE "${NOVA_LICENSE_PAGE}${NOVA_GPL_TEXT}")
+file(READ "${PROJECT_SOURCE_DIR}/packaging/MICROSOFT-VC-RUNTIME-TERMS.txt" NOVA_MSVC_TERMS)
+string(REPLACE "\r\n" "\n" NOVA_LICENSE_PAGE
+       "${NOVA_LICENSE_PAGE}${NOVA_GPL_TEXT}\n------------------------------------------------------------------------------\n\n${NOVA_MSVC_TERMS}")
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/packaging/installer-license.txt"
      CONTENT "${NOVA_LICENSE_PAGE}" @ONLY NEWLINE_STYLE CRLF)
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_BINARY_DIR}/packaging/installer-license.txt")

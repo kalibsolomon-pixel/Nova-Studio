@@ -11,6 +11,11 @@ struct AssetIdentity {
     FileState state = FileState::Present;
     QString projectRoot, nameSpace, relativePath, category, filesystemPath, metadataReference;
     qint64 size = 0, modified = 0;
+    // Vanilla baseline overlay: Baseline records live in the shared read-only cache;
+    // a Project record at a baseline path is an override of it.
+    enum class Origin { Project, Baseline };
+    Origin origin = Origin::Project;
+    bool shadowsBaseline = false;
     static AssetIdentity fromPath(const QString &root, const QString &relative);
 };
 struct Index {

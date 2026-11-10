@@ -190,8 +190,10 @@ void Window::recoverSession() {
                 layout.addWidget(&done);
                 connect(&done, &QDialogButtonBox::rejected, &view, &QDialog::reject);
                 view.exec();
-            } else if (box.clickedButton() == discard)
-                recovery->discard(entry.id);
+            } else if (box.clickedButton() == discard) {
+                if (!recovery->discardEarlier(entry.id))
+                    statusBar()->showMessage("Recovery snapshot kept: this session is using it");
+            }
             else if (box.clickedButton() == restore) {
                 std::shared_ptr<Document> doc;
                 for (auto &d : session.all())
@@ -219,8 +221,11 @@ void Window::recoverSession() {
                                              "Close another texture to restore this snapshot");
                         continue;
                     }
+                    // An edited vanilla texture that was never saved stays baseline-backed (create-only).
+                    if (!doc->revision().exists && baselineCandidate(doc->path))
+                        baselineDocs.insert(doc->id());
                     if (!doc->revision().exists)
-                        model->applyIndex(workspaceIndex(), {QDir(project).relativeFilePath(doc->path)});
+                        model->applyIndex(browserIndex(), {QDir(project).relativeFilePath(doc->path)});
                     showTextureDocument(doc);
                 }
                 if (!session.canRestoreDocument(doc, *restored)) {
@@ -237,16 +242,21 @@ void Window::recoverSession() {
                     } else
                         doc->restorePixels(entry.image, entry.original);
                 }
+                const bool fromBaseline = baselineDocs.remove(doc->id());
                 doc->setRecoveryIdentity(entry.id);
+                if (fromBaseline)
+                    baselineDocs.insert(doc->id());
                 recovery->restored(entry.id);
                 doc->setHistoryLimits(qint64(preferences.historyMiB) * 1024 * 1024, 2048);
                 refresh();
             }
         }
     });
+    // Only an earlier session's snapshots: one this session wrote before the check (an edit in its
+    // first moments) is its own live recovery copy, not a session to recover.
     watcher->setFuture(QtConcurrent::run(&ioPool, [store] {
         store.prune();
-        return store.entries();
+        return store.earlierEntries();
     }));
 }
 } // namespace nova

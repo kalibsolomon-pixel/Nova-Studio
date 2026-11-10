@@ -1,0 +1,63 @@
+TERMS FOR THE MICROSOFT VISUAL C++ RUNTIME FILES INCLUDED WITH NOVA STUDIO
+=========================================================================
+
+Nova Studio includes these Microsoft files, unmodified ("the Microsoft runtime files"):
+
+  concrt140.dll, msvcp140.dll, msvcp140_1.dll, msvcp140_2.dll, msvcp140_atomic_wait.dll,
+  msvcp140_codecvt_ids.dll, vccorlib140.dll, vcruntime140.dll, vcruntime140_1.dll,
+  vcruntime140_threads.dll
+
+They are the Microsoft Visual C++ runtime. They are Microsoft software, copyright Microsoft
+Corporation, and Nova Studio distributes them as "Distributable Code" under Microsoft's license
+terms for Visual Studio (https://visualstudio.microsoft.com/license-terms/) and Microsoft's list
+of distributable files (https://aka.ms/vs/18/redistribution).
+
+Microsoft requires anyone who distributes these files to have recipients agree to terms that
+protect them. These are those terms. They were written by the distributor of Nova Studio, not by
+Microsoft, and they are not Microsoft's license text. Microsoft is not a party to them and does
+not endorse, sponsor or support Nova Studio.
+
+1. NOT COVERED BY THE GPL. Nova Studio's own code is free software under the GNU General Public
+   License version 3 or later (LICENSE.txt). That license does not apply to the Microsoft runtime
+   files and gives no rights to them. These terms apply only to the Microsoft runtime files.
+
+2. LICENSED, NOT SOLD. The Microsoft runtime files are licensed, not sold. Microsoft and its
+   suppliers keep all rights in them that these terms do not expressly give you.
+
+3. USE. You may use the Microsoft runtime files only so that Nova Studio can run.
+
+4. RESTRICTIONS. You may not:
+   a. modify, reverse engineer, decompile or disassemble the Microsoft runtime files, except and
+      only to the extent that applicable law expressly permits despite this limitation;
+   b. remove, minimize, block or modify any notice of Microsoft or its suppliers in them;
+   c. work around any technical limitation in them;
+   d. separate them from Nova Studio to distribute them, or provide them as a stand-alone offering;
+   e. rent, lease or lend them;
+   f. use them in any way that is against the law; or
+   g. distribute them, or any source code of them, under a license that requires, as a condition
+      of use, modification or distribution, that they be disclosed or distributed in source code
+      form or that others have the right to modify them.
+
+5. PASSING NOVA STUDIO ON. You may copy and distribute Nova Studio with the Microsoft runtime files
+   only as part of Nova Studio, with these terms included unchanged, and only if you require each
+   person who receives the files from you to agree to these terms.
+
+6. TRADE LAWS. You must comply with all export, import and sanctions laws and regulations that
+   apply to the Microsoft runtime files.
+
+7. NO WARRANTY OR LIABILITY OF MICROSOFT. THE MICROSOFT RUNTIME FILES ARE PROVIDED "AS IS".
+   MICROSOFT AND ITS SUPPLIERS GIVE NO EXPRESS WARRANTIES, GUARANTEES OR CONDITIONS FOR THEM. TO
+   THE EXTENT PERMITTED UNDER YOUR LOCAL LAWS, MICROSOFT AND ITS SUPPLIERS EXCLUDE THE IMPLIED
+   WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. TO THE
+   EXTENT PERMITTED BY LAW, MICROSOFT AND ITS SUPPLIERS ARE NOT LIABLE FOR ANY DAMAGES RELATED TO
+   THE MICROSOFT RUNTIME FILES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT OR
+   INCIDENTAL DAMAGES. You may have other rights under the laws of your state or country that
+   these terms cannot change.
+
+8. AGREEMENT. By installing, copying or using the Microsoft runtime files, for example by
+   installing Nova Studio or by running it from a portable folder that contains them, you agree
+   to these terms. If you do not agree, do not install, copy or use the Microsoft runtime files.
+
+Information, not part of the terms: Microsoft also publishes the same runtime as the "Microsoft
+Visual C++ Redistributable" (https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist),
+under its own terms. The Nova Studio distributor does not provide that package.

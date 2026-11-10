@@ -76,7 +76,7 @@ void Window::shapeParameters() {
         s.smooth = smooth->isChecked();
         return s;
     };
-    auto preview = [=] {
+    auto preview = [=, this] {
         const auto l = doc->layer(doc->activeLayer());
         if (!l)
             return;

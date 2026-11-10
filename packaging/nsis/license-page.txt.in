@@ -9,6 +9,8 @@ You do not have to accept this license to install or use Nova Studio. It gives y
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation.
 
+MICROSOFT VISUAL C++ RUNTIME. Nova Studio includes unmodified Microsoft Visual C++ runtime files (concrt140.dll, msvcp140*.dll, vccorlib140.dll, vcruntime140*.dll). They are Microsoft software and are not covered by the GPL. Their terms are printed at the end of this text and installed as licenses\MICROSOFT-VC-RUNTIME-TERMS.txt. By installing or using those files you agree to those terms. Microsoft does not endorse Nova Studio.
+
 Third-party components keep their own licenses: see licenses\THIRD_PARTY_NOTICES.md in the installation folder. The complete corresponding source code of this version is installed in the source folder.
 
 ------------------------------------------------------------------------------

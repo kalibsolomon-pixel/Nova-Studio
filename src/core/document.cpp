@@ -5,6 +5,7 @@
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QFile>
 #include <QSet>
 #include <QJsonDocument>
@@ -84,6 +85,63 @@ std::shared_ptr<Document> Document::open(const QString &path, QString *error) {
     doc->savedRevision = before;
     doc->animation.metadata = metadata;
     doc->metadataRevision = metaRevision;
+    return doc;
+}
+std::shared_ptr<Document> Document::fromBaseline(const QString &target, const QByteArray &png,
+                                                 const QByteArray &mcmeta, const QString &version,
+                                                 QString *error) {
+    auto reject = [&](const QString &message) {
+        if (error) *error = message;
+        return std::shared_ptr<Document>{};
+    };
+    const QFileInfo file(target), meta(target + ".mcmeta");
+    auto occupied = [](const QFileInfo &f) { return f.exists() || f.isSymLink(); };
+    if (occupied(file))
+        return reject("The project already contains this texture; open the project file instead");
+    if (png.isEmpty() || png.size() > 128LL * 1024 * 1024 || mcmeta.size() > 512 * 1024)
+        return reject("Baseline texture or metadata is missing or oversized");
+    QJsonObject metadata;
+    if (!mcmeta.isEmpty()) {
+        QJsonParseError parse;
+        const auto json = QJsonDocument::fromJson(mcmeta, &parse);
+        if (parse.error != QJsonParseError::NoError || !json.isObject())
+            return reject("Invalid baseline texture metadata JSON");
+        metadata = json.object();
+    }
+    // Check dimensions and decoded allocation before Qt decompresses the texture.
+    QByteArray bytes = png;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer, "PNG");
+    const auto size = reader.size();
+    if (!size.isValid() || size.width() > 32768 || size.height() > 32768 ||
+        qint64(size.width()) * size.height() * 4 > PixelLimit)
+        return reject("Baseline texture exceeds decoded image limits");
+    const auto pixels = reader.read().convertToFormat(QImage::Format_RGBA8888);
+    if (pixels.isNull())
+        return reject("Baseline texture is not a readable PNG");
+    std::shared_ptr<Document> doc;
+    if (metadata.contains("animation")) {
+        // Both outputs are created together by the journaled pair export; neither may exist.
+        if (occupied(meta))
+            return reject("The project already contains this texture's .mcmeta; open the project file instead");
+        // Unprofiled versions use the same animation profile Document::open applies to every file.
+        const auto profile = supportedAnimationTarget(version) ? version : QString("26.1");
+        doc = std::make_shared<Document>(target, QImage(1, 1, QImage::Format_RGBA8888));
+        if (!doc->importAnimation(pixels, metadata, profile, error))
+            return {};
+        doc->acceptAnimationExport(Revision{}, Revision{});
+        doc->markOpenedBaseline();
+    } else {
+        doc = std::make_shared<Document>(target, pixels);
+        if (doc->image.isNull())
+            return reject("Baseline texture exceeds the 4096 px editing limit");
+        doc->animation.metadata = metadata;
+    }
+    doc->savedRevision = Revision{};
+    doc->metadataRevision = Revision{};
+    if (occupied(QFileInfo(target)))
+        return reject("A file appeared at the texture's project path while opening");
     return doc;
 }
 Document::State Document::state() const {

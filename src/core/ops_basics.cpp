@@ -162,6 +162,15 @@ bool colorMatches(QRgb c, QRgb ref, int tolerance, Distance metric, bool include
         d = std::max(d, std::abs(qAlpha(c) - qAlpha(ref)));
     return d <= tolerance;
 }
+bool universalFillMatches(QRgb c, QRgb ref, int tolerance) {
+    if (qAlpha(c) != qAlpha(ref))
+        return false;
+    if (qAlpha(c) == 0)
+        return true;
+    tolerance = std::clamp(tolerance, 0, 255);
+    return std::max({std::abs(qRed(c) - qRed(ref)), std::abs(qGreen(c) - qGreen(ref)),
+                     std::abs(qBlue(c) - qBlue(ref))}) <= tolerance;
+}
 QRgb blend(QRgb dst, QRgb src, int coverage) {
     const int a = (qAlpha(src) * std::clamp(coverage, 0, 255) + 127) / 255;
     if (a == 0)
@@ -364,6 +373,22 @@ QImage colorMask(const QImage &source, QPoint seed, int tolerance, Distance metr
                 open = candidate;
             }
         }
+    }
+    return m;
+}
+QImage universalFillMask(const QImage &source, QPoint seed, int tolerance) {
+    const auto image = source.format() == QImage::Format_RGBA8888
+                           ? source
+                           : source.convertToFormat(QImage::Format_RGBA8888);
+    auto m = emptyMask(image.size());
+    if (!image.rect().contains(seed))
+        return m;
+    const QRgb ref = image.pixel(seed);
+    for (int y = 0; y < image.height(); ++y) {
+        auto row = m.scanLine(y);
+        for (int x = 0; x < image.width(); ++x)
+            if (universalFillMatches(image.pixel(x, y), ref, tolerance))
+                row[x] = 255;
     }
     return m;
 }

@@ -232,7 +232,7 @@ void Fetch::request(const QUrl &url) {
     QNetworkRequest outgoing(url);
     outgoing.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                           QNetworkRequest::ManualRedirectPolicy);
-    outgoing.setHeader(QNetworkRequest::UserAgentHeader, "NovaStudio-LauncherSetup");
+    outgoing.setHeader(QNetworkRequest::UserAgentHeader, policy.userAgent);
     outgoing.setTransferTimeout(30000);
     if (url.host() == "api.github.com")
         outgoing.setRawHeader("Accept", "application/vnd.github+json");

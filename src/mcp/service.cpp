@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "service.h"
+#include "guides.h"
 #include "handoff.h"
 #include "scope.h"
 #include <QDateTime>
@@ -8,6 +9,7 @@
 #include <QScopedValueRollback>
 #include <QtConcurrent>
 #include <utility>
+#include <qt_windows.h>
 
 namespace nova::mcp {
 Service::Service(std::function<bool(Snapshot &, const QString &)> provider, QObject *parent)
@@ -45,6 +47,7 @@ bool Service::authorize(const QString &project, bool allowEditing) {
         validationFindings.clear();
     }
     revoke();
+    ++serial;
     lastError.clear();
     const Scope scope(project);
     rootIdentity = scope.identity();
@@ -80,6 +83,7 @@ void Service::withdrawOffer() {
         handoff::withdraw(std::exchange(offered, QString{}));
 }
 void Service::revoke() {
+    clientFilter = nullptr;
     editing = false;
     grantExpiry.stop();
     withdrawOffer();
@@ -206,6 +210,13 @@ void Service::receive() {
                 closeSocket();
                 return;
             }
+            ULONG client = 0;
+            if (clientFilter && (!GetNamedPipeClientProcessId(HANDLE(socket->socketDescriptor()), &client) ||
+                                 !clientFilter(qint64(client)))) {
+                fail("A connection from a process outside this agent session was refused.");
+                closeSocket();
+                return;
+            }
             authenticated = true;
             handshake.stop();
             grantExpiry.stop();
@@ -231,7 +242,8 @@ void Service::receive() {
             request.tool == "nova.edit.undo" || request.tool == "nova.edit.redo" ||
             request.tool == "nova.asset.create" || request.tool == "nova.asset.preview_image" ||
             request.tool == "nova.workflow.execute" || request.tool == "nova.workflow.plan" ||
-            request.tool == "nova.model.edit" || request.tool == "nova.uv.edit")
+            request.tool == "nova.model.edit" || request.tool == "nova.uv.edit" ||
+            !compactTextureCommand(request.tool).isEmpty())
             emit requestParsed(parsing);
         if (protocol.clientName() != previousClient)
             emit changed();
@@ -256,6 +268,8 @@ void Service::receive() {
             }
         } else if (!request.response.isEmpty()) {
             send(request.response);
+        } else if (!request.resource.isEmpty()) {
+            readResource(request);
         } else if (!request.tool.isEmpty()) {
             dispatch(request);
         }
@@ -400,14 +414,37 @@ void Service::publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> 
         QTimer::singleShot(0, this, [this, sequence, progress, commits] { publishWorkflow(sequence, progress, commits); });
 }
 
+void Service::readResource(const Request &request) {
+    // Only the style notes reach the service; guides are static and answered by the protocol.
+    const QJsonObject data{{"uri", request.resource}};
+    if (shuttingDown)
+        return send(rpcError(request.id, -32002, "Nova Studio is closing.", data));
+    if (stale || root.isEmpty())
+        return send(rpcError(request.id, -32002, "Style notes are unavailable: the active project changed after this "
+                             "connection was authorized. Ask the user to authorize the current project.", data));
+    Snapshot current;
+    current.root = root;
+    current.rootIdentity = rootIdentity;
+    current.idKey = idKey;
+    current.projectId = projectId;
+    current.generation = generation;
+    if (!snapshot(current, "resources/read"))
+        return send(rpcError(request.id, -32002, "The live project is not ready. Try again shortly.", data));
+    send(resourceReply(request.id, request.resource, "application/json",
+                       QString::fromUtf8(QJsonDocument(current.styleNotes).toJson(QJsonDocument::Indented))));
+}
 void Service::dispatch(const Request &request) {
     auto reject = [&](const QString &code, const QString &message) {
         send(toolReply(request.id, toolError(code, message)));
     };
     if (shuttingDown)
         return reject("application_shutting_down", "Nova Studio is closing.");
-    if (stale || (request.tool != "nova.project.info" && request.arguments["generation"] != generation))
-        return reject("stale_project", "The authorized project has changed or the generation is invalid.");
+    if (stale)
+        return reject("stale_project", "The active project changed after this connection was authorized. Ask the "
+                                       "user to authorize the current project in Nova.");
+    if (request.tool != "nova.project.info" && request.arguments["generation"] != generation)
+        return reject("stale_project", "The generation does not match this connection. Call nova.project.info "
+                                       "and use its generation.");
     if (pendingEdit || worker) {
         if ((pendingEdit || !suppress) && request.id == pendingId) {
             // A duplicate outstanding ID cannot be answered unambiguously.
@@ -416,19 +453,27 @@ void Service::dispatch(const Request &request) {
         }
         return reject("busy", "Another MCP operation is still running.");
     }
-    const bool capability = request.tool == "nova.edit.capabilities";
+    // Draft listing and adoption read live editor state synchronously, like capabilities.
+    const bool adopt = request.tool == "nova.drafts.adopt";
+    const bool capability = request.tool == "nova.edit.capabilities" || request.tool == "nova.drafts.list" || adopt;
+    const bool save = request.tool == "nova.drafts.save" || request.tool == "nova.drafts.save_all";
     const bool plan = request.tool == "nova.workflow.plan";
     const bool execute = request.tool == "nova.workflow.execute";
     const bool preview = request.tool == "nova.edit.preview" || plan || request.tool == "nova.asset.preview_image" ||
         request.tool == "nova.asset.create_preview";
     const bool prepare = request.tool == "nova.workflow.prepare";
     const bool validate = request.tool == "nova.workflow.validate_changes";
-    const bool mutation = execute || request.tool == "nova.asset.create" || request.tool.endsWith(".edit") ||
+    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool.endsWith(".edit") ||
+        !compactTextureCommand(request.tool).isEmpty() ||
         (request.tool.startsWith("nova.edit.") && !capability && !preview);
-    if (mutation && !editing)
-        return reject("permission_denied", "This connection has read-only access.");
+    if ((mutation || adopt) && !editing)
+        return reject("permission_denied", save || adopt
+            ? "This connection has read-only access. Saving and adopting documents need the user to choose "
+              "Allow editing in Nova."
+            : "This connection has read-only access.");
     if (request.arguments.contains("projectId") && request.arguments["projectId"] != projectId)
-        return reject("stale_project", "The project identifier does not match this connection.");
+        return reject("stale_project", "The projectId does not belong to this connection. Call nova.project.info "
+                                       "and use its projectId.");
     Snapshot data;
     data.root = root;
     data.rootIdentity = rootIdentity;
@@ -437,7 +482,7 @@ void Service::dispatch(const Request &request) {
     data.generation = generation;
     data.relationships = relationships;
     if (!mutation && !preview && !snapshot(data, request.tool))
-        return reject("validation_unavailable", "The live project index is not ready.");
+        return reject("validation_unavailable", "The project index is updating (for example after a save or a file change). Retry shortly.");
     if (mutation || capability || preview) {
         if (!editHandler)
             return reject("editing_unavailable", "No editor is available for this project.");
@@ -473,7 +518,16 @@ void Service::dispatch(const Request &request) {
                         review.state = "Completed";
                     }
                 }
-                if (mutation) {
+                if (mutation && request.tool.startsWith("nova.drafts.save")) {
+                    const auto error = result.value("error").toObject()["code"].toString();
+                    const auto details = result.value("error").toObject()["details"].toObject();
+                    const auto saved = error.isEmpty() ? result["saved"].toArray() : details["saved"].toArray();
+                    const auto failed = error.isEmpty() ? result["failed"].toArray() : details["failed"].toArray();
+                    lastEdit = QString("%1 · %2 saved · %3 not saved").arg(request.tool).arg(saved.size())
+                                   .arg(error.isEmpty() || !failed.isEmpty() ? failed.size() : 1);
+                    if (!error.isEmpty())
+                        lastEdit += " · " + error;
+                } else if (mutation) {
                     const auto error = result.value("error").toObject()["code"].toString();
                     const auto summary = result["changeSummary"].toObject();
                     lastEdit = request.tool + (error.isEmpty()
@@ -502,7 +556,7 @@ void Service::dispatch(const Request &request) {
             QElapsedTimer dispatchSnapshot;
             dispatchSnapshot.start();
             if (!snapshot(current, request.tool))
-                return finish(toolError("validation_unavailable", "The live project index is not ready."));
+                return finish(toolError("validation_unavailable", "The project index is updating (for example after a save or a file change). Retry shortly."));
             emit editSnapshotTaken(dispatchSnapshot);
             if (mutation || plan)
                 for (auto &stage : review.stages)
@@ -676,7 +730,9 @@ void Service::dispatch(const Request &request) {
         }
         active->deleteLater();
     });
-    deadline.start(validate || request.tool == "nova.pack.validate" ? 60000 : 10000);
+    // Relationship and cache requests may resolve a full vanilla resource stack (thousands of JSON files).
+    const bool sourced = request.tool == "nova.asset.relationships" || request.tool.startsWith("nova.vanilla.");
+    deadline.start(validate || request.tool == "nova.pack.validate" ? 60000 : sourced ? 30000 : 10000);
     worker->setFuture(QtConcurrent::run(
         [data = std::move(data), tool = request.tool, args = request.arguments, cancellation = cancel] {
             return inspect(data, tool, args, cancellation);

@@ -1,0 +1,200 @@
+{
+  "facts": {
+    "animationMetadata": {
+      "explicitFrameSize": 5,
+      "objectFrameEntries": 3,
+      "objectFrameKeys": [
+        "index",
+        "time"
+      ]
+    },
+    "animations": {
+      "conduit_wind": {
+        "height": 32,
+        "size": [
+          64,
+          704
+        ]
+      },
+      "magma": {
+        "frames": 3,
+        "frametime": 8,
+        "interpolate": true,
+        "size": [
+          16,
+          48
+        ]
+      },
+      "prismarine": {
+        "frames": 22,
+        "frametime": 300,
+        "interpolate": true,
+        "size": [
+          16,
+          64
+        ]
+      },
+      "sea_lantern": {
+        "frames": null,
+        "frametime": 5,
+        "interpolate": false,
+        "size": [
+          16,
+          80
+        ]
+      }
+    },
+    "blockstates": {
+      "stoneModels": [
+        "minecraft:block/stone",
+        "minecraft:block/stone_mirrored"
+      ]
+    },
+    "equipment": {
+      "diamondLayers": [
+        "horse_body",
+        "humanoid",
+        "humanoid_leggings",
+        "nautilus_body"
+      ],
+      "diamondTexture": "minecraft:diamond",
+      "elytraUsesPlayerTexture": true,
+      "folder": "assets/minecraft/equipment/",
+      "wornTextures": [
+        "assets/minecraft/textures/entity/equipment/humanoid/diamond.png",
+        "assets/minecraft/textures/entity/equipment/humanoid_leggings/diamond.png"
+      ]
+    },
+    "itemDefinitions": {
+      "count": 1505,
+      "diamondChestplate": {
+        "fallback": "minecraft:item/diamond_chestplate",
+        "property": "minecraft:trim_material",
+        "type": "minecraft:select"
+      },
+      "diamondSword": {
+        "model": "minecraft:item/diamond_sword",
+        "type": "minecraft:model"
+      },
+      "folder": "assets/minecraft/items/"
+    },
+    "models": {
+      "diamondChestplate": {
+        "parent": "minecraft:item/generated",
+        "textures": {
+          "layer0": "minecraft:item/diamond_chestplate"
+        }
+      },
+      "diamondSword": {
+        "parent": "minecraft:item/handheld",
+        "textures": {
+          "layer0": "minecraft:item/diamond_sword"
+        }
+      },
+      "generatedParent": "builtin/generated",
+      "handheldParent": "item/generated"
+    },
+    "packFormat": [
+      75,
+      0
+    ],
+    "paths": [
+      "assets/minecraft/atlases/armor_trims.json",
+      "assets/minecraft/atlases/items.json",
+      "assets/minecraft/blockstates/stone.json",
+      "assets/minecraft/equipment/diamond.json",
+      "assets/minecraft/items/diamond_sword.json",
+      "assets/minecraft/models/item/diamond_sword.json",
+      "assets/minecraft/textures/block/magma.png.mcmeta",
+      "assets/minecraft/textures/entity/equipment/humanoid/diamond.png",
+      "assets/minecraft/textures/entity/equipment/humanoid_leggings/diamond.png",
+      "assets/minecraft/textures/item/diamond_chestplate.png",
+      "assets/minecraft/textures/item/diamond_sword.png",
+      "assets/minecraft/textures/trims/color_palettes/trim_palette.png",
+      "assets/minecraft/textures/trims/entity/humanoid/coast.png",
+      "assets/minecraft/textures/trims/items/chestplate_trim.png"
+    ],
+    "textureSizes": {
+      "block/stone.png": [
+        16,
+        16
+      ],
+      "entity/equipment/humanoid/diamond.png": [
+        64,
+        32
+      ],
+      "entity/equipment/humanoid_leggings/diamond.png": [
+        64,
+        32
+      ],
+      "item/diamond_chestplate.png": [
+        16,
+        16
+      ],
+      "item/diamond_sword.png": [
+        16,
+        16
+      ],
+      "trims/color_palettes/diamond.png": [
+        8,
+        1
+      ],
+      "trims/color_palettes/trim_palette.png": [
+        8,
+        1
+      ],
+      "trims/entity/humanoid/coast.png": [
+        64,
+        32
+      ],
+      "trims/items/chestplate_trim.png": [
+        16,
+        16
+      ]
+    },
+    "trims": {
+      "atlas": "assets/minecraft/atlases/armor_trims.json",
+      "entityFolders": [
+        "humanoid",
+        "humanoid_leggings"
+      ],
+      "itemAtlasPaletteKey": "minecraft:trims/color_palettes/trim_palette",
+      "itemAtlasPalettedSources": 1,
+      "itemAtlasTrimTextures": [
+        "minecraft:trims/items/helmet_trim",
+        "minecraft:trims/items/chestplate_trim",
+        "minecraft:trims/items/leggings_trim",
+        "minecraft:trims/items/boots_trim"
+      ],
+      "itemTrimModelLayers": {
+        "layer0": "minecraft:item/diamond_chestplate",
+        "layer1": "minecraft:trims/items/chestplate_trim_quartz"
+      },
+      "materials": [
+        "amethyst",
+        "copper",
+        "copper_darker",
+        "diamond",
+        "diamond_darker",
+        "emerald",
+        "gold",
+        "gold_darker",
+        "iron",
+        "iron_darker",
+        "lapis",
+        "netherite",
+        "netherite_darker",
+        "quartz",
+        "redstone",
+        "resin"
+      ],
+      "paletteKey": "minecraft:trims/color_palettes/trim_palette",
+      "sourceType": "minecraft:paletted_permutations"
+    },
+    "version": "1.21.11"
+  },
+  "source": {
+    "clientSha1": "ba2df812c2d12e0219c489c4cd9a5e1f0760f5bd",
+    "version": "1.21.11"
+  }
+}

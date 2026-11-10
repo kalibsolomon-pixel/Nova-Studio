@@ -20,6 +20,7 @@ struct DownloadPolicy {
     QStringList hosts;              // exact https hosts every redirect hop must use
     bool allowLoopbackHttp = false; // tests only
     qint64 maxBytes = 256LL * 1024 * 1024;
+    QByteArray userAgent = "NovaStudio-LauncherSetup"; // sent on every hop
 };
 bool urlAllowed(const QUrl &url, const DownloadPolicy &policy);
 

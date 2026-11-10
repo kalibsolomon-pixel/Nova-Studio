@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "opdialog.h"
 #include "canvas.h"
+#include "theme.h"
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -39,7 +40,7 @@ QPixmap checkerPixmap(const QImage &image, QSize box) {
     QPainter p(&pm);
     for (int y = 0; y < size.height(); y += 8)
         for (int x = 0; x < size.width(); x += 8)
-            p.fillRect(x, y, 8, 8, ((x + y) / 8) % 2 ? QColor(70, 70, 70) : QColor(100, 100, 100));
+            p.fillRect(x, y, 8, 8, ((x + y) / 8) % 2 ? ui::current().checkerDark : ui::current().checkerLight);
     p.setRenderHint(QPainter::SmoothPixmapTransform, false);
     p.drawImage(pm.rect(), image);
     return pm;

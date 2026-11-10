@@ -41,6 +41,9 @@ class EditorTestAccess {
     static QStringList unsavedOutputs(Window &window) { return window.unsavedMinecraftOutputs(); }
     static void relatedAssets(Window &window, const QString &path) { window.showRelatedAssets(path); }
     static bool checkpointBusy(Window &window) { return window.ioBusy; }
+    static bool indexReady(Window &window) {
+        return !window.indexBusy && !window.indexDebounce->isActive() && window.pendingChanges.isEmpty();
+    }
 };
 }
 
@@ -115,7 +118,15 @@ QJsonObject receive(QProcess &process, int timeout = 5000) {
     return result;
 }
 QJsonObject payload(const QJsonObject &response) {
-    return response["result"].toObject()["structuredContent"].toObject();
+    const auto result = response["result"].toObject();
+    if (!result["isError"].toBool())
+        return result["structuredContent"].toObject();
+    // Errors must not carry structured content, which clients validate against the output schema.
+    const auto content = result["content"].toArray();
+    if (result.contains("structuredContent") || content.size() != 1 ||
+        content.first().toObject()["type"] != "text")
+        return {};
+    return QJsonDocument::fromJson(content.first().toObject()["text"].toString().toUtf8()).object();
 }
 QString error(const QJsonObject &response) { return payload(response)["error"].toObject()["code"].toString(); }
 void initialize(QProcess &process, const QString &version = "2025-11-25") {
@@ -182,6 +193,44 @@ class McpTest : public QObject {
         for (const auto &id : {"../../outside", "C:/Windows/win.ini", "assets/abc:stream"})
             QCOMPARE(error(protocol.receive(call(4, "nova.asset.inspect",
                 {{"generation", generation}, {"assetId", id}})).response), "invalid_arguments");
+
+        // Tool errors carry their code and message as text only, for every tool and output schema.
+        auto result = [](const QJsonObject &response) { return response["result"].toObject(); };
+        auto text = [](const QJsonObject &reply) {
+            const auto block = reply["content"].toArray().first().toObject();
+            return QJsonDocument::fromJson(block["text"].toString().toUtf8()).object();
+        };
+        const auto list = result(protocol.receive(request(5, "tools/list")).response)["tools"].toArray();
+        QCOMPARE(list.size(), 39);
+        int schemas = 0;
+        for (const auto &entry : list) {
+            const auto tool = entry.toObject();
+            schemas += tool.contains("outputSchema");
+            const auto rejected = result(protocol.receive(call(6, tool["name"].toString(), {{"unexpected", 1}})).response);
+            QVERIFY2(rejected["isError"].toBool() && !rejected.contains("structuredContent"),
+                     qPrintable(tool["name"].toString()));
+            QCOMPARE(rejected["content"].toArray().size(), 1);
+            // Field-specific: the message names the JSON pointer it reports in details.
+            const auto failure = text(rejected)["error"].toObject();
+            const auto pointer = failure["details"].toObject()["pointer"].toString();
+            QCOMPARE(failure["code"].toString(), "invalid_arguments");
+            QVERIFY2(pointer == "/unexpected" ? failure["message"].toString().startsWith("Unknown argument /unexpected.")
+                                              : failure["message"].toString() == "Missing required argument " + pointer + '.',
+                     qPrintable(tool["name"].toString() + ": " + failure["message"].toString()));
+            QCOMPARE(failure.keys(), (QStringList{"code", "details", "message"}));
+        }
+        QCOMPARE(schemas, 34);
+        const auto denied = result(toolReply(7, toolError("permission_denied", "Editing is not authorized.")));
+        QVERIFY(denied["isError"].toBool() && !denied.contains("structuredContent"));
+        QCOMPARE(denied["content"].toArray().first().toObject()["text"].toString(),
+                 R"({"error":{"code":"permission_denied","message":"Editing is not authorized."}})");
+        const auto ok = result(toolReply(8, {{"revision", "r"}, {"dirty", false}, {"_pngImage", "AA=="}}));
+        QVERIFY(!ok.contains("isError"));
+        QCOMPARE(ok["structuredContent"].toObject(), (QJsonObject{{"revision", "r"}, {"dirty", false}}));
+        QCOMPARE(text(ok), ok["structuredContent"].toObject());
+        const auto content = ok["content"].toArray();
+        QCOMPARE(content.size(), 2);
+        QCOMPARE(content[1].toObject()["type"].toString(), "image");
     }
 
     void containment() {
@@ -223,6 +272,15 @@ class McpTest : public QObject {
         QVERIFY(!scope.open("assets/nova/linked/secret.json"));
         QVERIFY(!scope.vacant("assets/nova/linked/new.png"));
         QVERIFY(!scope.vacant("assets/nova/models/hard.json"));
+        // The reason is reported with the first folder (or the file) at fault.
+        QString failed;
+        QCOMPARE(scope.vacancy("assets/nova/linked/new.png", &failed), Vacancy::Unsafe);
+        QCOMPARE(failed, "assets/nova/linked");
+        QCOMPARE(scope.vacancy("assets/nova/models/hard.json", &failed), Vacancy::Occupied);
+        QCOMPARE(scope.vacancy("assets/nova/absent/deeper/new.png", &failed), Vacancy::Missing);
+        QCOMPARE(failed, "assets/nova/absent");
+        QCOMPARE(scope.vacancy("assets/nova/models/new.json", &failed), Vacancy::Vacant);
+        QCOMPARE(scope.vacancy("assets/nova/models/../new.png", &failed), Vacancy::Unsafe);
         QVERIFY(!scope.vacant("assets/nova/models/../new.png"));
         QVERIFY(scope.vacant("assets/nova/models/new.png"));
         Snapshot snapshot;
@@ -330,7 +388,7 @@ class McpTest : public QObject {
         QTRY_VERIFY(status->text().startsWith("Connected"));
         saveScreenshot(dialog, "connected");
         client.write(request(2, "tools/list"));
-        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 26);
+        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 39);
         client.write("broken\n");
         QCOMPARE(receive(client)["error"].toObject()["code"].toInt(), -32700);
 
@@ -1174,9 +1232,12 @@ void McpTest::creationWorkflow() {
     QCOMPARE(restoredTexture->id(), texture->id());
     restarted.findChild<QAction *>("saveCommand")->trigger();
     QVERIFY(!restoredTexture->modified());
+    QVERIFY(!restoredTexture->minecraftOutputPending());
     QVERIFY(QFileInfo::exists(restoredTexture->editablePath()));
     QVERIFY(!QFileInfo::exists(store.pathFor(texture->id())));
-    QVERIFY(!QFileInfo::exists(texture->path));
+    // MCP Phase 1: Save writes the recovered texture into the pack too (before, it saved only the
+    // editable source and left the resource path empty). An external change is still never overwritten.
+    QVERIFY(restoredTexture->revision().sameContent(nova::Revision::read(texture->path)));
     write(texture->path, "external collision");
     const auto conflict = nova::Revision::read(texture->path);
     QString error;
@@ -1381,7 +1442,7 @@ void McpTest::processRecovery() {
         QCOMPARE(face["uv"].toArray(), (QJsonArray{2, 3, 9, 11}));
         QCOMPARE(face["rotation"], 90);
         const auto raster = restored["raster"].toArray();
-        QCOMPARE(raster.size(), 2);
+        QVERIFY2(raster.size() == 2, QJsonDocument(raster).toJson(QJsonDocument::Compact).constData());
         for (const auto &value : raster) {
             const auto row = value.toObject();
             if (row["name"] == "sdk_texture.png")
@@ -1447,6 +1508,7 @@ void McpTest::previewLifecycle() {
     window.show();
     auto panel = nova::EditorTestAccess::models(window);
     QTRY_VERIFY(panel->catalog()->editable(modelFolder + "empty.json"));
+    QTRY_VERIFY_WITH_TIMEOUT(nova::EditorTestAccess::indexReady(window), 10000);
     window.findChild<QAction *>("mcpAccess")->trigger();
     auto service = window.findChild<Service *>();
     QVERIFY(service->authorize(root, true));
@@ -1472,6 +1534,7 @@ void McpTest::previewLifecycle() {
             window.findChild<QAction *>("saveCommand")->trigger();
             QVERIFY(QFileInfo::exists(root + '/' + target));
             QVERIFY(!tabs->tabText(tabs->currentIndex()).endsWith(" ●"));
+            QTRY_VERIFY_WITH_TIMEOUT(nova::EditorTestAccess::indexReady(window), 10000);
         } else if (actual == "close") {
             emit tabs->tabCloseRequested(tabs->currentIndex());
             QVERIFY(!panel->openModelDocument(target));
@@ -2472,7 +2535,12 @@ void McpTest::editing() {
             restarted.findChild<QAction *>("saveCommand")->trigger();
             QTRY_VERIFY_WITH_TIMEOUT(!recovered->modified(), 10000);
             QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(snapshotPath), 10000);
-            QCOMPARE(fingerprint(root).value(texture), before.value(texture));
+            // MCP Phase 1: Save writes the recovered animation into the pack (PNG + .png.mcmeta) as
+            // well as its editable source; before, it saved only the editable source.
+            QVERIFY(!recovered->minecraftOutputPending());
+            QVERIFY(fingerprint(root).value(texture) != before.value(texture));
+            QVERIFY(recovered->revision().sameContent(nova::Revision::read(root + '/' + texture)));
+            QVERIFY(recovered->mcmetaRevision().sameContent(nova::Revision::read(root + '/' + texture + ".mcmeta")));
             const auto other = dir.path() + "/other-pack";
             write(other + "/pack.mcmeta", R"({"pack":{"pack_format":46,"description":"Other"}})");
             restarted.findChild<QAction *>("mcpAccess")->trigger();

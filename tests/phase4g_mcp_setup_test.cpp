@@ -370,7 +370,7 @@ class Phase4gMcpSetupTest : public QObject {
         // The offer is single-use: it is withdrawn once the agent authenticates.
         QVERIFY(!QFileInfo::exists(mcp::handoff::filePath()));
         send(agent, request(2, "tools/list"));
-        QCOMPARE(receive(agent).value("result")["tools"].toArray().size(), 26);
+        QCOMPARE(receive(agent).value("result")["tools"].toArray().size(), 39);
         QCOMPARE(service->permission(), "Read-only");
         agent.closeWriteChannel();
         QVERIFY(agent.waitForFinished(10000));
@@ -498,7 +498,7 @@ class Phase4gMcpSetupTest : public QObject {
             QTRY_VERIFY_WITH_TIMEOUT(results->toPlainText().contains("Connected agent: none"), 20000);
             const auto report = results->toPlainText();
             QVERIFY2(report.contains("Pass · Bridge starts: nova-mcp " + QString(AppVersion)), qPrintable(report));
-            QVERIFY2(report.contains("Pass · Protocol self-test: MCP 2025-11-25, 26 tools declared"), qPrintable(report));
+            QVERIFY2(report.contains("Pass · Protocol self-test: MCP 2025-11-25, 39 tools declared"), qPrintable(report));
             // None of this granted access or offered a connection.
             QCOMPARE(window.findChild<mcp::Service *>()->permission(), "Disabled");
             QVERIFY(!QFileInfo::exists(mcp::handoff::filePath()));

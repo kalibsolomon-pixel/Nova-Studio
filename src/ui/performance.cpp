@@ -2,7 +2,9 @@
 #include "window.h"
 #include <QtWidgets>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 // clang-format off: the Windows process types must precede PSAPI declarations.
 #include <windows.h>
 #include <psapi.h>

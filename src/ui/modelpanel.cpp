@@ -215,7 +215,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     viewLayout->addWidget(resetPreview);
     connect(resetPreview, &QPushButton::clicked, this, [this] {
         target.clear();
-        pinned = true;
+        pinned = false;
         contexts->setCurrentText("raw");
         uv->setChecked(false);
         cube->restoreView({});
@@ -236,7 +236,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     source->setToolTip("Read-only snapshot of the selected model's source JSON");
     modelRow->addWidget(source, 1);
     connect(source, &QPushButton::clicked, this, [this] {
-        if (!library || target.isEmpty())
+        if (!library || target.isEmpty() || target == "cube:")
             return;
         const auto path = target.startsWith("model:")
                               ? mc::Location::parse(target.mid(6)).asset("models")
@@ -537,6 +537,12 @@ void ModelPanel::loadResources() {
     }
     *library = std::move(*watcher.result());
 }
+QStringList ModelPanel::resourceStackPaths() const {
+    if (!library || root.isEmpty())
+        return {};
+    QSettings prefs(Settings(qApp->property("settingsFile").toString()).fileName(), QSettings::IniFormat);
+    return prefs.value(resourceSettingsKey(root, library->version())).toStringList().mid(0, 8);
+}
 void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &project) {
     if (library != value)
         materialDocuments.clear();
@@ -621,13 +627,23 @@ void ModelPanel::savePreviewState() {
 void ModelPanel::choices() {
     syncing = true;
     targets->clear();
-    targets->addItem("Generic cube", QString());
+    targets->addItem("No model · texture only", QString());
+    targets->addItem("Generic cube (not a Minecraft model)", QStringLiteral("cube:"));
+    fallbackReason.clear();
+    if (!document)
+        fallbackReason = "No texture is open";
+    else if (!library)
+        fallbackReason = "No resource pack is open";
     if (library) {
-        const auto associated = library->modelsForTexture(activeAsset).mid(0, 256);
+        // The model named like the texture first, then other valid models using it.
+        const auto choice = activeAsset.isEmpty() ? mc::PreviewChoice{} : mc::previewModelFor(*library, activeAsset);
+        const auto associated = choice.candidates.mid(0, 256);
         for (const auto &id : associated)
             targets->addItem("Using texture · " + id, "model:" + id);
+        if (document)
+            fallbackReason = choice.reason;
         if (!pinned) {
-            target = associated.isEmpty() ? QString() : "model:" + associated.first();
+            target = choice.model.isEmpty() ? QString() : "model:" + choice.model;
         }
         const auto all = library->modelIds();
         const auto definitions = library->definitionPaths();
@@ -657,7 +673,15 @@ void ModelPanel::choices() {
         index = 0;
     }
     targets->setCurrentIndex(index);
+    targets->setToolTip(target.isEmpty() && !fallbackReason.isEmpty()
+                            ? "No Minecraft model is shown: " + fallbackReason
+                            : QString("Model shown in the 3D preview"));
     syncing = false;
+}
+void ModelPanel::showFallback(const QString &notice, const QString &details) {
+    cube->setNotice(notice);
+    diagnostics->setText(notice + (details.isEmpty() ? QString() : "\n" + details));
+    diagnostics->setToolTip(notice);
 }
 void ModelPanel::setDocument(std::shared_ptr<Document> doc, Canvas *view) {
     if (document == doc && canvas == view &&
@@ -737,21 +761,42 @@ void ModelPanel::rebuild() {
     contextModel = {};
     mesh.reset();
     materials.clear();
-    if (!library || target.isEmpty()) {
+    if (!library || target.isEmpty() || target == "cube:") {
         materialPlayback->setMaterials({});
         cube->setMaterialPreview(false);
         if (uvControls)
             uvControls->hide();
         if (canvas)
             canvas->uvEditing = false;
-        cube->setModel({});
+        if (target == "cube:") {
+            cube->setModel({});
+            showFallback("Generic cube: not a Minecraft model. Choose a model to preview it.",
+                         "The texture is drawn on all six faces of a plain cube.");
+        } else {
+            // Texture only: one flat, double-sided square. Never a cube that could be
+            // mistaken for the texture's real model.
+            mc::Model flat;
+            flat.valid = true;
+            flat.version = library ? library->version() : QString("26.1");
+            flat.resolved = QJsonDocument::fromJson(
+                R"json({"elements":[{"from":[0,0,8],"to":[16,16,8],"faces":{"north":{"uv":[0,0,16,16],"texture":"nova:active"},"south":{"uv":[0,0,16,16],"texture":"nova:active"}}}]})json")
+                                .object();
+            mesh = std::make_shared<mc::Mesh>(mc::mesh(flat));
+            cube->setModel(mesh, mesh->faces.isEmpty() ? QString() : mesh->faces.first().texture);
+            const auto reason = fallbackReason.isEmpty() ? QString("No model chosen") : fallbackReason;
+            showFallback("No Minecraft model · " + reason + ".\nShowing the texture flat; this is not a model render.",
+                         library ? QString("Choose a model above, or add one to the pack or the resource stack.")
+                                 : QString());
+            mesh.reset(); // no faces/UV inspection for the fallback square
+        }
         overlay();
-        diagnostics->setText("Generic cube · choose a pack model for UV inspection");
         updateDisplayControls();
         return;
     }
+    cube->setNotice({});
     auto combined = std::make_shared<mc::Mesh>();
     QStringList messages = library->diagnostics;
+    QStringList previewLimitations;
     QString asset;
     QVector<mc::Instance> instances;
     messages << "Isolated preview · world AO, atlas shaders and runtime tints omitted";
@@ -805,6 +850,8 @@ void ModelPanel::rebuild() {
                     generatedSprites[path] = silhouette;
                 }
         auto part = mc::transformed(mc::generatedMesh(model, generatedSprites), instance);
+        if (!part.previewLimitation.isEmpty())
+            previewLimitations << instance.model + ": " + part.previewLimitation;
         // Minecraft order: display * translate(-0.5) * item-definition transformation.
         part = mc::applyTransform(
             std::move(part),
@@ -857,6 +904,8 @@ void ModelPanel::rebuild() {
             bytes += image.sizeInBytes();
             materials[face.texture] = image;
         }
+    previewLimitations.removeDuplicates();
+    combined->previewLimitation = previewLimitations.join("; ");
     mesh = combined;
     cube->setModel(mesh, activeAsset, materials);
     QMap<QString, std::shared_ptr<Document>> animations;
@@ -896,6 +945,20 @@ void ModelPanel::rebuild() {
         QString("%1 faces · Java %2\n").arg(mesh->faces.size()).arg(library->version()) +
         messages.mid(0, 20).join('\n'));
     diagnostics->setToolTip(messages.join('\n'));
+    if (mesh->faces.isEmpty()) {
+        QString problem;
+        for (const auto &instance : instances)
+            if (const auto m = library->model(instance.model); !m.valid) {
+                problem = m.id + " could not be resolved: " + m.diagnostics.value(0);
+                break;
+            }
+        cube->setNotice("Model not shown · " +
+                        (problem.isEmpty() ? QString("no supported geometry") : problem) +
+                        ".\nThe texture remains editable.");
+    } else if (!mesh->previewLimitation.isEmpty()) {
+        cube->setNotice("Generated item preview uses a flat approximation.\n" +
+                        mesh->previewLimitation + ".\nThe texture remains editable.");
+    }
     overlay();
     if (mesh && previousFace >= 0 && previousFace < mesh->faces.size()) {
         cube->selectedFace = previousFace;

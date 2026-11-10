@@ -122,6 +122,21 @@ std::vector<double> alphaDistance(const QImage &src, int threshold) {
         }
     return d;
 }
+// Exact median of nine values via a fixed 25-comparator selection network;
+// branch-free swaps beat std::nth_element's generic loop at this size.
+int median9(int v[9]) {
+#define NOVA_CEX(i, j) \
+    if (v[i] > v[j]) std::swap(v[i], v[j])
+    NOVA_CEX(0, 3); NOVA_CEX(1, 7); NOVA_CEX(2, 5); NOVA_CEX(4, 8);
+    NOVA_CEX(0, 7); NOVA_CEX(2, 4); NOVA_CEX(3, 8); NOVA_CEX(5, 6);
+    NOVA_CEX(0, 2); NOVA_CEX(1, 3); NOVA_CEX(4, 5); NOVA_CEX(7, 8);
+    NOVA_CEX(1, 4); NOVA_CEX(3, 6); NOVA_CEX(5, 7);
+    NOVA_CEX(0, 1); NOVA_CEX(2, 4); NOVA_CEX(3, 5); NOVA_CEX(6, 8);
+    NOVA_CEX(2, 3); NOVA_CEX(4, 5); NOVA_CEX(6, 7);
+    NOVA_CEX(1, 2); NOVA_CEX(3, 4); NOVA_CEX(5, 6);
+#undef NOVA_CEX
+    return v[4];
+}
 } // namespace
 
 QImage gaussian(const QImage &src, double sigma, bool wrap, const Context &ctx) {
@@ -167,9 +182,36 @@ QImage unsharpMask(const QImage &src, const Params &p, const Context &ctx, QStri
 QImage median(const QImage &src, const Params &p, const Context &ctx, QString *) {
     const int r = p.i("radius");
     const bool wrap = p.b("wrap");
+    // Use the network only when every pixel is visible. Any transparent pixel
+    // selects the original generic path for the whole image, avoiding network
+    // setup overhead in exactly the fallback cases that need hidden-RGB exclusion.
+    bool networkRadius1 = r == 1;
+    for (int y = 0; networkRadius1 && y < src.height(); ++y) {
+        if (ctx.canceled())
+            return {};
+        for (int x = 0; x < src.width(); ++x)
+            if (!qAlpha(px(src, x, y))) {
+                networkRadius1 = false;
+                break;
+            }
+    }
     std::vector<int> rs, gs, bs, as;
     return mapPixels(src, ctx, [&](QRgb, int x, int y) {
         rs.clear(), gs.clear(), bs.clear(), as.clear();
+        if (networkRadius1) {
+            int r9[9], g9[9], b9[9], a9[9];
+            int n = 0;
+            for (int j = -1; j <= 1; ++j)
+                for (int i = -1; i <= 1; ++i) {
+                    const QRgb c = sample(src, x + i, y + j, wrap);
+                    a9[n] = qAlpha(c);
+                    r9[n] = qRed(c);
+                    g9[n] = qGreen(c);
+                    b9[n] = qBlue(c);
+                    ++n;
+                }
+            return qRgba(median9(r9), median9(g9), median9(b9), median9(a9));
+        }
         for (int j = -r; j <= r; ++j)
             for (int i = -r; i <= r; ++i) {
                 const QRgb n = sample(src, x + i, y + j, wrap);

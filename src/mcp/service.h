@@ -51,12 +51,15 @@ class Service : public QObject {
     QJsonValue pendingId;
     bool suppress = false;
     std::function<bool(Snapshot &, const QString &)> snapshot;
+    std::function<bool(qint64)> clientFilter;
+    quint64 serial = 0;
     void accept();
     void receive();
     void send(const QJsonObject &message);
     void closeSocket();
     void fail(const QString &message);
     void dispatch(const Request &request);
+    void readResource(const Request &request);
     struct Workflow {
         QJsonArray results;
         int total = 0;
@@ -70,6 +73,13 @@ class Service : public QObject {
     explicit Service(std::function<bool(Snapshot &, const QString &)> snapshot, QObject *parent);
     ~Service() override;
     bool authorize(const QString &project, bool allowEditing = false);
+    // Restricts the current grant to clients whose process the filter accepts (by process id), for
+    // example only bridges started by an agent Nova launched. A refused client does not consume the
+    // grant. Cleared by revoke() and by the next authorize().
+    void setClientFilter(std::function<bool(qint64 pid)> filter) { clientFilter = std::move(filter); }
+    // Changes with every authorize(), so a caller can tell whether the grant it made is still current.
+    quint64 grantSerial() const { return serial; }
+    bool clientConnected() const { return authenticated; }
     void setEditHandler(EditHandler handler) { editHandler = std::move(handler); }
     QString permission() const {
         return root.isEmpty() || stale ? "Disabled" : editing ? "Editing allowed" : "Read-only";

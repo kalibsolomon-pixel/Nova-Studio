@@ -11,7 +11,9 @@
 // invoke   expands or invokes controls by accessible name, in order: the fourth argument is
 //          a '|' separated list of names; each is searched under the window, then under the
 //          desktop's top-level windows of the same process (menus and dialogs)
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <UIAutomation.h>
 #include <algorithm>
@@ -19,6 +21,7 @@
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 #include <windows.h>
 

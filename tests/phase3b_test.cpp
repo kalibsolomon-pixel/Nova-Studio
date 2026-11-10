@@ -27,7 +27,8 @@ QString makePack(const QString &root) {
     QDir().mkpath(root + "/assets/nova/textures/block");
     QDir().mkpath(root + "/assets/nova/models/block");
     QFile meta(root + "/pack.mcmeta");
-    meta.open(QIODevice::WriteOnly);
+    if (!meta.open(QIODevice::WriteOnly))
+        qFatal("Cannot create the 3-B fixture pack.mcmeta");
     meta.write(R"({"pack":{"pack_format":46,"description":"3-B"}})");
     for (int i = 0; i < 3; ++i) {
         QImage image(16, 16, QImage::Format_RGBA8888);
@@ -35,7 +36,8 @@ QString makePack(const QString &root) {
         savePng(root + QString("/assets/nova/textures/block/t%1.png").arg(i), image);
     }
     QFile model(root + "/assets/nova/models/block/m.json");
-    model.open(QIODevice::WriteOnly);
+    if (!model.open(QIODevice::WriteOnly))
+        qFatal("Cannot create the 3-B fixture model");
     model.write(R"({"parent":"block/cube_all","textures":{"all":"nova:block/t0"}})");
     return root;
 }

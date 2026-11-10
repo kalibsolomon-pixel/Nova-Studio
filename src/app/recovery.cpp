@@ -190,6 +190,18 @@ QList<RecoveryEntry> RecoveryStore::entries() const {
         result.append(readEntry(file, false));
     return result;
 }
+QList<RecoveryEntry> RecoveryStore::earlierEntries() const {
+    QList<RecoveryEntry> result;
+    for (const auto &entry : entries()) {
+        // Pending snapshots cannot be rewritten or removed by this session, so the entry read above
+        // is still the earlier session's.
+        QMutexLocker lock(&lifecycle->mutex);
+        const auto state = lifecycle->protectedSnapshots.constFind(entry.id);
+        if (state != lifecycle->protectedSnapshots.cend() && *state == Lifecycle::State::Pending)
+            result.append(entry);
+    }
+    return result;
+}
 RecoveryEntry RecoveryStore::load(QUuid id) const {
     return readEntry(QFileInfo(pathFor(id)), true);
 }
@@ -219,6 +231,16 @@ void RecoveryStore::discard(QUuid id) const {
     QMutexLocker lock(&lifecycle->mutex);
     if (QFile::remove(pathFor(id)))
         lifecycle->protectedSnapshots.remove(id);
+}
+
+bool RecoveryStore::discardEarlier(QUuid id) const {
+    QMutexLocker lock(&lifecycle->mutex);
+    const auto state = lifecycle->protectedSnapshots.constFind(id);
+    if (state == lifecycle->protectedSnapshots.cend() || *state != Lifecycle::State::Pending ||
+        !QFile::remove(pathFor(id)))
+        return false;
+    lifecycle->protectedSnapshots.remove(id);
+    return true;
 }
 
 void RecoveryStore::prune() const {

@@ -369,16 +369,20 @@ void ModelPanel::finishUvEdit(bool commit) {
         canvas->uvEditing = false;
     refreshUvModel();
 }
+bool ModelPanel::saveModelDocument(const std::shared_ptr<mc::ModelEdit> &edit, QString *error) {
+    if (!edit->save(error))
+        return false;
+    removeModelRecovery(edit);
+    library->releaseModelSource(edit->assetPath());
+    if (modelChanged)
+        modelChanged();
+    updateUvControls();
+    return true;
+}
 bool ModelPanel::saveModel(const std::shared_ptr<mc::ModelEdit> &edit) {
     QString error;
-    if (edit->save(&error)) {
-        removeModelRecovery(edit);
-        library->releaseModelSource(edit->assetPath());
-        if (modelChanged)
-            modelChanged();
-        updateUvControls();
+    if (saveModelDocument(edit, &error))
         return true;
-    }
     QMessageBox box(this);
     box.setObjectName("modelJsonConflict");
     box.setWindowTitle("Model JSON save blocked");

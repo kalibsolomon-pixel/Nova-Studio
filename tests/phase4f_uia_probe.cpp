@@ -236,7 +236,8 @@ int main(int argc, char **argv) {
         window.setObjectName("novaWorkspaceWindow");
         window.resize(1400, 900);
         window.show();
-        QTest::qWaitForWindowExposed(&window);
+        if (!QTest::qWaitForWindowExposed(&window))
+            qWarning("UIA probe: window was not exposed in time");
         QElapsedTimer wait;
         wait.start();
         while ((EditorTestAccess::indexing(window) || wait.elapsed() < 800) && wait.elapsed() < 30000)

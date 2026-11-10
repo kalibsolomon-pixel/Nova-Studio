@@ -13,7 +13,9 @@
 #include <algorithm>
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #endif
 // clang-format off
 #include <windows.h>

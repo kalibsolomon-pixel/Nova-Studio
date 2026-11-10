@@ -1,7 +1,0 @@
-[workspace]
-members = ["prototypes/nova-egui"]
-resolver = "2"
-
-[profile.release]
-opt-level = 3
-debug = 1

@@ -15,7 +15,9 @@
 #include <QtWidgets>
 #include <cstdio>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 using namespace nova;

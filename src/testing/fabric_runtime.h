@@ -112,6 +112,7 @@ class FabricRuntime : public QObject {
     void gameExited(int exitCode);
 
   private:
+    friend class FabricRuntimeTestAccess;
     void setState(State state, const QString &text = {});
     void fail(const QString &message);
     void runStep();
@@ -127,7 +128,7 @@ class FabricRuntime : public QObject {
     void processExited();
     void watch(const ProcessIdentity &root);
     void unwatch();
-    QProcessEnvironment gradleEnvironment() const;
+    QProcessEnvironment gradleEnvironment(QString *error = nullptr) const;
     QStringList gradleCommand(const QStringList &tasks, QString *program) const;
     void saveMetadata();
 

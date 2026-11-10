@@ -13,7 +13,9 @@
 #include <cstdio>
 #include <mutex>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 

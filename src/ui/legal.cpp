@@ -15,7 +15,9 @@ QString notice() {
                    "Help > Licenses and Source Code shows the full license, the third-party notices and "
                    "where to get the source code.\n\n"
                    "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "
-                   "\"Minecraft\" is a trademark of Mojang AB and Microsoft Corporation.")
+                   "\"Minecraft\" is a trademark of Mojang AB and Microsoft Corporation. "
+                   "Vanilla textures shown for a baseline project are © Mojang Studios, are downloaded from "
+                   "Mojang's official servers for local use and are not part of Nova Studio.")
         .arg(ProductCopyright, ProductLicense);
 }
 
@@ -44,9 +46,17 @@ QString sourceNotice() {
                 "the corresponding source code in their source folder and as a separate download next to them.\n\n";
     if (qstrlen(SourceUrl))
         text += QString("Source repository: %1\n\n").arg(SourceUrl);
+    const QDir program(QCoreApplication::applicationDirPath());
+    if (program.exists("licenses"))
+        text += QString("The license and the third-party notices shown here are also installed with this copy:\n"
+                        "%1\n%2\n\n")
+                    .arg(QDir::toNativeSeparators(program.filePath("LICENSE.txt")),
+                         QDir::toNativeSeparators(program.filePath("licenses/THIRD_PARTY_NOTICES.md")));
     text += "Qt is used under the GNU LGPL version 3. The exact Qt Base 6.12.0 source archive is in the "
             "licenses folder (qtbase-everywhere-src-6.12.0.tar.xz), and you may replace the Qt libraries "
             "with your own build of Qt 6.12.0.\n\n"
+            "The corresponding Qt configuration and any source patches are in licenses\\qt-build. "
+            "Third-party notices describe the compiler runtime source supplied with this build.\n\n"
             "docs\\BUILDING.md explains how to build Nova Studio from source.";
     return text;
 }

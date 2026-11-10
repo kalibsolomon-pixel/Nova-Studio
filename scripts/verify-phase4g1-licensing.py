@@ -11,9 +11,11 @@ Reads a candidate made by scripts/package-phase4g.py and checks, without install
               the installer's license page (opened in the real installer UI, then cancelled before
               any folder is chosen or file written)
   checksums   SHA256SUMS.txt matches the artifacts
-Writes licensing-verification.json into the candidate folder.
+  microsoft   (Phase 4-H.2) end-user terms for the Microsoft runtime files shipped and presented,
+              every shipped runtime DLL named, Microsoft's Redist.txt unchanged, no endorsement
+Writes licensing-verification.json into the candidate folder, or to --report.
 
-Usage: python scripts/verify-phase4g1-licensing.py --candidate <label> [--skip-installer-ui]
+Usage: python scripts/verify-phase4g1-licensing.py --candidate <label> [--skip-installer-ui] [--report <file>]
 """
 import argparse
 import ctypes
@@ -32,6 +34,7 @@ root = pathlib.Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument('--candidate', required=True)
 p.add_argument('--skip-installer-ui', action='store_true')
+p.add_argument('--report', type=pathlib.Path, help='where to write the JSON report (default: the candidate folder)')
 a = p.parse_args()
 if not re.fullmatch(r'[A-Za-z0-9_.+-]+', a.candidate):
     raise SystemExit('Candidate must be a simple directory name')
@@ -158,6 +161,39 @@ check('Gradle wrapper license equals the one inside the embedded jar',
 check('Microsoft redistribution terms are shipped', (payload / 'licenses/MICROSOFT-REDIST.txt').stat().st_size > 0)
 check('build guide is shipped', b'Building Nova Studio from source' in read('docs/BUILDING.md'))
 
+# ---------------------------------------------------------------- Microsoft runtime (Phase 4-H.2)
+MSVC_RUNTIME = ['concrt140.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'msvcp140_atomic_wait.dll',
+                'msvcp140_codecvt_ids.dll', 'vccorlib140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll',
+                'vcruntime140_threads.dll']
+shipped_runtime = sorted(f for f in manifest['files'] if '/' not in f
+                         and re.match(r'(?i)(msvcp|vcruntime|concrt|vccorlib)\d', f) and f.lower().endswith('.dll'))
+check('the payload ships exactly the 10 Microsoft Visual C++ runtime DLLs', shipped_runtime == MSVC_RUNTIME, shipped_runtime)
+terms_rel = 'licenses/MICROSOFT-VC-RUNTIME-TERMS.txt'
+terms = (payload / terms_rel).read_bytes() if (payload / terms_rel).is_file() else b''
+try:
+    terms_source = at_revision('packaging/MICROSOFT-VC-RUNTIME-TERMS.txt')
+except subprocess.CalledProcessError:
+    terms_source = None
+check('end-user terms for the Microsoft runtime files are shipped and equal the build revision',
+      terms and terms_source is not None and terms.replace(b'\r\n', b'\n') == terms_source.replace(b'\r\n', b'\n'), terms_rel)
+terms_text = terms.decode('utf-8', 'replace')
+check('the runtime terms name every shipped Microsoft runtime DLL', terms and all(n in terms_text for n in shipped_runtime),
+      [n for n in shipped_runtime if n not in terms_text])
+flat_terms = ' '.join(terms_text.split())
+check('the runtime terms are marked as not Microsoft\'s text, not GPL, and not endorsed by Microsoft',
+      all(k in flat_terms for k in ("not Microsoft's license text", 'NOT COVERED BY THE GPL', 'does not endorse')))
+check('the runtime terms require agreement and pass-on to further distributors',
+      all(k in flat_terms for k in ('you agree to these terms', 'require each person who receives the files from you to agree')))
+check('third-party notices name every shipped runtime DLL, the terms file and that the GPL does not cover them',
+      all(n in notices for n in shipped_runtime) and 'MICROSOFT-VC-RUNTIME-TERMS.txt' in notices
+      and 'not covered by the GPL' in ' '.join(notices.split()) and 'does not endorse' in ' '.join(notices.split()))
+check('README.txt points to the runtime terms', 'MICROSOFT-VC-RUNTIME-TERMS.txt' in readme)
+redist_txt = read('licenses/MICROSOFT-REDIST.txt')
+toolchain = manifest.get('toolchain') or {}
+check("MICROSOFT-REDIST.txt is Microsoft's Build Tools Redist.txt, unmodified",
+      b'Distributable Code for Microsoft Visual Studio' in redist_txt
+      and (not toolchain or redist_txt == pathlib.Path(toolchain['redist_txt']).read_bytes()))
+
 ver = ctypes.windll.version
 
 
@@ -214,7 +250,10 @@ needed = ['CMakeLists.txt', 'LICENSE', 'COPYRIGHT.md', 'src/CMakeLists.txt', 'sr
           'packaging/CPackProjectConfig.cmake', 'packaging/THIRD_PARTY_NOTICES.md', 'assets/branding/nova-studio-icon.ico',
           'assets/fabric-runtime/gradle-wrapper-9.8.2.jar', 'fixtures/phase-2c5-models/pack.mcmeta',
           'scripts/build-studio.ps1', 'scripts/package-phase4g.py', 'scripts/install-qt.py',
-          'scripts/prepare-phase3-qt.py', 'docs/release/BUILDING.md']
+          'scripts/prepare-phase3-qt.py', 'docs/release/BUILDING.md',
+          # Phase 4-H.2: toolchain pinning, runtime selection, payload policy, runtime terms
+          'scripts/nova-toolchain.ps1', 'scripts/run-ctest.ps1', 'scripts/check-release-payload.py',
+          'cmake/NovaMsvcRuntime.cmake', 'packaging/MICROSOFT-VC-RUNTIME-TERMS.txt']
 check('source archive holds the build, test, install and packaging inputs', all(n in archived for n in needed),
       [n for n in needed if n not in archived])
 cmake_sources = set(re.findall(r'[\w/]+\.(?:cpp|h|rc\.in|h\.in)', at_revision('src/CMakeLists.txt').decode()))
@@ -312,6 +351,9 @@ if not a.skip_installer_ui:
         check('installer license page only informs: Next button, not an agreement',
               next_text.replace('&', '').startswith('Next') and any('do not have to accept' in t for t in texts),
               dict(next_button=next_text))
+        check('installer license page presents the Microsoft runtime terms and how they are accepted',
+              terms and terms_text.replace('\r\n', '\n') in normalized
+              and any('runtime terms' in t and 'you agree to them' in t for t in texts))
         if setup:
             click(setup, 2)  # Cancel; MUI asks to confirm
             box = wait(lambda: next((w for w in windows_of(process.pid) if w != setup and class_of(w) == '#32770'), None), 10)
@@ -327,6 +369,6 @@ report = dict(candidate=a.candidate, version=version, revision=revision, copyrig
               license=nova_license, version_resources=dict(resources, installer=installer_values),
               installer_license_page=license_page, checks=checks,
               passed=sum(c['ok'] for c in checks), failed=sum(not c['ok'] for c in checks))
-(cand / 'licensing-verification.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+(a.report or cand / 'licensing-verification.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
 print(f"{report['passed']}/{len(checks)} licensing checks passed")
 sys.exit(1 if report['failed'] else 0)

@@ -9,7 +9,9 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 // clang-format off
 #include <windows.h>
 #include <psapi.h>

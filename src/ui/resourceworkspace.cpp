@@ -39,6 +39,9 @@ void Window::buildResourceTools(QMenu *view) {
     action("Process Model Textures…", "processModelTextures", [this] { modelBatch(); });
     action("Related Assets…", "relatedAssets", [this] { showRelatedAssets(); });
     action("MCP Integration…", "mcpAccess", [this] { showMcpAccess(); });
+    // Experimental and off by default: shown only when Preferences › Experimental turns it on.
+    action("Agent Session (ACP, Experimental)…", "acpSession", [this] { showAgentSession(); });
+    updateExperimentalActions();
     menu->addSeparator();
     auto test = action("Test in Minecraft…", "testInMinecraft", [this] { minecraftTesting(false); });
     test->setShortcut(QKeySequence("Ctrl+Shift+M"));
@@ -66,6 +69,7 @@ void Window::buildResourceTools(QMenu *view) {
             indexDebounce->start(50);
         }
     });
+    buildBaselineMenu(menu);
 }
 QStringList Window::unsavedMinecraftOutputs() {
     QStringList names;

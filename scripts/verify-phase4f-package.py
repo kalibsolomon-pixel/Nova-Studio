@@ -8,7 +8,7 @@ tree's binaries at runtime. The run:
   1. launches the packaged nova-studio.exe on a disposable resource pack,
   2. audits every loaded module (package folder or Windows only),
   3. authorizes MCP editing through the app's own UI (UI Automation),
-  4. runs the official MCP SDK against the packaged nova-mcp.exe (26 tools, create and
+  4. runs the official MCP SDK against the packaged nova-mcp.exe (39 tools, create and
      edit a texture and a model),
   5. saves explicitly through the File menu and checks the files on disk,
   6. makes an unsaved edit, terminates the process, relaunches, and checks that the
@@ -290,7 +290,7 @@ try:
     # 4. Official SDK against the packaged bridge.
     status, tools = sdk('tools')
     check('MCP editing authorized through UI Automation (connection code issued)', grants and grants[0])
-    check('official MCP SDK lists 26 tools through packaged nova-mcp.exe', status == 0 and tools.get('tools') == 26,
+    check('official MCP SDK lists 39 tools through packaged nova-mcp.exe', status == 0 and tools.get('tools') == 39,
           tools.get('tools'))
     report['tools'] = tools.get('tool_names')
     status, created = sdk('create')

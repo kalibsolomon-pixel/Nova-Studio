@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tools.h"
+#include "theme.h"
 #include <QActionGroup>
 #include <QBuffer>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFrame>
+#include <QKeyEvent>
+#include <QWidgetAction>
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QImageReader>
 #include <QMenu>
 #include <QPainter>
-#include <QPainterPath>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollBar>
@@ -37,7 +40,7 @@ const QList<ToolInfo> &toolInfos() {
         {Tool::Transform, "transform", "Transform", "Transform", "T", "Scale and rotate the selection or layer with a live preview"},
         {Tool::Line, "line", "Line", "Shapes", "Shift+U", "Straight line with the brush (Shift snaps to 45°)"},
         {Tool::Shape, "shape", "Shape", "Shapes", "U", "Rectangles, ellipses, polygons and stars (Shift keeps aspect, Alt from centre)"},
-        {Tool::Fill, "fill", "Fill Bucket", "Fill", "G", "Contiguous or global fill with tolerance"},
+        {Tool::Fill, "fill", "Fill Bucket", "Fill", "G", "Contiguous or Universal Fill with tolerance"},
         {Tool::Gradient, "gradient", "Gradient", "Fill", "Shift+G", "Drag a foreground→background gradient"},
         {Tool::Eyedropper, "eyedropper", "Eyedropper", "Colour", "I", "Pick the foreground (Shift or right-click: background)"},
     };
@@ -55,119 +58,7 @@ bool isPaintTool(Tool t) {
 bool isSelectTool(Tool t) { return t >= Tool::RectSelect && t <= Tool::ColorRange; }
 
 QIcon toolIcon(Tool tool, const QColor &ink) {
-    QPixmap pm(48, 48);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.scale(2, 2);
-    QPen pen(ink, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    QPen dashed(ink, 1.4, Qt::DashLine);
-    p.setPen(pen);
-    switch (tool) {
-    case Tool::Pencil:
-        p.drawLine(QPointF(6, 18), QPointF(17, 7));
-        p.drawLine(QPointF(15, 5), QPointF(19, 9));
-        p.fillRect(QRectF(4, 18, 3, 3), ink);
-        break;
-    case Tool::Brush:
-        p.drawLine(QPointF(11, 13), QPointF(19, 5));
-        p.setBrush(ink);
-        p.drawEllipse(QPointF(8, 16), 4, 4);
-        break;
-    case Tool::Eraser:
-        p.translate(12, 12);
-        p.rotate(-45);
-        p.drawRect(QRectF(-7, -4, 14, 8));
-        p.fillRect(QRectF(-7, -4, 5, 8), ink);
-        break;
-    case Tool::ColorReplace:
-        p.drawLine(QPointF(11, 13), QPointF(19, 5));
-        p.setBrush(ink);
-        p.drawEllipse(QPointF(8, 16), 3.5, 3.5);
-        p.setBrush(Qt::NoBrush);
-        p.drawArc(QRectF(3, 3, 9, 9), 30 * 16, 240 * 16);
-        break;
-    case Tool::RectSelect:
-        p.setPen(dashed);
-        p.drawRect(QRectF(4, 6, 16, 12));
-        break;
-    case Tool::EllipseSelect:
-        p.setPen(dashed);
-        p.drawEllipse(QRectF(3, 5, 18, 14));
-        break;
-    case Tool::Lasso: {
-        p.setPen(dashed);
-        QPainterPath path(QPointF(6, 15));
-        path.cubicTo(1, 6, 18, 1, 20, 9);
-        path.cubicTo(22, 16, 10, 18, 8, 16);
-        p.drawPath(path);
-        p.setPen(pen);
-        p.drawLine(QPointF(8, 16), QPointF(6, 21));
-        break;
-    }
-    case Tool::PolygonLasso:
-        p.setPen(dashed);
-        p.drawPolygon(QPolygonF({QPointF(4, 18), QPointF(7, 5), QPointF(19, 8), QPointF(16, 19)}));
-        break;
-    case Tool::MagicWand:
-        p.drawLine(QPointF(5, 19), QPointF(15, 9));
-        p.drawLine(QPointF(17, 3), QPointF(17, 7));
-        p.drawLine(QPointF(15, 5), QPointF(19, 5));
-        p.drawLine(QPointF(20, 9), QPointF(22, 11));
-        break;
-    case Tool::ColorRange:
-        for (int y = 0; y < 3; ++y)
-            for (int x = 0; x < 3; ++x)
-                p.fillRect(QRectF(5 + x * 5.5, 5 + y * 5.5, 3.5, 3.5), (x + y) % 2 ? ink : QColor(ink.red(), ink.green(), ink.blue(), 90));
-        break;
-    case Tool::Move:
-        p.drawLine(QPointF(12, 3), QPointF(12, 21));
-        p.drawLine(QPointF(3, 12), QPointF(21, 12));
-        for (auto [a, b, c] : {std::tuple{QPointF(12, 3), QPointF(9, 6), QPointF(15, 6)},
-                               {QPointF(12, 21), QPointF(9, 18), QPointF(15, 18)},
-                               {QPointF(3, 12), QPointF(6, 9), QPointF(6, 15)},
-                               {QPointF(21, 12), QPointF(18, 9), QPointF(18, 15)}}) {
-            p.drawLine(a, b);
-            p.drawLine(a, c);
-        }
-        break;
-    case Tool::Transform:
-        p.drawRect(QRectF(6, 6, 12, 12));
-        for (auto c : {QPointF(6, 6), QPointF(18, 6), QPointF(6, 18), QPointF(18, 18)})
-            p.fillRect(QRectF(c - QPointF(2, 2), QSizeF(4, 4)), ink);
-        break;
-    case Tool::Line:
-        p.drawLine(QPointF(4, 20), QPointF(20, 4));
-        break;
-    case Tool::Shape:
-        p.drawRect(QRectF(3, 9, 10, 10));
-        p.drawEllipse(QRectF(10, 4, 11, 11));
-        break;
-    case Tool::Fill: {
-        p.translate(11, 12);
-        p.rotate(-30);
-        p.drawRect(QRectF(-6, -5, 12, 11));
-        p.resetTransform();
-        p.scale(2, 2);
-        p.setBrush(ink);
-        p.drawEllipse(QPointF(19, 18), 2, 3);
-        break;
-    }
-    case Tool::Gradient: {
-        QLinearGradient g(4, 0, 20, 0);
-        g.setColorAt(0, ink);
-        g.setColorAt(1, Qt::transparent);
-        p.fillRect(QRectF(4, 6, 16, 12), g);
-        p.drawRect(QRectF(4, 6, 16, 12));
-        break;
-    }
-    case Tool::Eyedropper:
-        p.drawLine(QPointF(5, 19), QPointF(14, 10));
-        p.setBrush(ink);
-        p.drawEllipse(QPointF(17, 7), 3.5, 3.5);
-        break;
-    }
-    return QIcon(pm);
+    return ui::lineIcon(toolInfo(tool).id, ink, ui::current().disabled);
 }
 
 // ---------------------------------------------------------------- state
@@ -295,9 +186,25 @@ class ColorChip : public QWidget {
         setObjectName("toolColorChip");
         setFixedSize(34, 34);
         setCursor(Qt::PointingHandCursor);
-        setToolTip("Foreground / background colour\nClick: Colours panel · X swaps · D resets");
+        setToolTip("Foreground / background colour\nClick, Enter or Space: Colours panel · X swaps · D resets");
         setAccessibleName("Foreground and background colours");
+        setFocusPolicy(Qt::TabFocus); // reachable with Tab like the tool buttons
         connect(state, &ToolState::colorsChanged, this, qOverload<>(&QWidget::update));
+    }
+    void keyPressEvent(QKeyEvent *e) override {
+        if ((e->key() == Qt::Key_Space || e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && requested) {
+            requested();
+            return;
+        }
+        QWidget::keyPressEvent(e);
+    }
+    void focusInEvent(QFocusEvent *e) override {
+        QWidget::focusInEvent(e);
+        update();
+    }
+    void focusOutEvent(QFocusEvent *e) override {
+        QWidget::focusOutEvent(e);
+        update();
     }
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
@@ -311,19 +218,190 @@ class ColorChip : public QWidget {
         };
         swatch(QRect(13, 13, 19, 19), state->background);
         swatch(QRect(2, 2, 19, 19), state->foreground);
+        if (hasFocus()) {
+            p.setPen(QPen(ui::current().accent, 1));
+            p.drawRect(rect().adjusted(0, 0, -1, -1));
+        }
     }
     void mousePressEvent(QMouseEvent *) override {
         if (requested)
             requested();
     }
 };
+// Lays the strip's widgets out left to right and starts a new row when the next one
+// does not fit; separators at the start of a row are dropped. Its minimum height is the
+// height of all rows for its current width, so the panel holding it grows by a row
+// rather than clipping. Child order is tab order.
+// A widget's laid-out size: its size hint, or its fixed/minimum size when it has no hint
+// (the colour chip is a fixed-size widget without a layout).
+QSize itemSize(const QWidget *w) {
+    auto s = w->sizeHint();
+    if (!s.isValid())
+        s = w->minimumSize();
+    return s.expandedTo(w->minimumSize());
+}
+class FlowStrip : public QWidget {
+    int rows = 0, lastHeight = -1;
+    int arrange(int width, bool apply) {
+        int y = 0;
+        rows = 0;
+        QList<QWidget *> row;
+        int x = 0, rowHeight = 0;
+        auto flush = [&] {
+            if (row.isEmpty())
+                return;
+            if (apply)
+                for (auto w : std::as_const(row)) {
+                    const auto s = itemSize(w);
+                    w->move(w->x(), y + (rowHeight - s.height()) / 2);
+                }
+            y += rowHeight + ui::ToolbarSpacing;
+            ++rows;
+            row.clear();
+            x = rowHeight = 0;
+        };
+        for (auto w : std::as_const(items)) {
+            if (suppressed.contains(w)) // its action is hidden
+                continue;
+            const bool rule = rules.contains(w);
+            const auto s = itemSize(w);
+            const int extra = rule ? 2 * ui::SeparatorMarginMinor : 0;
+            if (!row.isEmpty() && x + s.width() + extra > width)
+                flush();
+            if (rule && row.isEmpty()) { // no separator at the start of a row
+                if (apply)
+                    w->hide();
+                continue;
+            }
+            if (apply) {
+                w->setGeometry(x + extra / 2, 0, s.width(), s.height());
+                w->show();
+            }
+            row << w;
+            x += s.width() + extra + ui::ToolbarSpacing;
+            rowHeight = std::max(rowHeight, s.height());
+        }
+        flush();
+        return std::max(0, y - ui::ToolbarSpacing);
+    }
+
+  public:
+    QList<QWidget *> items, rules, suppressed;
+    std::function<void(int)> heightChanged;
+    explicit FlowStrip(QWidget *parent) : QWidget(parent) {
+        setObjectName("toolStripFlow");
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+    int rowCount() const { return rows; }
+    int oneRowWidth() const {
+        int x = 0;
+        for (auto w : items)
+            x += itemSize(w).width() + (rules.contains(w) ? 2 * ui::SeparatorMarginMinor : 0) + ui::ToolbarSpacing;
+        return std::max(0, x - ui::ToolbarSpacing);
+    }
+    int widestItem() const {
+        int widest = 0;
+        for (auto w : items)
+            widest = std::max(widest, itemSize(w).width());
+        return widest;
+    }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return const_cast<FlowStrip *>(this)->arrange(width, false); }
+    int currentWidth() const {
+        if (width() > 0)
+            return width();
+        return parentWidget() && parentWidget()->width() > 0 ? parentWidget()->width() : oneRowWidth();
+    }
+    // A small preferred width so the toolbar never moves the strip itself into its overflow menu.
+    QSize sizeHint() const override { return {widestItem(), heightForWidth(currentWidth())}; }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+    void relayout() {
+        const int height = arrange(width(), true);
+        if (height != lastHeight) {
+            lastHeight = height;
+            if (heightChanged)
+                heightChanged(height);
+        }
+    }
+    void resizeEvent(QResizeEvent *e) override {
+        QWidget::resizeEvent(e);
+        relayout();
+    }
+};
 } // namespace
+
+void ToolBox::setWrapping(bool wrap) {
+    if (wrap == wrapping())
+        return;
+    if (wrap) {
+        auto strip = new FlowStrip(this);
+        wrappedActions = QWidget::actions();
+        for (auto a : std::as_const(wrappedActions)) {
+            if (a == spacerItem) { // only meaningful in a vertical strip
+                removeAction(a);
+                continue;
+            }
+            if (a->isSeparator()) {
+                removeAction(a);
+                auto rule = new QFrame(strip);
+                rule->setObjectName("toolStripRule");
+                rule->setProperty("role", "vrule");
+                rule->setFixedSize(1, ui::ToolIconSize);
+                strip->items << rule;
+                strip->rules << rule;
+                continue;
+            }
+            auto widgetAction = qobject_cast<QWidgetAction *>(a);
+            QWidget *w = widgetAction ? widgetAction->defaultWidget() : nullptr;
+            const bool visible = a->isVisible();
+            removeAction(a); // releases the widget from the toolbar
+            if (!w)
+                continue;
+            w->setParent(strip);
+            w->setVisible(visible);
+            strip->items << w;
+            if (!visible)
+                strip->suppressed << w;
+        }
+        flow = strip;
+        // The toolbar is exactly as tall as the rows (plus its padding and bottom rule).
+        strip->heightChanged = [this](int rows) {
+            setFixedHeight(rows + 2 * ui::ToolStripPaddingV + 1);
+        };
+        strip->show();
+        placeFlow();
+    } else {
+        auto strip = static_cast<FlowStrip *>(flow);
+        for (auto w : std::as_const(strip->items))
+            if (!strip->rules.contains(w))
+                w->setParent(nullptr); // handed back to their actions below
+        delete strip; // and its separators
+        flow = nullptr;
+        setMinimumHeight(0);
+        setMaximumHeight(QWIDGETSIZE_MAX);
+        for (auto a : std::as_const(wrappedActions))
+            addAction(a);
+        wrappedActions.clear();
+    }
+}
+void ToolBox::placeFlow() {
+    if (!flow)
+        return;
+    flow->setGeometry(ui::ToolStripPaddingH, ui::ToolStripPaddingV, std::max(1, width() - 2 * ui::ToolStripPaddingH),
+                      std::max(1, height() - 2 * ui::ToolStripPaddingV - 1));
+    static_cast<FlowStrip *>(flow)->relayout();
+}
+void ToolBox::resizeEvent(QResizeEvent *e) {
+    QToolBar::resizeEvent(e);
+    placeFlow();
+}
+int ToolBox::singleRowWidth() const { return flow ? static_cast<FlowStrip *>(flow)->oneRowWidth() : 0; }
 
 ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), state(s) {
     setObjectName("toolBox");
     setOrientation(Qt::Vertical);
     setMovable(true);
-    setIconSize({22, 22});
+    setIconSize({ui::ToolIconSize, ui::ToolIconSize});
     setToolButtonStyle(Qt::ToolButtonIconOnly);
     exclusive = new QActionGroup(this);
     for (const auto &info : toolInfos()) {
@@ -371,10 +449,13 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
     addWidget(effectsButton);
     auto spacer = new QWidget(this);
     spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    addWidget(spacer);
+    spacerItem = addWidget(spacer);
+    // The spacer only pushes the chip to the foot of a vertical strip.
+    connect(this, &QToolBar::orientationChanged, this,
+            [this](Qt::Orientation o) { spacerItem->setVisible(o == Qt::Vertical); });
     auto chip = new ColorChip(state, this);
     chip->requested = [this] { emit colorsRequested(); };
-    addWidget(chip);
+    chipItem = addWidget(chip);
     connect(state, &ToolState::toolChanged, this, &ToolBox::sync);
     sync();
 }
@@ -423,14 +504,21 @@ class OptionsRow : public QScrollArea {
         if (before != horizontalScrollBar()->isVisible() || height() != sizeHint().height())
             QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
     }
+    // Pages pre-built during idle time sit hidden in the stacked widget, which never
+    // resizes them, and scrollbar children report isVisible() == false while their page
+    // is hidden. Such a page keeps the bar-less fixed height from construction and its
+    // controls end up clipped by exactly the scrollbar height once it is shown. Re-evaluate
+    // the height after the page reaches the screen, when the scrollbar state is real.
+    void showEvent(QShowEvent *e) override {
+        QScrollArea::showEvent(e);
+        QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
+    }
 };
-// Thin vertical rule separating groups of related options.
-QWidget *divider() {
-    auto line = new QFrame;
-    line->setFrameShape(QFrame::VLine);
-    line->setProperty("role", "vrule");
-    line->setFixedSize(1, 18);
-    return line;
+// Extra whitespace, rather than another rule, separates related option groups.
+QWidget *groupGap() {
+    auto gap = new QWidget;
+    gap->setFixedWidth(ui::GroupGap);
+    return gap;
 }
 QWidget *row(std::initializer_list<QWidget *> widgets) {
     auto scroll = new OptionsRow(pageParent);
@@ -441,10 +529,10 @@ QWidget *row(std::initializer_list<QWidget *> widgets) {
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto w = new QWidget;
     auto l = new QHBoxLayout(w);
-    l->setContentsMargins(4, 2, 4, 2);
-    l->setSpacing(6);
+    l->setContentsMargins(ui::SpaceS, ui::SpaceXS, ui::SpaceS, ui::SpaceXS);
+    l->setSpacing(ui::SpaceM);
     for (auto x : widgets)
-        l->addWidget(x ? x : divider());
+        l->addWidget(x ? x : groupGap());
     l->addStretch();
     scroll->setWidget(w);
     scroll->setFixedHeight(scroll->sizeHint().height());
@@ -678,20 +766,59 @@ QWidget *ToolOptionsBar::shapePage() {
     connect(opacity, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->shapeOpacity = v; state->touch(); } });
     return w;
 }
+namespace {
+// Mode help shown on the mode buttons and on the tolerance box. The two modes compare
+// colours differently on purpose; Contiguous keeps its original rule.
+const char *contiguousFillHelp =
+    "Contiguous: fills the connected area (edge neighbours) around the clicked pixel.\n"
+    "Tolerance 0–255 uses the chosen colour metric; alpha may differ by up to the tolerance;\n"
+    "fully transparent pixels match each other.";
+const char *universalFillHelp =
+    "Universal Fill: replaces every matching pixel in the image, connected or not.\n"
+    "A pixel matches when R, G and B each differ by at most the tolerance (0–255) and alpha\n"
+    "is exactly equal. Fully transparent pixels match each other whatever their hidden colour.\n"
+    "Tolerance 0 = exact colour. The selection and Sample all layers still apply.";
+} // namespace
 QWidget *ToolOptionsBar::fillPage() {
+    auto modes = new QWidget;
+    modes->setObjectName("fillMode");
+    modes->setAccessibleName("Fill mode");
+    auto ml = new QHBoxLayout(modes);
+    ml->setContentsMargins(0, 0, 0, 0);
+    ml->setSpacing(ui::SpaceXS);
+    auto group = new QActionGroup(modes);
+    for (bool contiguous : {true, false}) {
+        auto a = new QAction(contiguous ? "Contiguous" : "Universal Fill", group);
+        a->setCheckable(true);
+        a->setChecked(contiguous);
+        a->setObjectName(contiguous ? "fillModeContiguous" : "fillModeUniversal");
+        a->setToolTip(contiguous ? contiguousFillHelp : universalFillHelp);
+        auto b = new QToolButton;
+        b->setDefaultAction(a);
+        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        b->setObjectName(a->objectName() + "Button");
+        b->setAccessibleName("Fill mode: " + a->text());
+        ml->addWidget(b);
+        connect(a, &QAction::triggered, this, [this, contiguous] {
+            if (!updating) { state->contiguous = contiguous; state->touch(); }
+        });
+    }
     auto tolerance = spin("Tolerance", 0, 255, 0);
     tolerance->setObjectName("fillTolerance");
+    tolerance->setToolTip(contiguousFillHelp);
     auto metric = new QComboBox;
+    metric->setObjectName("fillMetric");
+    metric->setAccessibleName("Contiguous fill colour metric");
+    metric->setToolTip("Contiguous fill colour distance. Universal Fill always compares R, G and B.");
     metric->addItems(ops::distanceNames());
-    auto contiguous = new QCheckBox("Contiguous");
-    contiguous->setObjectName("fillContiguous");
-    contiguous->setToolTip("Off: replace every matching pixel (global fill)");
     auto composite = new QCheckBox("Sample all layers");
+    composite->setObjectName("fillSampleComposite");
+    composite->setToolTip("Match colours on the visible image; only the selected layer changes");
     auto opacity = spin("Opacity", 0, 255, 255);
-    auto w = row({label("Tolerance"), tolerance, metric, contiguous, composite, label("Opacity"), opacity});
+    opacity->setObjectName("fillOpacity");
+    auto w = row({modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
     connect(metric, &QComboBox::currentIndexChanged, this, [this](int i) { if (!updating) { state->metric = ops::Distance(i); state->touch(); } });
-    connect(contiguous, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->contiguous = v; state->touch(); } });
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
     connect(opacity, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->fillOpacity = v; state->touch(); } });
     return w;
@@ -815,8 +942,17 @@ void ToolOptionsBar::reload() {
         a->setChecked(true);
     set("selectTolerance", state->tolerance);
     set("fillTolerance", state->tolerance);
-    if (auto c = page->findChild<QCheckBox *>("fillContiguous"))
-        c->setChecked(state->contiguous);
+    if (auto a = page->findChild<QAction *>(state->contiguous ? "fillModeContiguous" : "fillModeUniversal"))
+        a->setChecked(true);
+    if (auto t = page->findChild<QSpinBox *>("fillTolerance"))
+        t->setToolTip(state->contiguous ? contiguousFillHelp : universalFillHelp);
+    if (auto c = page->findChild<QComboBox *>("fillMetric")) {
+        c->setCurrentIndex(int(state->metric));
+        c->setEnabled(state->contiguous);
+    }
+    if (auto c = page->findChild<QCheckBox *>("fillSampleComposite"))
+        c->setChecked(state->sampleComposite);
+    set("fillOpacity", state->fillOpacity);
     set("transformScaleX", state->scaleX);
     set("transformScaleY", state->scaleY);
     if (auto c = page->findChild<QCheckBox *>("transformFlipH"))

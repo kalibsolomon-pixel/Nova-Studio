@@ -6,6 +6,7 @@
 #include <QIcon>
 #include <QSet>
 #include <QThreadPool>
+#include <functional>
 #include <memory>
 namespace nova {
 class AssetModel : public QAbstractItemModel {
@@ -30,12 +31,24 @@ class AssetModel : public QAbstractItemModel {
     QString project;
     Index sourceIndex;
     QString category;
+    // Vanilla baseline overlay: empty for legacy projects (no extra roles, unchanged rows).
+    QString baselineVersion;
+    std::function<QVariant(int origin)> originForeground;
     int generation = 0;
     Node *node(const QModelIndex &index) const;
     std::unique_ptr<Node> build(const Index &index, QString path, Node *parent, int row);
 
   public:
+    // OriginRole: RowOrigin as int (Project for every row of a legacy project).
+    enum Roles { OriginRole = Qt::UserRole + 1 };
+    enum RowOrigin { ProjectRow = 0, OverrideRow = 1, BaselineRow = 2 };
     explicit AssetModel(QObject *parent = nullptr);
+    // Version shown in baseline tooltips; empty turns the overlay styling off.
+    void setBaselineVersion(const QString &version) { baselineVersion = version; }
+    // Paint-time foreground per RowOrigin (the ui layer supplies live theme tokens).
+    void setOriginForeground(std::function<QVariant(int origin)> style) { originForeground = std::move(style); }
+    RowOrigin origin(const QString &path) const;
+    bool hasDirectory(const QString &path) const { return sourceIndex.directories.contains(path); }
     ~AssetModel() override;
     void setIndex(const Index &index, const QString &rootPath);
     void applyIndex(const Index &index, const QStringList &changed);

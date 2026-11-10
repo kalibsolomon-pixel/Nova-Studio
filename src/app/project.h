@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "project_config.h"
 #include "revision.h"
 #include <QJsonObject>
 #include <QStringList>
@@ -26,6 +27,9 @@ struct Project {
     QByteArray metadata;
     Revision revision;
     QJsonObject json;
+    // .nova/project.json: absent for legacy projects; configDiagnostic explains a rejected file.
+    std::optional<BaselineRef> baseline;
+    QString configDiagnostic;
     static Project inspect(const QString &root);
     static bool exportMinecraft(const QString &root, const QString &destination,
                                 QString *error = nullptr);
@@ -33,6 +37,6 @@ struct Project {
     bool saveMetadata(const QByteArray &bytes, QString *error);
     static bool create(const QString &destination, const QString &name, const GameVersion &version,
                        const QString &description, const QString &nameSpace, const QString &icon,
-                       bool folders, QString *error);
+                       bool folders, QString *error, const BaselineRef *baseline = nullptr);
 };
 } // namespace nova

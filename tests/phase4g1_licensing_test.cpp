@@ -67,6 +67,11 @@ class Phase4g1LicensingTest : public QObject {
         QVERIFY(nova->toPlainText().contains("GPL-3.0-or-later"));
         auto notices = dialog->findChild<QTextBrowser *>("licenseThirdPartyText");
         QVERIFY(notices && notices->toPlainText().contains("LGPL-3.0-only"));
+#if defined(__MINGW32__)
+        QVERIFY(notices->toPlainText().contains("2025 The FreeType Project"));
+        QVERIFY(notices->toPlainText().contains("mingw-w64-gcc-16.2.0-6.src.tar.zst"));
+        QVERIFY(!notices->toPlainText().contains("MICROSOFT-VC-RUNTIME-TERMS"));
+#endif
         auto source = dialog->findChild<QPlainTextEdit *>("licenseSourceText");
         QVERIFY(source && source->toPlainText().contains(BuildRevision));
         for (auto widget : {static_cast<QWidget *>(gpl), static_cast<QWidget *>(nova),
@@ -101,6 +106,24 @@ private slots:
         QVERIFY(notices.contains("Qt Base 6.12.0"));
         QVERIFY(notices.contains("LGPL-3.0-only"));
         QVERIFY(!notices.contains("LICENSE-DECISION"));
+#if defined(__MINGW32__)
+        // Phase 4-I: a GCC build names the GCC runtime and winpthreads, their licenses, and no
+        // Microsoft runtime file.
+        QVERIFY(notices.contains("libstdc++-6.dll"));
+        QVERIFY(notices.contains("libgcc_s_seh-1.dll"));
+        QVERIFY(notices.contains("libwinpthread-1.dll"));
+        QVERIFY(notices.simplified().contains("GCC Runtime Library Exception, version 3.1"));
+        QVERIFY(notices.contains("winpthreads/COPYING"));
+        QVERIFY(notices.contains("mingw-w64-runtime/COPYING.MinGW-w64-runtime.txt"));
+        QVERIFY(!notices.contains("vcruntime140"));
+        QVERIFY(!notices.contains("MICROSOFT-VC-RUNTIME-TERMS.txt"));
+#else
+        // Phase 4-H.2: the Microsoft runtime is named, kept outside the GPL, and its terms are referenced.
+        QVERIFY(notices.contains("vcruntime140_threads.dll"));
+        QVERIFY(notices.contains("MICROSOFT-VC-RUNTIME-TERMS.txt"));
+        QVERIFY(notices.simplified().contains("They are not covered by the GPL"));
+        QVERIFY(notices.simplified().contains("Microsoft does not endorse"));
+#endif
         QVERIFY(legal::document("missing").isEmpty());
     }
     void noticeText() {
@@ -117,6 +140,11 @@ private slots:
         QVERIFY(source.contains("qtbase-everywhere-src-6.12.0.tar.xz"));
         if (qstrlen(SourceUrl))
             QVERIFY(source.contains(QString("Source repository: %1").arg(SourceUrl)));
+        else
+            QVERIFY(!source.contains("Source repository"));
+        // A packaged copy names its installed license and notices; a build tree has no licenses folder.
+        if (QDir(QCoreApplication::applicationDirPath()).exists("licenses"))
+            QVERIFY(source.contains("THIRD_PARTY_NOTICES.md"));
     }
     void licensesCommand() {
         auto action = helpAction(*window, "licensesCommand");

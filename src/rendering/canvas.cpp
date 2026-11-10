@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "canvas.h"
 #include "session.h"
+#include "theme.h"
 #include "tools.h"
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -175,11 +176,13 @@ void Canvas::paintEvent(QPaintEvent *) {
     p.setClipRect(clip);
     // Anchor transparency to the texture, so a magnified editable pixel never
     // contains misleading checker subdivisions. Group whole pixels when tiny.
+    // Colours come from the active theme (ui::Tokens::checkerDark/checkerLight).
+    const auto &theme = ui::current();
     QImage checker(2, 2, QImage::Format_RGB32);
-    checker.setPixel(0, 0, qRgb(43, 43, 43));
-    checker.setPixel(1, 1, qRgb(43, 43, 43));
-    checker.setPixel(1, 0, qRgb(53, 53, 53));
-    checker.setPixel(0, 1, qRgb(53, 53, 53));
+    checker.setPixel(0, 0, theme.checkerDark.rgb());
+    checker.setPixel(1, 1, theme.checkerDark.rgb());
+    checker.setPixel(1, 0, theme.checkerLight.rgb());
+    checker.setPixel(0, 1, theme.checkerLight.rgb());
     QBrush transparency(checker);
     QTransform transform;
     const double cell = zoom * std::max(1.0, std::ceil(6.0 / zoom));
@@ -191,7 +194,7 @@ void Canvas::paintEvent(QPaintEvent *) {
     p.drawImage(target, image);
     if (playbackPreview.isNull()) paintOnions(p, target);
     if (grid && zoom >= 6) {
-        p.setPen(QPen(QColor(0, 0, 0, 65), 0.5));
+        p.setPen(QPen(theme.pixelGrid, 0.5));
         for (int x = std::max(0, int((clip.left() - target.left()) / zoom));
              x <= std::min(document->image.width(), int((clip.right() - target.left()) / zoom) + 1); ++x)
             p.drawLine(QPointF(target.left() + x * zoom, target.top()),
@@ -541,7 +544,14 @@ void Canvas::mousePressEvent(QMouseEvent *e) {
         }
         break;
     case Tool::Fill:
-        if (document->image.rect().contains(pixel))
+        if (document->image.rect().contains(pixel) && !tools->contiguous)
+            run([&](QString *err) {
+                return session ? session->universalFill(document, layer(), pixel, tools->foreground, tools->tolerance,
+                                                        tools->sampleComposite, tools->fillOpacity, err)
+                               : document->universalFill(layer(), pixel, tools->foreground, tools->tolerance,
+                                                         tools->sampleComposite, tools->fillOpacity, err);
+            });
+        else if (document->image.rect().contains(pixel))
             run([&](QString *err) {
                 return session ? session->fill(document, layer(), pixel, tools->foreground, tools->tolerance,
                                                tools->metric, tools->contiguous, tools->sampleComposite,

@@ -58,10 +58,20 @@ bool safeRuntimePath(const QString &path);
 bool safeRuntimeTree(const QString &path);
 // Windows NIO binds short-lived Unix-domain socket files. Their full path must fit
 // in sun_path (108 bytes), which a long or virtualized profile path can exceed.
-// Returns the checked, short per-user directory (empty on refusal) and removes
-// stale socket files left by terminated JVMs. Only socket_* entries are touched.
+// Returns the checked, short per-user directory (empty on refusal, with the reason
+// in *error) and removes stale socket files left by terminated JVMs. Only socket_*
+// entries are touched.
+inline constexpr int socketDirectoryMaxBytes = 88;
+QString socketDirectoryFor(const QString &localAppData);
 QString prepareSocketDirectory(const QString &localAppData, int *removed = nullptr,
-                               int staleSeconds = 600);
+                               int staleSeconds = 600, QString *error = nullptr);
+// <profile>\AppData\Local of the user running Nova, read from the process token,
+// or empty when that profile has no Temp folder.
+QString profileLocalAppData();
+// Prepares the socket directory under localAppData. Only when that path is too long
+// does it use the same folder under fallbackLocalAppData instead.
+QString chooseSocketDirectory(const QString &localAppData, const QString &fallbackLocalAppData,
+                              QString *error = nullptr);
 QString checkGradleHome(const RuntimeLayout &layout);
 
 inline constexpr auto workspaceManifest = ".nova-workspace.json";

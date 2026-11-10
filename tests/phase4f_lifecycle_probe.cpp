@@ -216,7 +216,8 @@ int main(int argc, char **argv) {
     Window window(packA, {}, started);
     window.resize(1400, 900);
     window.show();
-    QTest::qWaitForWindowExposed(&window);
+    if (!QTest::qWaitForWindowExposed(&window))
+        qWarning("lifecycle probe: window was not exposed in time");
     waitIndexed(window);
     QJsonArray samples;
     QJsonArray problems;

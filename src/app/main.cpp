@@ -11,7 +11,9 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 int main(int argc, char **argv) {

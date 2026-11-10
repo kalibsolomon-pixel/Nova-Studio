@@ -64,9 +64,11 @@ VIAddVersionKey "LegalCopyright" "@CPACK_NOVA_COPYRIGHT@. Licensed under @CPACK_
 !define MUI_WELCOMEPAGE_TEXT "This is a preview release of ${APP_NAME}, a resource-pack editor for Minecraft Java Edition. ${APP_NAME} is free software under the GNU General Public License version 3 or later.$\r$\n$\r$\nIt installs for your Windows account only and does not need administrator rights. Your resource packs, settings and recovery data are never changed by Setup.$\r$\n$\r$\nThis installer is not code-signed, so Windows may ask you to confirm that you want to run it."
 !insertmacro MUI_PAGE_WELCOME
 ; GPL-3.0 section 9: the license need not be accepted to install or run the program, so this page
-; only informs (a Next button, no "I agree"). Silent installs skip it.
+; only informs (a Next button, no "I agree"). Phase 4-H.2: the same page presents the end-user terms
+; for the Microsoft Visual C++ runtime files (Distributable Code), which installing them accepts;
+; no extra prompt. Silent installs skip the page; the terms are also installed under licenses\.
 !define MUI_LICENSEPAGE_TEXT_TOP "Nova Studio is free software, licensed under the GNU General Public License version 3 or later."
-!define MUI_LICENSEPAGE_TEXT_BOTTOM "You do not have to accept this license to install Nova Studio. It gives you permission to copy, modify and share it. Choose Next to continue."
+!define MUI_LICENSEPAGE_TEXT_BOTTOM "You do not have to accept the GPL to install Nova Studio. The Microsoft Visual C++ runtime terms at the end of the text apply to the Microsoft files: by choosing Next and installing, you agree to them."
 !define MUI_LICENSEPAGE_BUTTON "$(^NextBtn)"
 !insertmacro MUI_PAGE_LICENSE "@CPACK_RESOURCE_FILE_LICENSE@"
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE DirectoryLeave
@@ -203,6 +205,19 @@ Section "-Install"
   ; Upgrade or repair: the installed copy's own uninstaller removes exactly its own files.
   ${If} ${FileExists} "$INSTDIR\${MARKER}"
   ${AndIf} ${FileExists} "$INSTDIR\${UNINSTALLER}"
+    StrCpy $2 0
+    FindFirst $0 $1 "$INSTDIR\*.*"
+    ${DoWhile} $1 != ""
+      ${If} $1 != "."
+      ${AndIf} $1 != ".."
+      ${AndIf} $1 != "${MARKER}"
+      ${AndIf} $1 != "${UNINSTALLER}"
+        StrCpy $2 1
+      ${EndIf}
+      FindNext $0 $1
+    ${Loop}
+    FindClose $0
+    ${If} $2 == 1
     DetailPrint "Removing the files of the installed version"
     InitPluginsDir
     CopyFiles /SILENT "$INSTDIR\${UNINSTALLER}" "$PLUGINSDIR\previous-uninstaller.exe"
@@ -211,6 +226,7 @@ Section "-Install"
       MessageBox MB_OK|MB_ICONSTOP "The installed version could not be removed (code $0). Nothing else was changed." /SD IDOK
       SetErrorLevel 6
       Quit
+    ${EndIf}
     ${EndIf}
   ${EndIf}
   ; Marker, uninstaller and registration first: an interrupted copy stays repairable.

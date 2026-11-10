@@ -40,13 +40,67 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 3. The Access tab shows **Client connected** with the agent's name. Workflow activity and **Review
    changes** list what the agent did; every edit can be undone.
 
+## Saving, guides and style notes
+
+- **Edits are drafts until saved.** An agent's edits change the open documents in Nova Studio. Use
+  **Save** (Ctrl+S) for the active document or **File › Save All** (Ctrl+Alt+Shift+S) to write every
+  unsaved document into the pack; the status bar shows how many are unsaved. An agent with editing
+  access can also save with `nova.drafts.save` and `nova.drafts.save_all`; it can only save a document
+  to its own resource path, and the result lists what was saved and what was not.
+- **Save writes the pack.** Saving a texture writes its PNG into the pack. Layered textures also save
+  their editable layers, and animations write the PNG and its `.png.mcmeta` (one column) plus their
+  editable source. If any part fails, the document stays unsaved and keeps its recovery copy.
+  **Save All is not atomic:** each document is saved separately and the result shows which failed.
+- **Compact texture editing.** With editing access, an agent can paint a whole region from a palette
+  (`nova.texture.put_pixels`), replace colours (`nova.texture.palette_remap`), recolour by brightness
+  (`nova.texture.gradient_map`) or erase (`nova.texture.erase`) in one call each. Each call is one
+  undoable step on the open document and follows its selection and active layer; like every agent
+  edit, it is not saved until you or the agent save. Exact rules and schemas:
+  [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+- **Vanilla textures, relationships and validation (read-only).** Any connected agent can list and
+  read the vanilla textures in Nova's verified local cache (`nova.vanilla.list`,
+  `nova.vanilla.texture`), see how an asset is selected and used (`nova.asset.relationships`), and
+  validate saved files together with open unsaved drafts (`nova.pack.validate`). The cache holds
+  textures only; vanilla models are available only from a verified vanilla source you add under
+  **Models › Resource stack**. Agents cannot download a version: add it in Nova (Resources ›
+  Vanilla Baseline). Details: [MCP_ASSET_TOOLS.md](MCP_ASSET_TOOLS.md).
+- **Guides.** Agents can read Nova's resource-pack guides (`nova.guide.get`, or the MCP resources
+  `nova://rules/<version>/<topic>`). Guides exist for Minecraft Java 1.21.11 only, checked against
+  the official 1.21.11 client; other versions return "no verified guide".
+- **Style notes.** **File › Project Properties › Edit style notes…** stores an optional style brief
+  (theme, audience, palette, things to preserve) in `.nova/project.json`. Agents can read it but not
+  change it, and it is not exported with the pack.
+
+## Agent Session (ACP, experimental)
+
+Agent Session is experimental and off by default. Turn it on in **Edit › Preferences ›
+Experimental**; see KNOWN_LIMITATIONS.md for what has and has not been tested.
+
+**Resources › Agent Session (ACP, Experimental)…** starts an agent that speaks the Agent Client Protocol, such as
+OpenCode's `opencode acp`, and attaches this `nova-mcp.exe` to that one session. Choose the agent's
+`.exe` (not a `.cmd` shim), then **Start read-only session…**; the question names the program, the
+project and the access, and nothing starts until you agree.
+
+- Only a bridge started by that agent can use the access; Nova refuses any other program.
+- **Allow editing…** becomes available once the read-only session has connected. It asks again and
+  restarts the agent with editing access, which includes saving into the pack.
+- **Revoke Nova access** ends Nova access but leaves the agent running; **Stop session**, closing the
+  window, switching projects or the agent exiting ends the agent, everything it started, and the access.
+- The agent works in an empty temporary folder, not in the project. Its own tools (files, shell, web)
+  follow its own settings; Nova shows its permission requests and never answers them for you.
+- The window shows the conversation: your messages, the agent's replies and, in lighter text, its
+  reasoning. Tool activity is not listed there; edits made through Nova appear in **MCP Integration ›
+  Review changes**, and the session and access lines show what the agent may do.
+- Nova keeps the conversation in the window only and passes no connection code to the agent.
+
 ## Diagnostics
 
 **Agent Setup › Run diagnostics** checks, without granting access:
 
-- `nova-mcp.exe` exists next to Nova Studio and starts;
+- `nova-mcp.exe` exists next to Nova Studio and starts with only the Windows folders on `PATH`, as an
+  agent with an unrelated `PATH` would start it;
 - its version matches Nova Studio;
-- its protocol self-test answers and declares the 26 tools;
+- its protocol self-test answers and declares its tools;
 - the selected agent's configuration points to this `nova-mcp.exe`;
 - whether an agent is connected right now.
 
@@ -60,6 +114,14 @@ These checks are local. Only **Client connected** on the Access tab shows a real
 - **Configured for a different copy of Nova Studio:** you moved or reinstalled Nova Studio. Choose
   **Update Nova Studio…**.
 - **Claude Desktop is running:** quit it from the notification area, then Check again.
+- **An agent cannot create an asset:** the error names the cause and the pack-relative path at fault.
+  `missing_directory` — the folder does not exist; Nova does not create folders, so create it in the
+  pack first. `asset_conflict` — a file already uses the path; Nova never overwrites it.
+  `unsafe_asset` — a folder on the path is a link, a junction or not an ordinary folder.
+  `access_denied` — Windows refused access to that folder or file. `stale_index` with
+  `details.reason` `stale_index_entry` — Nova's index listed a file that is no longer on disk; Nova
+  re-indexes the project, and the agent retries after `nova.project.info` reports a new
+  `indexRevision`.
 - **Advanced:** instead of the automatic offer, a client can pass the code from **Copy connection
   code** in the `NOVA_MCP_CODE` environment variable.
 

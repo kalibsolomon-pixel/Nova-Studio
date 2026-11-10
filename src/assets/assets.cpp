@@ -150,7 +150,7 @@ void AssetModel::applyIndex(const Index &idx, const QStringList &changed) {
         if (invalidated(it.key())) {
             auto i = indexFor(it.key());
             if (i.isValid())
-                emit dataChanged(i, i, {Qt::DecorationRole});
+                emit dataChanged(i, i, {Qt::DecorationRole, Qt::ForegroundRole, Qt::ToolTipRole, OriginRole});
         }
     }
 }
@@ -196,14 +196,37 @@ const QIcon &AssetModel::standardIcon(bool directory) const {
     }
     return directory ? directoryIcon : fileIcon;
 }
+AssetModel::RowOrigin AssetModel::origin(const QString &path) const {
+    const auto record = sourceIndex.records.constFind(path);
+    if (record == sourceIndex.records.cend())
+        return ProjectRow;
+    if (record->origin == AssetIdentity::Origin::Baseline)
+        return BaselineRow;
+    return record->shadowsBaseline ? OverrideRow : ProjectRow;
+}
 QVariant AssetModel::data(const QModelIndex &i, int role) const {
     if (!i.isValid())
         return {};
     auto n = node(i);
     if (role == Qt::DisplayRole)
         return QFileInfo(n->path).fileName();
+    if (role == OriginRole)
+        return n->directory ? int(ProjectRow) : int(origin(n->path));
+    if (role == Qt::ToolTipRole && !baselineVersion.isEmpty() && !n->directory) {
+        const auto o = origin(n->path);
+        if (o == BaselineRow)
+            return n->path + QStringLiteral("\nVanilla Java ") + baselineVersion + " · not in project (read-only baseline)";
+        if (o == OverrideRow)
+            return n->path + QStringLiteral("\nProject override of vanilla Java ") + baselineVersion;
+    }
     if (role == Qt::ToolTipRole || role == Qt::UserRole)
         return n->path;
+    if (role == Qt::ForegroundRole) {
+        if (baselineVersion.isEmpty() || n->directory || !originForeground)
+            return {};
+        const auto o = origin(n->path);
+        return o == ProjectRow ? QVariant() : originForeground(int(o));
+    }
     if (role != Qt::DecorationRole)
         return {};
     if (n->directory)
@@ -215,7 +238,11 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
         return *icon;
     if (n->path.endsWith(".png", Qt::CaseInsensitive) && !pending.contains(n->path) &&
         !failed.contains(n->path) && pending.size() < 128) {
-        QString path = n->path, full = project + '/' + path;
+        // Baseline rows come from the shared read-only cache; project rows from the project.
+        const auto record = sourceIndex.records.constFind(n->path);
+        const bool cached = record != sourceIndex.records.cend() &&
+                            record->origin == AssetIdentity::Origin::Baseline && !record->filesystemPath.isEmpty();
+        QString path = n->path, full = cached ? record->filesystemPath : project + '/' + path;
         int gen = generation;
         pending.insert(path);
         pool.start(QRunnable::create([this, path, full, gen] {

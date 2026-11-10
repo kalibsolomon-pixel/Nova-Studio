@@ -41,6 +41,10 @@ License
   * licenses\COPYRIGHT.md says what the license covers. Third-party components (Qt, the
     Microsoft Visual C++ runtime, the Gradle wrapper) keep their own licenses: see
     licenses\THIRD_PARTY_NOTICES.md. In Nova Studio: Help > Licenses and Source Code.
+  * The Microsoft Visual C++ runtime files in this folder (concrt140.dll, msvcp140*.dll,
+    vccorlib140.dll, vcruntime140*.dll) are Microsoft software, not covered by the GPL. By
+    installing, copying or using them you agree to licenses\MICROSOFT-VC-RUNTIME-TERMS.txt.
+    Microsoft does not endorse Nova Studio.
 
 Source code
   * source\ holds the complete corresponding source code of this exact build

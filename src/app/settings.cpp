@@ -72,6 +72,7 @@ Preferences Settings::load() const {
     p.fabricLocation = s.value("fabric/location").toString().left(1024);
     p.fabricDetailedLogs = s.value("fabric/detailedLogs", false).toBool();
     p.fabricOpenTestWorld = s.value("fabric/openTestWorld", true).toBool();
+    p.experimentalAgentSession = s.value("experimental/agentSession", false).toBool();
     p.geometry = s.value("workspace/geometry").toByteArray();
     p.layout = s.value("workspace/layout").toByteArray();
     p.recentProjects = s.value("projects/recent").toStringList().mid(0, 10);
@@ -84,6 +85,11 @@ Preferences Settings::load() const {
     s.beginGroup("layouts");
     for (const auto &name : s.childKeys().mid(0, 32))
         p.layouts.insert(QString::fromUtf8(QByteArray::fromHex(name.toLatin1())), s.value(name).toByteArray());
+    s.endGroup();
+    s.beginGroup("presetLayouts");
+    for (const auto &name : s.childKeys().mid(0, 16))
+        if (const auto value = s.value(name).toByteArray(); value.size() <= 1024 * 1024)
+            p.presetLayouts.insert(name.left(32), value);
     s.endGroup();
     p.recentColors = s.value("editor/recentColors").toStringList().mid(0, 16);
     p.activePalette = s.value("editor/activePalette").toString().left(128);
@@ -115,6 +121,7 @@ bool Settings::save(const Preferences &p) const {
     s.setValue("fabric/location", p.fabricLocation);
     s.setValue("fabric/detailedLogs", p.fabricDetailedLogs);
     s.setValue("fabric/openTestWorld", p.fabricOpenTestWorld);
+    s.setValue("experimental/agentSession", p.experimentalAgentSession);
     s.setValue("editor/historyMiB", p.historyMiB);
     s.setValue("workspace/geometry", p.geometry);
     s.setValue("workspace/layout", p.layout);
@@ -129,6 +136,11 @@ bool Settings::save(const Preferences &p) const {
     s.beginGroup("layouts");
     for (auto it = p.layouts.begin(); it != p.layouts.end(); ++it)
         s.setValue(QString::fromLatin1(it.key().toUtf8().toHex()), it.value());
+    s.endGroup();
+    s.remove("presetLayouts");
+    s.beginGroup("presetLayouts");
+    for (auto it = p.presetLayouts.begin(); it != p.presetLayouts.end(); ++it)
+        s.setValue(it.key(), it.value());
     s.endGroup();
     s.setValue("editor/recentColors", p.recentColors.mid(0, 16));
     s.setValue("editor/activePalette", p.activePalette);

@@ -15,7 +15,9 @@
 #include <array>
 #include <cmath>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <psapi.h>
 #endif

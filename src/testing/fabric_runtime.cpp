@@ -2,6 +2,7 @@
 #include "fabric_runtime.h"
 #include "revision.h"
 #include <QCryptographicHash>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -645,7 +646,7 @@ void FabricRuntime::workspaceStep() {
         [profile, layout, inputs, lock = preparationLock] { return writeWorkspace(profile, layout, inputs); }));
 }
 
-QProcessEnvironment FabricRuntime::gradleEnvironment() const {
+QProcessEnvironment FabricRuntime::gradleEnvironment(QString *error) const {
     const auto inherited = QProcessEnvironment::systemEnvironment();
     QProcessEnvironment environment;
     for (const QString name : {"SystemRoot", "WINDIR", "SystemDrive", "USERPROFILE",
@@ -675,9 +676,15 @@ QProcessEnvironment FabricRuntime::gradleEnvironment() const {
         // Windows NIO uses Unix-domain socket files. Use a short, checked
         // subdirectory of the per-user Windows temp directory for those sockets.
         // Keep all other Gradle temporary files under the managed runtime.
-        const auto sockets = prepareSocketDirectory(options.environment.localAppData);
-        if (sockets.isEmpty())
+        QString reason;
+        const auto sockets = chooseSocketDirectory(options.environment.localAppData,
+                                                   profileLocalAppData(), &reason);
+        if (sockets.isEmpty()) {
+            qWarning().noquote() << "Java socket directory refused:" << reason;
+            if (error)
+                *error = reason;
             return {};
+        }
         environment.insert("JDK_JAVA_OPTIONS", QString("\"-Djdk.net.unixdomain.tmpdir=%1\"").arg(sockets));
     }
 #endif
@@ -723,9 +730,10 @@ void FabricRuntime::gradleStep(const QString &manifestHash) {
     if (!guard || !check.ok || check.manifestHash != manifestHash ||
         !safeRuntimePath(temp) || !QDir().mkpath(temp))
         return fail(check.ok ? QString("Could not secure the Gradle execution inputs") : check.error);
-    const auto environment = gradleEnvironment();
+    QString socketError;
+    const auto environment = gradleEnvironment(&socketError);
     if (environment.isEmpty())
-        return fail("Could not prepare the Java socket directory");
+        return fail("Could not prepare the Java socket directory: " + socketError);
     gradleBuffer.clear();
     QFile::remove(prepareLogPath());
     gradle = new QProcess(this);
@@ -880,9 +888,10 @@ bool FabricRuntime::launch(const QString &quickPlayWorld, QString *error) {
         !safeRuntimePath(temp) || !QDir().mkpath(temp) || !safeRuntimePath(paths.logs))
         return refuse((check.ok ? QString("Could not secure the prepared Gradle inputs") : check.error) +
                       ". Use Repair runtime.");
-    const auto environment = gradleEnvironment();
+    QString socketError;
+    const auto environment = gradleEnvironment(&socketError);
     if (environment.isEmpty())
-        return refuse("Could not prepare the Java socket directory");
+        return refuse("Could not prepare the Java socket directory: " + socketError);
     QDir().mkpath(paths.logs);
     for (const auto &suffix : {".log", ".err.log"}) {
         const auto path = paths.logs + "/gradle-run" + suffix;
@@ -946,8 +955,17 @@ void FabricRuntime::watch(const ProcessIdentity &identity) {
     failureSeen = false;
     graceExpired = false;
 #ifdef Q_OS_WIN
-    processHandle =
-        OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, DWORD(identity.pid));
+    // The handle must belong to this process, not to a later one that reused its id.
+    if (identity.valid())
+        processHandle =
+            OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, DWORD(identity.pid));
+    FILETIME created, exited, kernel, user;
+    if (processHandle &&
+        (!GetProcessTimes(static_cast<HANDLE>(processHandle), &created, &exited, &kernel, &user) ||
+         ((quint64(created.dwHighDateTime) << 32) | created.dwLowDateTime) != identity.created)) {
+        CloseHandle(static_cast<HANDLE>(processHandle));
+        processHandle = nullptr;
+    }
     if (processHandle) {
         exitNotifier = new QWinEventNotifier(processHandle, this);
         connect(exitNotifier, &QWinEventNotifier::activated, this, &FabricRuntime::processExited);
@@ -955,6 +973,16 @@ void FabricRuntime::watch(const ProcessIdentity &identity) {
 #endif
     poll->start();
     pollRun();
+#ifdef Q_OS_WIN
+    // Gradle can exit before it is watched: startDetached keeps no handle, so the exit is gone
+    // with the process. Report it like any other exit (its code is unknown) instead of waiting
+    // for a signal that can never come.
+    if (!exitNotifier && !processAlive(identity))
+        QTimer::singleShot(0, this, [this, identity] {
+            if (!exitNotifier && root.pid == identity.pid && root.created == identity.created)
+                processExited();
+        });
+#endif
 }
 
 void FabricRuntime::unwatch() {

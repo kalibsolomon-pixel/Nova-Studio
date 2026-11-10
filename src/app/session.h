@@ -55,6 +55,8 @@ class DocumentSession : public QObject {
     bool fill(const std::shared_ptr<Document> &doc, QUuid layer, QPoint seed, QRgb color,
               int tolerance, ops::Distance metric, bool contiguous, bool sampleComposite,
               int opacity = 255, QString *error = nullptr);
+    bool universalFill(const std::shared_ptr<Document> &doc, QUuid layer, QPoint seed, QRgb color,
+                       int tolerance, bool sampleComposite, int opacity = 255, QString *error = nullptr);
     bool shape(const std::shared_ptr<Document> &doc, QUuid layer, const ops::ShapeSpec &shape,
                QRgb color, int opacity = 255, bool erase = false, QString *error = nullptr);
     bool commitFloating(const std::shared_ptr<Document> &doc, QUuid layer, const QImage &floating,

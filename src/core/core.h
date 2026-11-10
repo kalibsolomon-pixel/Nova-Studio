@@ -259,6 +259,11 @@ class Document {
                         const QImage *newSelection = nullptr);
     bool fill(QUuid layer, QPoint seed, QRgb color, int tolerance, ops::Distance metric,
               bool contiguous, bool sampleComposite, int opacity = 255, QString *error = nullptr);
+    // Universal Fill: paints every pixel matching the seed under ops::universalFillMatches()
+    // across the whole image, gated by the selection like fill(). Matching reads the active
+    // layer, or the visible composite with sampleComposite; only the active layer changes.
+    bool universalFill(QUuid layer, QPoint seed, QRgb color, int tolerance, bool sampleComposite,
+                       int opacity = 255, QString *error = nullptr);
     bool drawShape(QUuid layer, const ops::ShapeSpec &shape, QRgb color, int opacity = 255,
                    bool erase = false, QString *error = nullptr);
     bool mergeDown(QUuid layer, QString *error = nullptr);
@@ -308,6 +313,13 @@ class Document {
     void setHistoryLimits(qint64 bytes, int operations);
     void restorePixels(const QImage &pixels, const Revision &originalRevision);
     static std::shared_ptr<Document> open(const QString &path, QString *error = nullptr);
+    // A document bound to a project path that does not exist yet, built from verified baseline
+    // bytes. Opening writes nothing and leaves it unmodified; both revisions are "missing", so its
+    // first save (or, for an animated texture, PNG + .mcmeta pair export) is create-only.
+    static std::shared_ptr<Document> fromBaseline(const QString &targetPath, const QByteArray &png,
+                                                  const QByteArray &mcmeta,
+                                                  const QString &minecraftVersion,
+                                                  QString *error = nullptr);
     QUuid id() const { return identity; }
     void setRecoveryIdentity(QUuid id) { identity = id; }
     State state() const;

@@ -3,7 +3,7 @@ add_library(nova-diagnostics STATIC app/diagnostics.cpp app/diagnostics.h)
 target_link_libraries(nova-diagnostics PUBLIC Qt6::Core)
 target_include_directories(nova-diagnostics PUBLIC app "${PROJECT_BINARY_DIR}/generated")
 add_library(nova-core STATIC core/core.cpp core/core.h core/document.cpp core/native.cpp core/revision.cpp core/revision.h
-  core/pixelwrite.h core/editing.cpp core/animation.cpp core/animation_native.cpp core/minecraft_animation.cpp core/minecraft_animation.h core/imageops.h core/ops_internal.h core/ops_basics.cpp core/ops_color.cpp
+  core/pixelwrite.h core/editing.cpp core/animation.cpp core/animation_native.cpp core/minecraft_animation.cpp core/minecraft_animation.h core/imageops.h core/texture_edit.h core/texture_edit.cpp core/ops_internal.h core/ops_basics.cpp core/ops_color.cpp
   core/ops_filter.cpp core/ops_transform.cpp core/ops_generate.cpp core/ops_registry.cpp core/palette.h core/palette.cpp)
 target_link_libraries(nova-core PUBLIC Qt6::Gui)
 target_include_directories(nova-core PUBLIC core)
@@ -17,7 +17,8 @@ target_sources(nova-models PRIVATE models/validation.h models/validation.cpp)
 target_include_directories(nova-models PUBLIC models)
 target_link_libraries(nova-models PUBLIC nova-core nova-asset-index Qt6::Gui)
 
-add_library(nova-application STATIC app/settings.cpp app/settings.h app/session.cpp app/session.h app/session_edit.cpp app/playback.cpp app/playback.h app/material_playback.cpp app/material_playback.h app/animation_export.cpp app/animation_export.h app/presets.cpp app/presets.h app/batch.cpp app/batch.h app/native_batch.cpp app/native_batch.h app/project.cpp app/project.h app/recovery.cpp app/recovery.h)
+add_library(nova-application STATIC app/settings.cpp app/settings.h app/session.cpp app/session.h app/session_edit.cpp app/playback.cpp app/playback.h app/material_playback.cpp app/material_playback.h app/animation_export.cpp app/animation_export.h app/presets.cpp app/presets.h app/batch.cpp app/batch.h app/native_batch.cpp app/native_batch.h app/project.cpp app/project.h app/recovery.cpp app/recovery.h
+  app/project_config.cpp app/project_config.h app/baseline_reset.cpp app/baseline_reset.h)
 target_link_libraries(nova-application PUBLIC nova-core nova-asset-index)
 target_include_directories(nova-application PUBLIC app)
 target_link_libraries(nova-models PRIVATE nova-application)
@@ -44,19 +45,34 @@ qt_add_resources(nova-testing "nova_fabric_runtime"
   BASE "${PROJECT_SOURCE_DIR}/assets/fabric-runtime"
   FILES "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/gradle-wrapper-9.8.2.jar")
 if(WIN32)
-  target_link_libraries(nova-testing PRIVATE wintrust crypt32)
+  target_link_libraries(nova-testing PRIVATE wintrust crypt32 userenv)
 endif()
 
-add_library(nova-mcp-protocol STATIC mcp/protocol.cpp mcp/protocol.h mcp/handoff.cpp mcp/handoff.h)
+# Vanilla texture baseline: shared per-user cache, Mojang metadata download and the
+# read-only index overlay (docs/vanilla-baseline/DESIGN.md). Include as "vanilla/<file>.h".
+add_library(nova-vanilla STATIC
+  vanilla/metadata.cpp vanilla/metadata.h
+  vanilla/cache.cpp vanilla/cache.h
+  vanilla/installer.cpp vanilla/installer.h
+  vanilla/overlay.cpp vanilla/overlay.h)
+target_include_directories(nova-vanilla PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(nova-vanilla PUBLIC nova-core nova-asset-index nova-testing Qt6::Core Qt6::Network
+  Qt6::Concurrent)
+# QZipReader (private, pinned Qt 6.12.0) reads the client jar.
+target_link_libraries(nova-vanilla PRIVATE Qt6::CorePrivate)
+
+add_library(nova-mcp-protocol STATIC mcp/protocol.cpp mcp/protocol.h mcp/guides.cpp mcp/guides.h
+  mcp/handoff.cpp mcp/handoff.h)
 target_include_directories(nova-mcp-protocol PUBLIC mcp "${PROJECT_BINARY_DIR}/generated")
 target_link_libraries(nova-mcp-protocol PUBLIC Qt6::Core)
 if(WIN32)
   target_link_libraries(nova-mcp-protocol PRIVATE advapi32 shell32 ole32)
 endif()
 add_library(nova-mcp-service STATIC
-  mcp/inspection.cpp mcp/inspection.h mcp/scope.cpp mcp/scope.h mcp/service.cpp mcp/service.h)
+  mcp/inspection.cpp mcp/inspection.h mcp/scope.cpp mcp/scope.h mcp/service.cpp mcp/service.h
+  mcp/sources.cpp mcp/sources.h mcp/relationships.cpp mcp/relationships.h mcp/vanilla_access.cpp mcp/vanilla_access.h)
 target_link_libraries(nova-mcp-service PUBLIC nova-mcp-protocol nova-models Qt6::Network Qt6::Concurrent
-  PRIVATE nova-application)
+  PRIVATE nova-application nova-vanilla)
 # Phase 4-G: MCP client (AI agent) detection and configuration for onboarding.
 add_library(nova-mcp-clients STATIC mcp/clients.cpp mcp/clients.h)
 target_include_directories(nova-mcp-clients PUBLIC mcp)
@@ -67,48 +83,82 @@ if(WIN32)
   enable_language(RC)
   configure_file(mcp/bridge.rc.in "${CMAKE_CURRENT_BINARY_DIR}/bridge.rc" @ONLY)
   target_sources(nova-mcp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/bridge.rc")
+  # MCP clients start the build-tree bridge with their own PATH: put its Qt (and, for GCC, compiler
+  # runtime) DLLs next to it, with a build-folder qt.conf that keeps Qt's plugin paths on the Qt
+  # installation. Packages resolve their own payload and qt.conf; see cmake/NovaDeployBridge.cmake.
+  set(nova_bridge_compiler_bin "")
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    get_filename_component(nova_bridge_compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  endif()
+  set(NOVA_BRIDGE_DEPLOY_ARGUMENTS
+    "-DQT_BIN=$<TARGET_FILE_DIR:Qt6::Core>" "-DCOMPILER_BIN=${nova_bridge_compiler_bin}"
+    "-DQT_PREFIX=${QT6_INSTALL_PREFIX}"
+    "-DQT_PATHS=Binaries=${QT6_INSTALL_BINS},Libraries=${QT6_INSTALL_LIBS},LibraryExecutables=${QT6_INSTALL_LIBEXECS},Plugins=${QT6_INSTALL_PLUGINS},Translations=${QT6_INSTALL_TRANSLATIONS},Data=${QT6_INSTALL_DATA},ArchData=${QT6_INSTALL_ARCHDATA},QmlImports=${QT6_INSTALL_QML}"
+    -P "${PROJECT_SOURCE_DIR}/cmake/NovaDeployBridge.cmake")
+  set(NOVA_BRIDGE_DEPLOY_ARGUMENTS "${NOVA_BRIDGE_DEPLOY_ARGUMENTS}" PARENT_SCOPE) # tests/ copies the bridge too
+  add_custom_command(TARGET nova-mcp POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" "-DBRIDGE=$<TARGET_FILE:nova-mcp>" ${NOVA_BRIDGE_DEPLOY_ARGUMENTS}
+    VERBATIM)
 endif()
+
+# ACP prototype: one Nova-launched agent with Nova's MCP bridge attached (docs/acp/DESIGN.md).
+add_library(nova-acp STATIC acp/agent_client.cpp acp/agent_client.h)
+target_include_directories(nova-acp PUBLIC acp "${PROJECT_BINARY_DIR}/generated")
+target_link_libraries(nova-acp PUBLIC nova-testing Qt6::Core)
 
 add_library(nova-workspace STATIC
   app/branding.cpp app/branding.h
-  ui/theme.cpp ui/theme.h ui/workspace.cpp
+  ui/theme.cpp ui/theme.h ui/workspace.cpp ui/tool_placement.cpp ui/tool_placement.h
   assets/assets.cpp assets/assets.h
   ui/modelpanel.cpp ui/modelpanel.h
   ui/uv_editor.cpp
   ui/display_editor.cpp
   ui/modelauthor.h ui/modelauthor.cpp
   ui/resourcetools.h ui/resourcetools.cpp ui/resourceworkspace.cpp
-  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h
+  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h ui/agent_session.cpp
   ui/search.cpp ui/search.h
   ui/workflow_review.cpp
   ui/model_materials.cpp
   ui/refinements.cpp
   ui/support.cpp
+  ui/baseline_ui.cpp ui/baseline_ui.h
   ui/legal.cpp ui/legal.h
   rendering/canvas.cpp rendering/canvas.h rendering/onion.cpp rendering/cube.cpp rendering/cube.h
   rendering/preview_state.cpp
   rendering/layer_floating.cpp
   ui/minecraft_testing.cpp ui/minecraft_testing.h
   ui/fabric_testing.cpp ui/fabric_testing.h
-  ui/window.cpp ui/window.h ui/animation_ui.cpp ui/timeline.cpp ui/timeline.h ui/layers.cpp ui/layers.h ui/tools.cpp ui/tools.h ui/panels.cpp ui/panels.h ui/opdialog.cpp ui/opdialog.h ui/editor.cpp ui/batchdialog.cpp ui/batchdialog.h ui/safety.cpp ui/indexing.cpp ui/performance.cpp ui/projectdialogs.cpp ui/projectdialogs.h app/metrics.cpp app/metrics.h)
+  ui/window.cpp ui/window.h ui/saving.cpp ui/animation_ui.cpp ui/timeline.cpp ui/timeline.h ui/layers.cpp ui/layers.h ui/tools.cpp ui/tools.h ui/panels.cpp ui/panels.h ui/opdialog.cpp ui/opdialog.h ui/editor.cpp ui/batchdialog.cpp ui/batchdialog.h ui/safety.cpp ui/indexing.cpp ui/performance.cpp ui/projectdialogs.cpp ui/projectdialogs.h app/metrics.cpp app/metrics.h)
 target_include_directories(nova-workspace PUBLIC app assets rendering ui)
-target_link_libraries(nova-workspace PUBLIC nova-diagnostics nova-core nova-application nova-asset-index nova-models nova-testing Qt6::Widgets Qt6::OpenGLWidgets Qt6::OpenGL Qt6::Concurrent)
-target_link_libraries(nova-workspace PRIVATE nova-mcp-service nova-mcp-clients)
+target_link_libraries(nova-workspace PUBLIC nova-diagnostics nova-core nova-application nova-asset-index nova-models nova-testing nova-vanilla Qt6::Widgets Qt6::OpenGLWidgets Qt6::OpenGL Qt6::Concurrent)
+target_link_libraries(nova-workspace PRIVATE nova-mcp-service nova-mcp-clients nova-acp)
 qt_add_resources(nova-workspace "nova_branding"
   PREFIX "/branding"
   BASE "${PROJECT_SOURCE_DIR}/assets/branding"
   FILES
     "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-icon.ico"
     "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-mark.png")
+# Material Symbols Outlined: the unmodified, pinned font used by command and tool icons.
+qt_add_resources(nova-workspace "nova_material_symbols"
+  PREFIX "/fonts"
+  BASE "${PROJECT_SOURCE_DIR}/assets/fonts"
+  FILES "${PROJECT_SOURCE_DIR}/assets/fonts/MaterialSymbolsOutlined.ttf")
 # Phase 4-G.1: license texts shown by Help > Licenses and Source Code.
 qt_add_resources(nova-workspace "nova_legal"
   PREFIX "/legal"
   BASE "${PROJECT_SOURCE_DIR}"
   FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/COPYRIGHT.md")
+# Phase 4-I: a GCC/MinGW-w64 build ships the GCC runtime instead of the Visual C++ runtime, so it
+# embeds the matching notices (same resource path, :/legal/THIRD_PARTY_NOTICES.md).
+if(MINGW)
+  set(NOVA_NOTICES_DIR "${PROJECT_SOURCE_DIR}/packaging/mingw")
+else()
+  set(NOVA_NOTICES_DIR "${PROJECT_SOURCE_DIR}/packaging")
+endif()
 qt_add_resources(nova-workspace "nova_legal_notices"
   PREFIX "/legal"
-  BASE "${PROJECT_SOURCE_DIR}/packaging"
-  FILES "${PROJECT_SOURCE_DIR}/packaging/THIRD_PARTY_NOTICES.md")
+  BASE "${NOVA_NOTICES_DIR}"
+  FILES "${NOVA_NOTICES_DIR}/THIRD_PARTY_NOTICES.md")
 add_executable(nova-studio WIN32 app/main.cpp)
 if(WIN32)
   enable_language(RC)
@@ -118,10 +168,22 @@ if(WIN32)
     OBJECT_DEPENDS "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-icon.ico")
 endif()
 target_link_libraries(nova-studio PRIVATE nova-workspace)
-if(MSVC)
+if(WIN32)
   target_link_libraries(nova-workspace PRIVATE Psapi)
-  foreach(target nova-core nova-application nova-asset-index nova-testing nova-workspace nova-studio
+endif()
+if(MSVC)
+  foreach(target nova-core nova-application nova-asset-index nova-testing nova-vanilla nova-workspace nova-studio
                  nova-mcp-protocol nova-mcp-service nova-mcp-clients nova-mcp)
     target_compile_options(${target} PRIVATE /W4 /utf-8)
+  endforeach()
+elseif(MINGW)
+  # Phase 4-I (experimental): GCC counterparts of /W4 /utf-8 (warnings only, UTF-8 source and
+  # narrow execution character set). -Wmissing-field-initializers is the one -Wextra check left out:
+  # Nova initialises command structs such as LayerEdit with their leading members only, relying on
+  # C++'s value-initialisation of the rest (well-defined, and not a /W4 warning either).
+  foreach(target nova-core nova-application nova-asset-index nova-testing nova-vanilla nova-workspace nova-studio
+                 nova-mcp-protocol nova-mcp-service nova-mcp-clients nova-mcp)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers
+                           -finput-charset=UTF-8 -fexec-charset=UTF-8)
   endforeach()
 endif()

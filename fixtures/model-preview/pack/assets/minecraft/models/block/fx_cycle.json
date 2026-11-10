@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/fx_cycle_b",
+  "textures": {
+    "all": "minecraft:block/fx_cycle"
+  }
+}

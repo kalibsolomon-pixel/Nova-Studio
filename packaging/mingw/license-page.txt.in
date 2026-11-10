@@ -1,0 +1,18 @@
+Nova Studio @NOVA_DISPLAY_VERSION@
+@NOVA_COPYRIGHT@
+Nova Studio uses Qt under LGPL-3.0-only. See licenses\qt\LICENSES\LGPL-3.0-only.txt and licenses\THIRD_PARTY_NOTICES.md for source and library replacement rights. The modified Qt source is the shipped Qt tarball plus the documented PCRE2 patch. GCC runtime corresponding source accompanies this candidate as a separate MSYS2 source archive.
+
+Nova Studio is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version (@NOVA_LICENSE@).
+
+Nova Studio is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License below for more details.
+
+You do not have to accept this license to install or use Nova Studio. It gives you permission to copy, modify and share Nova Studio under its terms.
+
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation.
+
+GCC RUNTIME. Nova Studio includes the unmodified GCC runtime libraries libstdc++-6.dll and libgcc_s_seh-1.dll (GPL-3.0-or-later with the GCC Runtime Library Exception 3.1) and MinGW-w64 winpthreads (libwinpthread-1.dll, MIT and BSD-3-Clause). Every program file also contains small, statically linked parts of the MinGW-w64 runtime, whose notices are in licenses\mingw-w64-runtime. These licenses are installed under licenses\. No Microsoft Visual C++ runtime files are included.
+
+Third-party components keep their own licenses: see licenses\THIRD_PARTY_NOTICES.md in the installation folder. The complete corresponding source code of this version is installed in the source folder.
+
+------------------------------------------------------------------------------
+

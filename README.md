@@ -23,12 +23,16 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
   and export.
 - **Models:** block and item models, blockstates and item definitions, with a 3D preview, UV
   editing, item display transforms and resource validation.
+- **Vanilla baseline:** an optional local texture cache and reset-to-vanilla workflow; it provides
+  textures only, not vanilla models. Item preview supports the documented Java item-definition scope.
 - **Test in Minecraft:** prepares a separate, Nova-managed Minecraft Java Edition 1.21.11 runtime
   with Fabric when you ask for it. It does not touch your normal Minecraft installation and never
   asks for account credentials.
 - **Search (Ctrl+K):** commands, tools, settings, workspaces, panels and textures.
 - **AI agents (MCP):** `nova-mcp.exe` is a local Model Context Protocol server. Agents get no
   access until you allow it for one session and one project.
+- **Agent Session (ACP):** experimental and off by default. Enable it in Preferences to attach a
+  local agent; provider conversations and adapter compatibility remain limited (see MCP setup).
 - **File safety:** atomic saves, undo history, external-change review and crash recovery.
 
 ## Documentation
@@ -37,6 +41,7 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 | --- | --- |
 | [Installation](docs/release/INSTALLATION.md) | Installer, portable ZIP, upgrade and uninstall |
 | [First run](docs/release/FIRST_RUN.md) | Opening a pack and the basic workflow |
+| [Vanilla baseline](docs/release/vanilla-baseline/USER_GUIDE.md) | Texture cache, overrides and reset behavior |
 | [Search](docs/release/SEARCH.md) | The Ctrl+K search box |
 | [MCP setup](docs/release/MCP_SETUP.md) | Connecting Claude Desktop, Claude Code, Codex or other MCP clients |
 | [Known limitations](docs/release/KNOWN_LIMITATIONS.md) | What is not tested or not supported yet |
@@ -45,9 +50,11 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 
 ## Building
 
-You need Windows 11 x64, Visual Studio 2026 (or its Build Tools) with the C++ workload, Qt Base
-6.12.0 for MSVC x64 and Python 3.12. [BUILDING.md](docs/release/BUILDING.md) has the exact
-versions.
+The candidate package uses GCC/MinGW-w64 UCRT64 and the modified Qt Base 6.12.0 build described in
+[the GCC guide](docs/phase-4i/MINGW_BUILD_GUIDE.md). It remains experimental and not for publication.
+MSVC is a separate regression-test build. [BUILDING.md](docs/release/BUILDING.md) describes both.
+The commands below build the MSVC test variant with Windows 11 x64, the pinned standalone Build
+Tools, Qt Base 6.12.0 for MSVC x64 and Python 3.12.
 
 ```powershell
 python -m pip install -r scripts/requirements-lock.txt
@@ -70,7 +77,9 @@ The programs are `build\studio-release\src\nova-studio.exe` and `nova-mcp.exe` n
 | `assets/` | Nova Studio icon artwork and the Gradle wrapper used by the test runtime |
 | `fixtures/` | Original CC0 test packs |
 | `scripts/` | Build, packaging, licensing checks and development helpers |
-| `prototypes/` | The original Rust/egui and Qt prototypes. Not part of the application |
+
+Historical development evidence and the unused prototype workspace are preserved separately from
+this release source. [Release review](docs/release/REVIEW_INDEX.md) records the review gates.
 
 ## License
 
@@ -82,8 +91,9 @@ License, or (at your option) any later version (`GPL-3.0-or-later`). It is distr
 WARRANTY. The license text is [LICENSE](LICENSE).
 
 Some material keeps its own license: the embedded Gradle wrapper (Apache-2.0), the CC0 test
-fixtures, and Qt and the Microsoft Visual C++ runtime, which ship with the binaries. See
-[COPYRIGHT.md](COPYRIGHT.md) and [THIRD_PARTY_NOTICES.md](packaging/THIRD_PARTY_NOTICES.md).
+fixtures, Qt, and the selected compiler runtime. The GCC candidate carries GCC/MinGW runtime
+notices and a corresponding-source sidecar; MSVC packages have separate Microsoft runtime terms.
+See [COPYRIGHT.md](COPYRIGHT.md) and the [GCC notices](packaging/mingw/THIRD_PARTY_NOTICES.md).
 
 ## Source code for binary releases
 

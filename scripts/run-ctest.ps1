@@ -3,26 +3,48 @@ param(
     [string]$BuildName = 'studio-phase4g-Release',
     [int]$Jobs = 2,
     [string]$Log = '',
+    [string]$McpSdkPython = '',
+    [switch]$SkipMcp,
+    [string]$QtRoot = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$CTestArgs = @()
 )
 # Runs CTest for a configured build with the Visual C++ and Qt runtime folders on PATH.
 # Extra arguments are passed to ctest unchanged, for example: -R '^mcp$' -V
+# The mcp suite drives the official MCP Python SDK. Its interpreter is taken from -McpSdkPython,
+# NOVA_MCP_SDK_PYTHON or the workspace's virtual environment (scripts/nova-toolchain.ps1) and
+# validated before anything else runs. If none is usable the run stops, unless -SkipMcp excludes
+# that suite openly.
 $ErrorActionPreference = 'Stop'
 $workspace = (Resolve-Path "$PSScriptRoot\..").Path
+. (Join-Path $PSScriptRoot 'nova-toolchain.ps1')
 if ($BuildName -notmatch '^[a-zA-Z0-9_-]+$') { throw 'BuildName must be a simple directory name.' }
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-$env:PATH = (Split-Path $vswhere) + ';' + $env:PATH
-$vs = & $vswhere -latest -products '*' -property installationPath
-cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set" | ForEach-Object {
-    if ($_ -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') }
+$buildDir = Join-Path $workspace "build\$BuildName"
+if (-not (Test-Path -LiteralPath (Join-Path $buildDir 'CTestTestfile.cmake'))) { throw "No configured build at $buildDir" }
+
+# 1. Test prerequisites first, so a missing MCP SDK is reported before any tool runs.
+$arguments = @('--test-dir', $buildDir, '--output-on-failure', '-j', "$Jobs")
+if ($SkipMcp) {
+    $arguments += @('-E', '^mcp$')
+    Write-Warning 'The mcp suite is EXCLUDED (-SkipMcp). This is not a full regression run.'
+} else {
+    $sdk = Resolve-NovaMcpSdkPython $workspace $McpSdkPython
+    $filtered = @($CTestArgs | Where-Object { $_ -in '-R', '--tests-regex', '-E', '--exclude-regex', '-L', '--label-regex', '-I' }).Count -gt 0
+    if ($sdk) {
+        $env:NOVA_MCP_SDK_PYTHON = $sdk.Path
+        Write-Host "MCP SDK $($sdk.Version): $($sdk.Path) ($($sdk.Source))"
+    } elseif ($filtered) {
+        Write-Warning ((Get-NovaMcpSdkHelp) + ' Continuing because a test filter was given; the mcp suite fails if it is selected.')
+    } else {
+        throw (Get-NovaMcpSdkHelp)
+    }
 }
-$env:PATH = (Join-Path $workspace '.tools\qt\bin') + ';' + $env:PATH
-# The mcp suite drives the official MCP SDK through the established Phase 4-C environment.
-$sdkPython = Join-Path $workspace 'build\phase4c-venv\Scripts\python.exe'
-if (-not $env:NOVA_MCP_SDK_PYTHON -and (Test-Path $sdkPython)) { $env:NOVA_MCP_SDK_PYTHON = $sdkPython }
-$ctest = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe'
-$arguments = @('--test-dir', (Join-Path $workspace "build\$BuildName"), '--output-on-failure', '-j', "$Jobs")
 if ($Log) { $arguments += @('--output-log', $Log) }
 if ($CTestArgs) { $arguments += $CTestArgs }
-& $ctest @arguments
+
+# 2. The pinned toolchain environment (runtime folders on PATH), then CTest.
+$paths = Get-NovaToolchainPaths (Find-NovaBuildTools)
+Enter-NovaMsvcEnvironment $paths
+if (-not $QtRoot) { $QtRoot = Join-Path $workspace '.tools\qt' }
+$env:PATH = (Join-Path $QtRoot 'bin') + ';' + $env:PATH
+& $paths.CTest @arguments
 exit $LASTEXITCODE

@@ -78,6 +78,9 @@ class Library {
     QString version() const { return profile.version; }
     void setFallbacks(QVector<ResourceSource> sources, const QString &version = {});
     bool hasFallbacks() const { return !fallbacks.isEmpty(); }
+    const QVector<ResourceSource> &resourceSources() const { return fallbacks; }
+    // Why a model/definition in the catalog could not be read or parsed ("" when it was).
+    QString failure(const QString &asset) const { return failures.value(asset); }
     QString assetPath(const QString &asset, int provider = 0) const {
         return stack.path(asset, provider);
     }
@@ -105,6 +108,17 @@ class Library {
                       int weightedChoice = 0) const;
     QJsonObject source(const QString &asset) const { return sources.value(asset); }
 };
+// The model the 3D preview shows for a texture, or why there is none. Candidates are the
+// valid models that use the texture: the model named like the texture comes first
+// (assets/<ns>/textures/block/x.png -> <ns>:block/x, item/x -> <ns>:item/x, and a block
+// texture's <ns>:item/x after <ns>:block/x), then the rest by length and name. Invalid,
+// cyclic or unresolvable models are never chosen; the reason names the first one found.
+struct PreviewChoice {
+    QString model;            // empty: no usable model
+    QString reason;           // why model is empty; empty when a model was chosen
+    QStringList candidates;   // valid models using the texture, in preference order
+};
+PreviewChoice previewModelFor(Library &library, const QString &textureAsset);
 struct Face {
     std::array<QVector3D, 4> points;
     std::array<QVector2D, 4> uv;
@@ -114,6 +128,8 @@ struct Face {
     int elementIndex = -1;
     QRgb color = qRgb(255, 255, 255);
     int rotation = 0, tint = -1;
+    // Generated sprite layers are composited in authored order, including opaque overlays.
+    int generatedLayer = -1;
     bool shade = true, forceTranslucent = false;
     QString shadeDirection;
     QRectF uvRect() const;
@@ -121,6 +137,7 @@ struct Face {
 struct Mesh {
     QVector<Face> faces;
     QStringList diagnostics;
+    QString previewLimitation; // nonempty when contour generation used a flat approximation
     QVector3D minimum, maximum;
 };
 Mesh mesh(const Model &model);

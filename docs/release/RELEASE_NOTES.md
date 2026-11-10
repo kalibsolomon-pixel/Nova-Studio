@@ -30,7 +30,7 @@ Minecraft game assets.
 - **AI agent setup (MCP).** Resources › MCP Integration › Agent Setup adds Nova Studio to
   Claude Desktop, Claude Code or Codex for you, or shows the configuration to copy for other
   MCP clients. Agents still need your explicit permission for each session and project.
-- **MCP diagnostics.** A local check that the bridge starts and declares its 26 tools.
+- **MCP diagnostics.** A local check that the bridge starts and declares its tools.
 
 ## Requirements
 
@@ -62,6 +62,11 @@ Nova Studio is free software under the GNU General Public License version 3 or l
 (GPL-3.0-or-later). The license is `LICENSE.txt`; `licenses/COPYRIGHT.md` says what it covers.
 Third-party notices are in `licenses/THIRD_PARTY_NOTICES.md`, and **Help › Licenses and Source
 Code** shows all of them.
+
+The Microsoft Visual C++ runtime files in the package (`concrt140.dll`, `msvcp140*.dll`,
+`vccorlib140.dll`, `vcruntime140*.dll`) are Microsoft software and are not covered by the GPL. By
+installing or using them you agree to `licenses/MICROSOFT-VC-RUNTIME-TERMS.txt`; the installer
+shows these terms on its license page. Microsoft does not endorse Nova Studio.
 
 The complete corresponding source code of this build is in `source/` and is published next to
 the installer as `nova-studio-0.1.0-preview.1-source.zip`. `docs\BUILDING.md` in the package

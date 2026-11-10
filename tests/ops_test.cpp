@@ -31,6 +31,59 @@ ops::Result run(const QString &id, const QJsonObject &params, const QImage &src,
                 const ops::Context &ctx = {}) {
     return ops::run({id, params}, src, ctx);
 }
+QImage genericMedian(const QImage &input, int radius, bool wrap) {
+    // Independent reference: the pre-optimization nth_element implementation.
+    const auto src = input.convertToFormat(QImage::Format_RGBA8888);
+    QImage out(src.size(), QImage::Format_RGBA8888);
+    for (int y = 0; y < src.height(); ++y)
+        for (int x = 0; x < src.width(); ++x) {
+            std::vector<int> rs, gs, bs, as;
+            for (int j = -radius; j <= radius; ++j)
+                for (int i = -radius; i <= radius; ++i) {
+                    int sx = x + i, sy = y + j;
+                    if (wrap) {
+                        sx = ((sx % src.width()) + src.width()) % src.width();
+                        sy = ((sy % src.height()) + src.height()) % src.height();
+                    } else {
+                        sx = std::clamp(sx, 0, src.width() - 1);
+                        sy = std::clamp(sy, 0, src.height() - 1);
+                    }
+                    const QRgb n = src.pixel(sx, sy);
+                    as.push_back(qAlpha(n));
+                    if (qAlpha(n)) {
+                        rs.push_back(qRed(n));
+                        gs.push_back(qGreen(n));
+                        bs.push_back(qBlue(n));
+                    }
+                }
+            auto mid = [](std::vector<int> &v) {
+                std::nth_element(v.begin(), v.begin() + qsizetype(v.size() / 2), v.end());
+                return v[v.size() / 2];
+            };
+            const int a = mid(as);
+            out.setPixel(x, y, !a || rs.empty() ? qRgba(0, 0, 0, 0)
+                                                : qRgba(mid(rs), mid(gs), mid(bs), a));
+        }
+    return out;
+}
+void compareMedianToGeneric(const QImage &src, int radius, bool wrap) {
+    const QJsonObject params{{"radius", radius}, {"wrap", wrap}};
+    const auto actual = run("median", params, src);
+    QVERIFY2(actual.ok(), qPrintable(actual.error));
+    const auto expected = genericMedian(src, radius, wrap);
+    QCOMPARE(actual.image.format(), QImage::Format_RGBA8888);
+    QCOMPARE(actual.image.size(), expected.size());
+    const QByteArray actualBytes(reinterpret_cast<const char *>(actual.image.constBits()),
+                                 int(actual.image.sizeInBytes()));
+    const QByteArray expectedBytes(reinterpret_cast<const char *>(expected.constBits()),
+                                   int(expected.sizeInBytes()));
+    QVERIFY(actualBytes == expectedBytes);
+    const auto repeated = run("median", params, src);
+    QVERIFY(repeated.ok());
+    const QByteArray repeatedBytes(reinterpret_cast<const char *>(repeated.image.constBits()),
+                                   int(repeated.image.sizeInBytes()));
+    QVERIFY(actualBytes == repeatedBytes);
+}
 } // namespace
 
 class OpsTests : public QObject {
@@ -481,6 +534,80 @@ class OpsTests : public QObject {
         QVERIFY(digest(noise) != digest(run("noise", {{"seed", 6}}, uniform).image));
         auto edges = run("edge_detect", {}, uniform).image;
         QCOMPARE(qRed(edges.pixel(4, 4)), 0);
+    }
+    void medianMatchesGenericReference() {
+        // Every possible nine-value tuple over three levels reaches each channel's
+        // radius-1 network; all values are visible, including partial alpha.
+        const int levels[] = {1, 128, 255};
+        QImage exhaustive(729, 243, QImage::Format_RGBA8888);
+        for (int block = 0; block < 19683; ++block) {
+            const int bx = (block % 243) * 3, by = (block / 243) * 3;
+            for (int n = 0; n < 9; ++n) {
+                int divisor = 1;
+                for (int k = 0; k < n; ++k)
+                    divisor *= 3;
+                const int digit = (block / divisor) % 3;
+                exhaustive.setPixel(bx + n % 3, by + n / 3,
+                                    qRgba(levels[digit], levels[(digit + 1) % 3],
+                                          levels[(digit + 2) % 3], levels[digit]));
+            }
+        }
+        compareMedianToGeneric(exhaustive, 1, false);
+
+        // Ordered values, duplicates, thin images, corners, clamp and wrap.
+        for (const QSize size : {QSize(1, 1), QSize(1, 7), QSize(7, 1), QSize(2, 2),
+                                 QSize(3, 3), QSize(8, 5), QSize(31, 17)}) {
+            QImage ordered(size, QImage::Format_RGBA8888);
+            for (int y = 0; y < size.height(); ++y)
+                for (int x = 0; x < size.width(); ++x)
+                    ordered.setPixel(x, y, qRgba((x + y * size.width()) % 256,
+                                                 (x * 5 + y * 23) % 256,
+                                                 (x * y * 3) % 256, 255));
+            for (const bool wrap : {false, true})
+                for (const int radius : {1, 2, 4})
+                    compareMedianToGeneric(ordered, radius, wrap);
+        }
+
+        // Zero alpha excludes hidden RGB in the generic fallback; partial alpha
+        // remains visible. Also cover an entirely transparent image.
+        QImage alpha(31, 17, QImage::Format_RGBA8888);
+        const int alphas[] = {0, 1, 2, 127, 128, 254, 255};
+        for (int y = 0; y < alpha.height(); ++y)
+            for (int x = 0; x < alpha.width(); ++x)
+                alpha.setPixel(x, y, qRgba((x * 37 + y * 11) % 256,
+                                           (x * 5 + y * 23) % 256,
+                                           (x * y * 3 + 17) % 256,
+                                           alphas[(x * 3 + y * 5) % 7]));
+        for (const bool wrap : {false, true})
+            for (const int radius : {1, 2, 4})
+                compareMedianToGeneric(alpha, radius, wrap);
+        QImage transparent(9, 7, QImage::Format_RGBA8888);
+        for (int y = 0; y < transparent.height(); ++y)
+            for (int x = 0; x < transparent.width(); ++x)
+                transparent.setPixel(x, y, qRgba(x * 17, y * 29, x + y, 0));
+        for (const bool wrap : {false, true})
+            compareMedianToGeneric(transparent, 1, wrap);
+
+        // A transparent final pixel exercises the late whole-image fallback;
+        // its hidden RGB must remain excluded and opaque duplicates keep exact medians.
+        QImage lateFallback(9, 7, QImage::Format_RGBA8888);
+        for (int y = 0; y < lateFallback.height(); ++y)
+            for (int x = 0; x < lateFallback.width(); ++x)
+                lateFallback.setPixel(x, y, qRgba((x * 17) % 256, (y * 29) % 256,
+                                                  (x + y) % 256, 255));
+        lateFallback.setPixel(8, 6, qRgba(201, 202, 203, 0));
+        for (const bool wrap : {false, true})
+            compareMedianToGeneric(lateFallback, 1, wrap);
+
+        // Public operation dispatch normalizes these formats to straight RGBA8888.
+        for (const QImage::Format format : {QImage::Format_RGBA8888, QImage::Format_ARGB32,
+                                            QImage::Format_RGB32, QImage::Format_RGB888,
+                                            QImage::Format_ARGB32_Premultiplied,
+                                            QImage::Format_RGBA8888_Premultiplied}) {
+            const auto converted = alpha.convertToFormat(format);
+            for (const bool wrap : {false, true})
+                compareMedianToGeneric(converted, 1, wrap);
+        }
     }
     void transformsAreExact() {
         const auto src = pattern(7, 5);

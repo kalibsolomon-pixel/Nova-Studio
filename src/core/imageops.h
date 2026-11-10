@@ -82,6 +82,15 @@ QImage polygonMask(QSize size, const QVector<QPointF> &points);
 // visited/stack storage is bounded by the image area; no recursion is used.
 QImage colorMask(const QImage &source, QPoint seed, int tolerance, Distance metric,
                  bool contiguous, bool includeAlpha, bool diagonal = false);
+// Universal Fill colour contract, on straight-alpha 8-bit sRGB (Format_RGBA8888):
+// tolerance 0..255 (clamped); a candidate matches when max(|dR|,|dG|,|dB|) <= tolerance
+// and alpha is exactly equal. Two fully transparent pixels match whatever their hidden
+// RGB. Tolerance 0 therefore means exact RGBA equality for visible pixels. This is
+// deliberately independent of colorMatches(), which Contiguous fill keeps using.
+bool universalFillMatches(QRgb candidate, QRgb reference, int tolerance);
+// Every pixel of source (any format; converted to Format_RGBA8888 first) matching the
+// seed pixel under universalFillMatches(), connected or not. Empty mask if the seed is outside.
+QImage universalFillMask(const QImage &source, QPoint seed, int tolerance);
 // out = lerp(original, processed, mask) per pixel; null mask returns processed.
 QImage applyMask(const QImage &original, const QImage &processed, const QImage *mask);
 // Clip an overlay's alpha without darkening its straight RGB channels.

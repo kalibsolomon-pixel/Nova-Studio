@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QTreeView>
 #include <QtTest>
+#include <functional>
 
 namespace nova {
 class EditorTestAccess {
@@ -42,7 +43,6 @@ class EditorTestAccess {
     }
     static QDialog *comparisonDialog(Window &w) { return w.comparisonDialog; }
     static RecoveryStore &recovery(Window &w) { return *w.recovery; }
-    static void recover(Window &w) { w.recoverSession(); }
 };
 } // namespace nova
 
@@ -60,8 +60,14 @@ class Phase4fKeyboardTests : public QObject {
     QTemporaryDir tmp;
     QString root;
     int run = 0;
-    std::unique_ptr<Window> open() {
-        qApp->setProperty("settingsFile", tmp.filePath(QString("settings-%1/studio.ini").arg(++run)));
+    std::unique_ptr<Window> open(const std::function<void(const QString &)> &beforeStartup = {}) {
+        const auto settingsFile = tmp.filePath(QString("settings-%1/studio.ini").arg(++run));
+        qApp->setProperty("settingsFile", settingsFile);
+        if (beforeStartup) {
+            beforeStartup(QFileInfo(settingsFile).absolutePath() + "/recovery");
+            if (QTest::currentTestFailed())
+                return {};
+        }
         QElapsedTimer started;
         started.start();
         auto window = std::make_unique<Window>(root, QString(), started);
@@ -187,35 +193,61 @@ class Phase4fKeyboardTests : public QObject {
     }
     // Escape on the recovery prompt means Later: the snapshot is kept.
     void escapeOnRecoveryPromptKeepsSnapshot() {
-        auto window = open();
         const auto texture = root + "/assets/nova/textures/block/cube.png";
         QImage image(16, 16, QImage::Format_RGBA8888);
         image.fill(Qt::green);
         const auto id = QUuid::createUuid();
-        QVERIFY(EditorTestAccess::recovery(*window).write(id, texture, QDir(root).canonicalPath(), Revision::read(texture), image));
         bool answered = false;
         QStringList prompts;
+        QStringList tabsBefore;
         QTimer poll;
         connect(&poll, &QTimer::timeout, [&] {
+            if (answered)
+                return;
             auto box = visiblePrompt("recoveryDialog");
             if (!box)
                 return;
+            auto owner = dynamic_cast<Window *>(box->parentWidget());
+            if (!owner)
+                return;
+            auto tabs = EditorTestAccess::tabs(*owner);
+            for (int i = 0; i < tabs->count(); ++i)
+                tabsBefore << tabs->tabText(i);
             prompts << box->text();
             answered = true;
             QTest::keyClick(box, Qt::Key_Escape);
         });
         poll.start(30);
-        const int tabsBefore = EditorTestAccess::tabs(*window)->count();
-        EditorTestAccess::recover(*window);
+        QString snapshot;
+        QByteArray originalSnapshot;
+        auto window = open([&](const QString &folder) {
+            // This is an earlier session only if its file predates this window's RecoveryStore.
+            RecoveryStore earlier(folder);
+            QVERIFY(earlier.write(id, texture, QDir(root).canonicalPath(), Revision::read(texture), image));
+            snapshot = earlier.pathFor(id);
+            QFile file(snapshot);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            originalSnapshot = file.readAll();
+            QVERIFY(!originalSnapshot.isEmpty());
+        });
+        QVERIFY(window);
+        // Use the ordinary startup check once, without racing an explicit second discovery.
         QTRY_VERIFY_WITH_TIMEOUT(answered, 10000);
         settle(200);
         poll.stop();
-        QVERIFY(QFileInfo::exists(EditorTestAccess::recovery(*window).pathFor(id)));
+        QCOMPARE(prompts, QStringList{"Unsaved texture recovered: " + texture});
+        QFile file(snapshot);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), originalSnapshot);
+        file.close();
+        const auto pending = EditorTestAccess::recovery(*window).earlierEntries();
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(pending.front().id, id);
         auto tabs = EditorTestAccess::tabs(*window);
         QStringList open;
         for (int i = 0; i < tabs->count(); ++i)
             open << tabs->tabText(i);
-        QVERIFY2(tabs->count() == tabsBefore, qPrintable("prompts: " + prompts.join(" | ") + " tabs: " + open.join(", ")));
+        QCOMPARE(open, tabsBefore);
         EditorTestAccess::recovery(*window).discard(id);
     }
     // Escape on the unsaved-changes prompt cancels closing: nothing is saved or lost.

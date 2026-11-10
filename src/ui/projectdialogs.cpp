@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "projectdialogs.h"
+#include "baseline_ui.h"
 #include "core.h"
+#include <QtConcurrent>
 #include <QtWidgets>
 namespace nova {
 QString newProjectDialog(QWidget *parent) {
@@ -49,13 +51,83 @@ QString newProjectDialog(QWidget *parent) {
     QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
     buttons.button(QDialogButtonBox::Save)->setText("Create pack");
     layout.addRow(&buttons);
+    // Texture baseline choice (created after the existing widgets; shown below the version).
+    QWidget choice;
+    QVBoxLayout choiceLayout(&choice);
+    choiceLayout.setContentsMargins(0, 0, 0, 0);
+    QRadioButton blank("Blank pack"), baselineChoice("Use vanilla textures as baseline");
+    blank.setObjectName("projectBlank");
+    baselineChoice.setObjectName("projectBaseline");
+    blank.setToolTip("Start with pack.mcmeta and the folders you choose; nothing else is added.");
+    baselineChoice.setToolTip("Show this version's vanilla textures under your own files. Only textures you edit "
+                              "are added to the pack.");
+    blank.setChecked(true);
+    choiceLayout.addWidget(&blank);
+    choiceLayout.addWidget(&baselineChoice);
+    QLabel baselineHint;
+    baselineHint.setObjectName("projectBaselineHint");
+    baselineHint.setWordWrap(true);
+    baselineHint.setProperty("role", "hint");
+    baselineHint.hide();
+    layout.insertRow(4, "Textures", &choice);
+    layout.insertRow(5, "", &baselineHint);
+    auto ticket = std::make_shared<int>(0);
+    auto updateHint = [&, ticket] {
+        baselineHint.setVisible(baselineChoice.isChecked());
+        if (!baselineChoice.isChecked())
+            return;
+        const auto id = gameVersions()[version.currentIndex()].id;
+        const int mine = ++*ticket;
+        baselineHint.setText("Checking the local vanilla texture cache…");
+        // Cache status is read off the GUI thread; only the newest request updates the hint.
+        auto watcher = new QFutureWatcher<QString>(&dialog);
+        QObject::connect(watcher, &QFutureWatcherBase::finished, &dialog, [&, watcher, mine, ticket, id] {
+            watcher->deleteLater();
+            if (mine == *ticket)
+                baselineHint.setText(watcher->result().isEmpty() ? ui::baselineConsentText(id) : watcher->result());
+        });
+        watcher->setFuture(QtConcurrent::run([id] { return ui::cachedBaselineSummary(id); }));
+    };
+    QObject::connect(&baselineChoice, &QRadioButton::toggled, &dialog, updateHint);
+    QObject::connect(&version, &QComboBox::currentIndexChanged, &dialog, updateHint);
     QString created;
     QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     QObject::connect(&buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         QString error;
+        std::optional<BaselineRef> ref;
+        if (baselineChoice.isChecked()) {
+            // Validate the destination before any download; nothing is created unless it succeeds.
+            const QFileInfo target(destination.text());
+            if (destination.text().trimmed().isEmpty() || target.exists() || !target.absoluteDir().exists()) {
+                issue.setText("Choose a new destination folder inside an existing directory; existing folders are preserved");
+                return;
+            }
+            const auto id = gameVersions()[version.currentIndex()].id;
+            vanilla::BaselineInstaller::Error kind;
+            QString why;
+            const auto entry = ui::obtainBaseline(&dialog, id, {}, false, &kind, &why);
+            if (!entry) {
+                QMessageBox box(QMessageBox::Warning, "Vanilla textures not available",
+                                (why.isEmpty() ? QString("No vanilla textures were downloaded.") : why) +
+                                    QStringLiteral("\n\nNo project was created. Create a blank pack instead?"),
+                                QMessageBox::NoButton, &dialog);
+                box.setObjectName("baselineCreationFailed");
+                auto blankButton = box.addButton("Create Blank Pack", QMessageBox::AcceptRole);
+                blankButton->setObjectName("createBlankInstead");
+                auto back = box.addButton("Back", QMessageBox::RejectRole);
+                box.setDefaultButton(back);
+                box.setEscapeButton(back);
+                box.exec();
+                if (box.clickedButton() != blankButton) {
+                    issue.setText("No project was created.");
+                    return;
+                }
+            } else
+                ref = ui::baselineRef(*entry);
+        }
         if (!Project::create(destination.text(), name.text(),
                              gameVersions()[version.currentIndex()], description.text(), ns.text(),
-                             icon.text(), folders.isChecked(), &error)) {
+                             icon.text(), folders.isChecked(), &error, ref ? &*ref : nullptr)) {
             issue.setText(error);
             return;
         }
@@ -65,6 +137,84 @@ QString newProjectDialog(QWidget *parent) {
     });
     dialog.exec();
     return created;
+}
+QString styleNotesSummary(const StyleNotes &notes) {
+    if (notes.empty())
+        return "None";
+    QStringList parts;
+    for (const auto &[label, text] : {std::pair{"Theme", notes.theme}, {"Audience", notes.audience},
+                                      {"Palette", notes.palette}, {"Preserve", notes.preserve}, {"Notes", notes.notes}})
+        if (!text.isEmpty())
+            parts << QString("%1: %2").arg(label, text.simplified().left(60));
+    return parts.join(" · ");
+}
+bool styleNotesDialog(QWidget *parent, const QString &root) {
+    auto config = ProjectConfig::load(root);
+    QDialog dialog(parent);
+    dialog.setWindowTitle("Pack Style Notes");
+    dialog.setObjectName("styleNotesDialog");
+    dialog.resize(560, 520);
+    QVBoxLayout layout(&dialog);
+    QLabel intro("Optional notes about this pack's intended style. Authorized AI agents can read them as your "
+                 "preferences; they never grant permissions. Stored in .nova/project.json and not exported "
+                 "with the pack.");
+    intro.setWordWrap(true);
+    layout.addWidget(&intro);
+    QFormLayout form;
+    layout.addLayout(&form, 1);
+    const auto notes = config.styleNotes();
+    QLineEdit theme(notes.theme), audience(notes.audience);
+    QPlainTextEdit palette(notes.palette), preserve(notes.preserve), free(notes.notes);
+    theme.setObjectName("styleTheme");
+    audience.setObjectName("styleAudience");
+    palette.setObjectName("stylePalette");
+    preserve.setObjectName("stylePreserve");
+    free.setObjectName("styleNotes");
+    theme.setMaxLength(StyleNotes::ShortLimit);
+    audience.setMaxLength(StyleNotes::ShortLimit);
+    theme.setPlaceholderText("For example: cozy medieval, high contrast");
+    audience.setPlaceholderText("For example: survival players, younger players");
+    palette.setPlaceholderText("Preferred colours or limits");
+    preserve.setPlaceholderText("Assets or conventions to keep, for example vanilla ore shapes");
+    for (auto edit : {&palette, &preserve, &free})
+        edit->setTabChangesFocus(true);
+    form.addRow("Theme", &theme);
+    form.addRow("Audience", &audience);
+    form.addRow("Palette", &palette);
+    form.addRow("Preserve", &preserve);
+    form.addRow("Notes", &free);
+    QLabel feedback(config.diagnostic);
+    feedback.setObjectName("styleNotesFeedback");
+    feedback.setWordWrap(true);
+    layout.addWidget(&feedback);
+    QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    buttons.button(QDialogButtonBox::Save)->setEnabled(config.diagnostic.isEmpty());
+    layout.addWidget(&buttons);
+    QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    bool saved = false;
+    QObject::connect(&buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+        const auto edited = StyleNotes::fromJson(QJsonObject{{"theme", theme.text()}, {"audience", audience.text()},
+            {"palette", palette.toPlainText()}, {"preserve", preserve.toPlainText()}, {"notes", free.toPlainText()}});
+        if (edited.palette.size() < palette.toPlainText().trimmed().size() ||
+            edited.preserve.size() < preserve.toPlainText().trimmed().size() ||
+            edited.notes.size() < free.toPlainText().trimmed().size()) {
+            feedback.setText(QString("Each text field is limited to %1 characters.").arg(StyleNotes::LongLimit));
+            return;
+        }
+        // Reload so a concurrent change is detected by the revision check rather than overwritten.
+        auto current = ProjectConfig::load(root);
+        current.setStyleNotes(edited);
+        QString error;
+        if (!current.revision.sameContent(config.revision) || !current.save(root, &error)) {
+            feedback.setText(error.isEmpty() ? QString("Project settings changed on disk. Close and reopen this "
+                                                       "dialog; nothing was saved.") : error);
+            return;
+        }
+        saved = true;
+        dialog.accept();
+    });
+    dialog.exec();
+    return saved;
 }
 void projectPropertiesDialog(QWidget *parent, const QString &root) {
     auto project = Project::inspect(root);
@@ -143,6 +293,27 @@ void projectPropertiesDialog(QWidget *parent, const QString &root) {
     form.addRow("Pack icon", &icon);
     QPushButton replaceIcon("Replace pack icon now…");
     form.addRow("", &replaceIcon);
+    QLabel baselineInfo(project.baseline ? QString("Java %1 (identity %2)").arg(project.baseline->version,
+                                                                                project.baseline->identity.left(12))
+                                         : project.configDiagnostic.isEmpty() ? QString("None (blank pack)")
+                                                                              : "None · " + project.configDiagnostic);
+    baselineInfo.setObjectName("projectBaselineInfo");
+    baselineInfo.setWordWrap(true);
+    baselineInfo.setTextInteractionFlags(Qt::TextSelectableByMouse);
+    form.addRow("Vanilla baseline", &baselineInfo);
+    QLabel styleInfo(styleNotesSummary(ProjectConfig::load(root).styleNotes()));
+    styleInfo.setObjectName("projectStyleNotes");
+    styleInfo.setWordWrap(true);
+    QPushButton editStyle("Edit style notes…");
+    editStyle.setObjectName("editStyleNotes");
+    auto styleRow = new QHBoxLayout;
+    styleRow->addWidget(&styleInfo, 1);
+    styleRow->addWidget(&editStyle);
+    form.addRow("Style notes", styleRow);
+    QObject::connect(&editStyle, &QPushButton::clicked, &dialog, [&] {
+        if (styleNotesDialog(&dialog, root))
+            styleInfo.setText(styleNotesSummary(ProjectConfig::load(root).styleNotes()));
+    });
     QObject::connect(&replaceIcon, &QPushButton::clicked, &dialog, [&] {
         auto path = QFileDialog::getOpenFileName(&dialog, "Pack icon", root, "PNG (*.png)");
         if (path.isEmpty())

@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cube.h"
+#include "theme.h"
 #include <QOpenGLFramebufferObject>
 #include <QScopedValueRollback>
 #include <QJsonDocument>
+#include <QLabel>
+#include <QTextLayout>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QPainter>
@@ -95,6 +98,91 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
     alphaCache.clear();
     selectedFace = -1;
     update();
+}
+// The notice is a child label over the GL view rather than QPainter output in paintGL:
+// painter output there reached only grabFramebuffer(), never the on-screen widget.
+void Cube::setNotice(const QString &text) {
+    if (noticeText == text)
+        return;
+    // The view's own tooltip carries the full notice (the banner lets the mouse through so
+    // orbiting works); keep any other tooltip, such as a shader log, untouched.
+    if (toolTip() == noticeText)
+        setToolTip(text);
+    noticeText = text;
+    setAccessibleDescription(text);
+    if (!noticeLabel) {
+        noticeLabel = new QLabel(this);
+        noticeLabel->setObjectName("previewNotice");
+        noticeLabel->setWordWrap(false); // placeNotice() wraps within the line budget
+        noticeLabel->setTextFormat(Qt::PlainText);
+        noticeLabel->setAttribute(Qt::WA_TransparentForMouseEvents); // orbiting still works under it
+        const auto &t = ui::current();
+        noticeLabel->setStyleSheet(QString("QLabel#previewNotice{background:rgb(39,42,54);color:rgb(222,225,235);"
+                                           "border:1px solid %1;border-left:3px solid %1;padding:%2px %3px}")
+                                       .arg(t.warning.name()).arg(ui::SpaceS).arg(ui::SpaceL));
+    }
+    noticeLabel->setAccessibleName(text);
+    noticeLabel->setVisible(!text.isEmpty());
+    placeNotice();
+}
+QStringList Cube::noticeLines(const QString &text, const QFont &font, int width, int maxLines) {
+    const QFontMetrics metrics(font);
+    width = std::max(1, width);
+    QStringList lines;
+    const auto paragraphs = text.split('\n');
+    for (int p = 0; p < paragraphs.size(); ++p) {
+        const auto &paragraph = paragraphs[p];
+        QTextLayout layout(paragraph, font);
+        QTextOption option;
+        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        layout.setTextOption(option);
+        layout.beginLayout();
+        for (auto line = layout.createLine(); line.isValid(); line = layout.createLine()) {
+            line.setLineWidth(width);
+            if (int(lines.size()) == maxLines - 1) {
+                // Last line in the budget: the rest of this paragraph and any later ones.
+                QString rest = paragraph.mid(line.textStart());
+                for (int q = p + 1; q < paragraphs.size(); ++q)
+                    rest += ' ' + paragraphs[q];
+                lines << metrics.elidedText(rest.simplified(), Qt::ElideRight, width);
+                layout.endLayout();
+                return lines;
+            }
+            lines << paragraph.mid(line.textStart(), line.textLength()).trimmed();
+        }
+        layout.endLayout();
+    }
+    return lines;
+}
+void Cube::placeNotice() {
+    if (!noticeLabel || noticeText.isEmpty())
+        return;
+    const int width = std::max(80, this->width() - 2 * ui::SpaceL);
+    // The label's own frame (style sheet padding and borders), measured on one character.
+    const QFontMetrics metrics(noticeLabel->font());
+    noticeLabel->setText("M");
+    const QSize frame = noticeLabel->sizeHint() - QSize(metrics.horizontalAdvance('M'), metrics.lineSpacing());
+    const int lineHeight = metrics.lineSpacing();
+    // At most a quarter of the view (at least one line), and never more than four lines.
+    const int budget = std::clamp(int((height() * NoticeMaxShare - frame.height()) / lineHeight), 1, 4);
+    const int textWidth = width - frame.width() - 2;
+    const auto lines = noticeLines(noticeText, noticeLabel->font(), textWidth, budget);
+    noticeLabel->setText(lines.join('\n'));
+    noticeLabel->setProperty("elided", lines.join('\n').remove('\n').remove(' ') !=
+                                           QString(noticeText).remove('\n').remove(' '));
+    noticeLabel->setGeometry(ui::SpaceL, ui::SpaceL, width, noticeLabel->sizeHint().height());
+    noticeLabel->raise();
+    if (toolTip().isEmpty())
+        setToolTip(noticeText);
+}
+void Cube::changeEvent(QEvent *event) {
+    QOpenGLWidget::changeEvent(event);
+    if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+        placeNotice();
+}
+void Cube::resizeEvent(QResizeEvent *event) {
+    QOpenGLWidget::resizeEvent(event);
+    placeNotice();
 }
 void Cube::setMaterialImage(const QString &asset, const QImage &image) {
     if (image.isNull() || materialImages.value(asset).cacheKey() == image.cacheKey())
@@ -457,8 +545,15 @@ void Cube::paintGL() {
         auto c = (scene().faces[i].points[0] + scene().faces[i].points[2]) / 2;
         return m.map(c).z();
     };
+    // Generated layers share their front/back planes. Keep all of them in the blended
+    // pass: splitting opaque upper layers from translucent lower layers reverses their
+    // authored order. Stable depth sorting preserves layer order on coincident planes.
+    auto blended = [&](int i) {
+        const auto &face = scene().faces[i];
+        return face.generatedLayer >= 0 || translucent[face.texture];
+    };
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        bool ta = translucent[scene().faces[a].texture], tb = translucent[scene().faces[b].texture];
+        bool ta = blended(a), tb = blended(b);
         return ta != tb ? !ta : depth(a) > depth(b);
     });
     for (int i : order) {
@@ -470,7 +565,7 @@ void Cube::paintGL() {
                        ? texture
                        : materialTextures.value(f.texture, materialTextures.value(QString()));
         glBindTexture(GL_TEXTURE_2D, t);
-        glDepthMask(translucent[f.texture] ? GL_FALSE : GL_TRUE);
+        glDepthMask(blended(i) ? GL_FALSE : GL_TRUE);
         glDrawArrays(GL_TRIANGLES, i * 6, 6);
     }
     glDepthMask(GL_TRUE);
@@ -519,6 +614,10 @@ void Cube::paintGL() {
     guideBuffer.release();
     glLineWidth(1);
     program->release();
+    // QPainter overlays below share this context: leave no model vertex arrays enabled,
+    // or its fills read them and are dropped.
+    for (auto name : {"position", "texcoord", "normal", "shade"})
+        program->disableAttributeArray(name);
     if (modelMesh && scene().faces.isEmpty()) {
         QPainter p(this);
         p.setPen(Qt::lightGray);

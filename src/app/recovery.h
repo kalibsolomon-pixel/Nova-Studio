@@ -30,11 +30,17 @@ class RecoveryStore {
     bool writeDocument(const Document &document, const QString &project,
                        QString *error = nullptr) const;
     QList<RecoveryEntry> entries() const;
+    // Snapshots an earlier session left: on disk when this store started and not yet restored or
+    // discarded. Snapshots written after start-up (this session's own) are never included.
+    QList<RecoveryEntry> earlierEntries() const;
     RecoveryEntry load(QUuid id) const;
     void remove(QUuid id) const;
     void cleanupClean(QUuid id) const;
     void restored(QUuid id) const;
     void discard(QUuid id) const;
+    // Deletes one of earlierEntries(); refuses any other snapshot, so this session's own recovery
+    // copies cannot be discarded from the recovery prompt.
+    bool discardEarlier(QUuid id) const;
     void prune() const;
 };
 } // namespace nova

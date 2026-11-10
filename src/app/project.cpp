@@ -35,6 +35,18 @@ const QList<GameVersion> &gameVersions() {
                                                 {"1.21.4", "release", {46, 0}, false}};
     return versions;
 }
+namespace {
+// Whether pack.mcmeta declares the baseline version's format (range or legacy pack_format).
+bool packTargets(const QJsonObject &pack, const GameVersion &v) {
+    if (pack.contains("min_format") || pack.contains("max_format")) {
+        auto lo = PackFormat::parse(pack.value("min_format")),
+             hi = PackFormat::parse(pack.value("max_format"), true);
+        return lo && hi && *lo <= v.format && v.format <= *hi;
+    }
+    auto format = PackFormat::parse(pack.value("pack_format"));
+    return format && format->major == v.format.major;
+}
+} // namespace
 QString Project::validateMetadata(const QByteArray &bytes) {
     if (bytes.size() > 1024 * 1024)
         return "Metadata exceeds the 1 MiB limit";
@@ -117,6 +129,18 @@ Project Project::inspect(const QString &path) {
     for (const auto &ns : p.namespaces)
         if (!namespaceRule.match(ns).hasMatch())
             p.diagnostics << "Invalid Minecraft namespace: " + ns;
+    // Opt-in project settings; a legacy project has none and keeps its behaviour exactly.
+    const auto config = ProjectConfig::load(p.root);
+    p.baseline = config.baseline;
+    p.configDiagnostic = config.diagnostic;
+    if (!config.diagnostic.isEmpty())
+        p.diagnostics << config.diagnostic;
+    if (p.baseline && p.kind == Kind::ResourcePack)
+        for (const auto &v : gameVersions())
+            if (v.id == p.baseline->version && !packTargets(p.json.value("pack").toObject(), v))
+                p.diagnostics << QString("pack.mcmeta does not target the vanilla baseline (Java %1, "
+                                         "format %2); nothing was changed")
+                                     .arg(v.id, v.format.text());
     return p;
 }
 bool Project::saveMetadata(const QByteArray &bytes, QString *error) {
@@ -159,7 +183,7 @@ bool Project::exportMinecraft(const QString &source, const QString &destination,
             return fail("Corrupt editable source prevents pack export");
         const auto length =
             qFromLittleEndian<quint32>(reinterpret_cast<const uchar *>(header.constData() + 8));
-        const auto limit = header.first(8) == "NVAN0002" ? 8 * 1024 * 1024 : 1024 * 1024;
+        const quint32 limit = header.first(8) == "NVAN0002" ? 8u * 1024 * 1024 : 1024u * 1024;
         if (length > limit || length > input.size() - 12)
             return fail("Invalid editable manifest");
         const auto asset =
@@ -224,7 +248,7 @@ bool Project::exportMinecraft(const QString &source, const QString &destination,
 }
 bool Project::create(const QString &destination, const QString &name, const GameVersion &version,
                      const QString &description, const QString &ns, const QString &icon,
-                     bool folders, QString *error) {
+                     bool folders, QString *error, const BaselineRef *baseline) {
     auto fail = [&](QString message) {
         if (error)
             *error = message;
@@ -237,6 +261,13 @@ bool Project::create(const QString &destination, const QString &name, const Game
     if (!parent.exists() || QFileInfo::exists(destination))
         return fail("Choose a new destination folder inside an existing directory; existing "
                     "folders are preserved");
+    if (baseline) {
+        QString issue;
+        if (!BaselineRef::parse(baseline->json(), &issue))
+            return fail(issue);
+        if (baseline->version != version.id)
+            return fail("The vanilla baseline must use the project's Minecraft version");
+    }
     QImage packIcon;
     if (!icon.isEmpty()) {
         packIcon = loadPng(icon, error);
@@ -266,6 +297,12 @@ bool Project::create(const QString &destination, const QString &name, const Game
                 return fail("Could not create asset folders");
     if (!packIcon.isNull() && !savePng(stage.filePath("pack.png"), packIcon, error))
         return false;
+    if (baseline) {
+        ProjectConfig config;
+        config.baseline = *baseline;
+        if (!config.save(stage.path(), error))
+            return false;
+    }
     if (!parent.rename(stage.path(), QFileInfo(destination).absoluteFilePath()))
         return fail("Could not finalize project; destination may now exist");
     stage.setAutoRemove(false);

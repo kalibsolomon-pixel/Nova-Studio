@@ -69,7 +69,8 @@ class Phase3DGallery : public QObject {
         action->trigger();
         auto dialog = window.findChild<MinecraftTestDialog *>();
         if (dialog)
-            QTest::qWaitForWindowExposed(dialog);
+            if (!QTest::qWaitForWindowExposed(dialog))
+                qWarning("gallery: dialog was not exposed in time");
         return dialog;
     }
 

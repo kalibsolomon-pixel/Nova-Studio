@@ -10,6 +10,10 @@ is read or written. The real Start menu and HKCU uninstall entry ARE used while 
 exists (that is what is being tested) and are removed by the uninstall steps.
 
 Usage: python scripts/verify-phase4g-installer.py --candidate <label> [--build studio-phase4g-Release]
+       [--distribution phase4g-distribution]
+Phase 4-I.1: an experimental GCC/MinGW-w64 package is tested the same way with
+--distribution phase4i-distribution --build mingw-ucrt64-source-Release; it must additionally load
+no Visual C++ runtime module at all.
 """
 import argparse
 import ctypes
@@ -33,18 +37,41 @@ root = pathlib.Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument('--candidate', required=True)
 p.add_argument('--build', default='studio-phase4g-Release')
+p.add_argument('--distribution', default='phase4g-distribution', choices=['phase4g-distribution', 'phase4i-distribution'])
 a = p.parse_args()
-cand = root / 'build/phase4g-distribution' / a.candidate
-installer = next(cand.glob('nova-studio-*-windows-x64.exe'))
+cand = root / 'build' / a.distribution / a.candidate
+installers = sorted(cand.glob('nova-studio-*-windows-x64*.exe'))
+if len(installers) != 1:
+    raise SystemExit(f'Expected exactly one installer in {cand}, found {[i.name for i in installers]}')
+installer = installers[0]
 payload = cand / 'payload' / 'Nova Studio'
 manifest = json.loads((payload / 'package-manifest.json').read_text(encoding='utf-8'))
 version = manifest['version']
+gcc_build = manifest.get('toolchain_family') == 'gcc-mingw-w64-ucrt64'
 build = root / 'build' / a.build
+
+
+def find_sdk_python():
+    """Phase 4-H.2: same order as scripts/nova-toolchain.ps1, checked before anything is installed."""
+    explicit = os.environ.get('NOVA_MCP_SDK_PYTHON')
+    candidates = [pathlib.Path(explicit)] if explicit else [
+        root / rel for rel in ('build/phase4c-venv/Scripts/python.exe', '.venv/Scripts/python.exe',
+                               'build/mcp-sdk-venv/Scripts/python.exe')]
+    for candidate in candidates:
+        if candidate.is_file() and subprocess.run([str(candidate), '-I', '-c', 'import mcp.client.stdio'],
+                                                  capture_output=True).returncode == 0:
+            return candidate
+        if explicit:
+            raise SystemExit(f'NOVA_MCP_SDK_PYTHON is not an interpreter with the official MCP SDK: {candidate}')
+    raise SystemExit('No interpreter with the official MCP Python SDK: set NOVA_MCP_SDK_PYTHON or create '
+                     'build\\phase4c-venv (docs/release/BUILDING.md, "Test prerequisites"). Nothing was installed.')
+
+
+sdk_python = find_sdk_python()
 stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 out = root / 'build/phase4g-evidence/installer' / stamp
 out.mkdir(parents=True)
 uia = build / 'tests/nova-phase4f-uia-client.exe'
-sdk_python = root / 'build/phase4c-venv/Scripts/python.exe'
 local = pathlib.Path(os.environ['LOCALAPPDATA'])
 appdata = pathlib.Path(os.environ['APPDATA'])
 claude_cli = sorted(local.glob('Claude-Data/claude_*/claude-code/*/*/claude.exe'), key=lambda f: f.stat().st_mtime)[-1]
@@ -315,6 +342,17 @@ code = run_installer(deep)
 check(f'a {len(str(deep))}-character folder path is refused (exit 4) before anything is written', code == 4 and not deep.exists(), code)
 
 # 3. Interrupted installation, then repair by running Setup again, then uninstall.
+for damaged in (b'', b'MZpartial'):
+    metadata_only = out / ('metadata-only-' + str(len(damaged)))
+    metadata_only.mkdir()
+    (metadata_only / MARKER).write_text('Interrupted Nova Studio setup\n', encoding='utf-8')
+    (metadata_only / UNINSTALLER).write_bytes(damaged)
+    code = run_installer(metadata_only)
+    ok, detail = payload_matches(metadata_only)
+    check(f'metadata-only interruption with {len(damaged)}-byte uninstaller repairs safely', code == 0 and ok, detail)
+    run_uninstaller(metadata_only)
+    check('...the repaired metadata-only installation uninstalls completely', not metadata_only.exists() and registry() is None and not SHORTCUT.exists())
+
 interrupted = out / 'interrupted install'
 for delay in (0.6, 0.35, 0.2, 0.1):
     process = subprocess.Popen(f'"{installer}" /S /D={interrupted}')
@@ -377,7 +415,8 @@ env.update(PATH=os.pathsep.join([f'{system_root}\\System32', system_root, f'{sys
 (iso / 'codex/config.toml').write_text('# existing Codex settings stay\nmodel = "example"\n', encoding='utf-8')
 report['tested_clients'] = dict(claude_code=str(claude_cli), codex=str(codex_cli))
 settings = iso / 'settings/studio.ini'
-app = subprocess.Popen([link.get('target') or str(target / 'nova-studio.exe'), '--settings', str(settings), '--project', str(iso / 'pack')],
+window_arguments = ['-qwindowgeometry', os.environ['NOVA_TEST_WINDOW_GEOMETRY']] if os.environ.get('NOVA_TEST_WINDOW_GEOMETRY') else []
+app = subprocess.Popen([link.get('target') or str(target / 'nova-studio.exe'), *window_arguments, '--settings', str(settings), '--project', str(iso / 'pack')],
                        cwd=link.get('working') or str(target), env=env)
 hwnd = wait_window(app.pid, 'Nova Studio')
 check('installed Nova Studio starts from the shortcut target without development folders', hwnd is not None)
@@ -386,6 +425,18 @@ loaded = modules(app.pid)
 outside = [m for m in loaded if not (m.lower().startswith(str(target).lower()) or m.lower().startswith(system_root.lower()))]
 report['loaded_modules'] = len(loaded)
 check('every loaded module comes from the installation folder or Windows', loaded and not outside, outside[:8])
+if gcc_build:
+    # Nova's own images import only UCRT (check-mingw-payload.py). Windows components and graphics
+    # drivers may still load msvcrt.dll or an installed Visual C++ redistributable from System32 for
+    # themselves; those are recorded. A runtime DLL from anywhere else would be a stray copy.
+    msvc_loaded = [m for m in loaded if re.search(r'(?i)\\(msvcp\d+\w*|vcruntime\d+\w*|concrt\d+|vccorlib\d+|msvcrt)\.dll$', m)]
+    windows_dir = os.environ['SystemRoot'].lower()
+    report['msvc_runtime_modules_loaded_by_windows'] = [m for m in msvc_loaded if m.lower().startswith(windows_dir)]
+    report['gcc_runtime_modules'] = [m for m in loaded if re.search(r'(?i)\\(libstdc\+\+-6|libgcc_s_seh-1|libwinpthread-1)\.dll$', m)]
+    check('GCC build: no Visual C++ runtime is loaded from outside Windows; the GCC runtime comes from the installation',
+          not [m for m in msvc_loaded if not m.lower().startswith(windows_dir)] and len(report['gcc_runtime_modules']) == 3 and
+          all(m.lower().startswith(str(target).lower()) for m in report['gcc_runtime_modules']),
+          dict(msvc=msvc_loaded, gcc=report['gcc_runtime_modules']))
 
 ok, _ = invoke(hwnd, 'Resources|MCP Integration…|Agent Setup', 'open-setup')
 check('MCP Integration › Agent Setup opens in the installed application', ok)
@@ -431,7 +482,7 @@ tools = subprocess.run([str(sdk_python), str(root / 'tests/phase4g_sdk_tools.py'
                        env={**env, 'PATH': env['PATH']}, capture_output=True, text=True, timeout=120)
 listed = json.loads(tools.stdout) if tools.returncode == 0 else {}
 report['sdk'] = listed
-check('official MCP SDK lists 26 tools through the installed bridge', len(listed.get('tools', [])) == 26, tools.stderr[-400:])
+check('official MCP SDK lists 39 tools through the installed bridge', len(listed.get('tools', [])) == 39, tools.stderr[-400:])
 # Installer refuses to replace a running copy.
 before_running = tree(target)
 code = run_installer(target)
@@ -447,7 +498,7 @@ check('installed Nova Studio closes cleanly', exit_code == 0, exit_code)
 # A second session where Codex is the agent Nova finds first (Claude Code is not on PATH).
 codex_env = dict(env, PATH=os.pathsep.join([f'{system_root}\\System32', system_root, f'{system_root}\\System32\\Wbem',
                                             str(codex_cli.parent)]), CLAUDE_CONFIG_DIR=str(iso / 'claude-unused'))
-app = subprocess.Popen([str(target / 'nova-studio.exe'), '--settings', str(settings), '--project', str(iso / 'pack')],
+app = subprocess.Popen([str(target / 'nova-studio.exe'), *window_arguments, '--settings', str(settings), '--project', str(iso / 'pack')],
                        cwd=str(target), env=codex_env)
 hwnd = wait_window(app.pid, 'Nova Studio')
 invoke(hwnd, 'Resources|MCP Integration…|Agent Setup', 'open-setup-codex')

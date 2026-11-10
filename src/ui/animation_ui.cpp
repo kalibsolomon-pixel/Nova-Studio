@@ -159,7 +159,8 @@ void Window::saveAnimationNative() {
     QFutureWatcher<QString> watcher; QEventLoop wait;
     connect(&watcher, &QFutureWatcherBase::finished, &wait, &QEventLoop::quit);
     watcher.setFuture(QtConcurrent::run(&ioPool, [snapshot, root] { QString error; snapshot->saveNative(root, &error); return error; }));
-    if (!watcher.isFinished()) wait.exec(); progress.close();
+    if (!watcher.isFinished()) wait.exec();
+    progress.close();
     if (!watcher.result().isEmpty()) QMessageBox::warning(this, "Editable animation save failed", watcher.result());
     else {
         doc->acceptNativeSave(*snapshot, serial);
@@ -243,7 +244,8 @@ void Window::processAnimationFrames(const QString &operation) {
             ops::Context context; context.cancel = cancelFlag.get(); QString error;
             snapshot->applyFrames(ids, spec, &error, &context); return error;
         }));
-        if (!watcher.isFinished()) wait.exec(); progress.reset();
+        if (!watcher.isFinished()) wait.exec();
+        progress.reset();
         if (!watcher.result().isEmpty() || canceled->load() || serial != doc->changeSerial()) {
             status->setText(watcher.result().isEmpty() ? "Canceled or stale preview" : watcher.result()); return;
         }
@@ -302,7 +304,8 @@ void Window::exportAnimation(bool as) {
         watcher.setFuture(QtConcurrent::run(&ioPool, [snapshot, count, version] {
             QString error; auto plan = planAnimationExport(*snapshot, count, version, &error); return std::make_pair(plan, error);
         }));
-        if (!watcher.isFinished()) wait.exec(); progress.close();
+        if (!watcher.isFinished()) wait.exec();
+        progress.close();
         planned = watcher.result().first; error = watcher.result().second;
         if (!planned.ok() || plannedSerial != doc->changeSerial()) { diagnostics->setText(error.isEmpty() ? "Document changed; validate again" : error); return; }
         // Export As retains unrelated metadata already present at the new destination.
@@ -328,6 +331,7 @@ void Window::exportAnimation(bool as) {
     connect(columns, &QSpinBox::valueChanged, &dialog, dryRun); connect(target, &QComboBox::currentIndexChanged, &dialog, dryRun);
     connect(exportButton, &QPushButton::clicked, &dialog, [&] {
         if (!planned.ok() || plannedSerial != doc->changeSerial()) { diagnostics->setText("Document changed; validate again"); return; }
+        if (original && !prepareAssetFolder(doc)) return; // a vanilla texture's first export creates its folder
         QProgressDialog progress("Writing guarded PNG + metadata pair…", QString(), 0, 0, &dialog); progress.setWindowModality(Qt::WindowModal); progress.setMinimumDuration(200);
         struct Result { QString error, journal; bool ok = false; Revision png, meta; };
         QFutureWatcher<Result> watcher; QEventLoop wait; connect(&watcher, &QFutureWatcherBase::finished, &wait, &QEventLoop::quit);
@@ -338,12 +342,13 @@ void Window::exportAnimation(bool as) {
             if (result.ok) { result.png = Revision::read(destination); result.meta = Revision::read(destination + ".mcmeta"); }
             return result;
         }));
-        if (!watcher.isFinished()) wait.exec(); progress.close(); const auto result = watcher.result();
+        if (!watcher.isFinished()) wait.exec();
+        progress.close(); const auto result = watcher.result();
         if (!result.ok) {
             diagnostics->setText(result.error + (result.journal.isEmpty() ? "" : "\nRecovery journal: " + result.journal));
             QMessageBox::warning(&dialog, "Animation export conflict or failure", diagnostics->text()); exportButton->setEnabled(false); return;
         }
-        if (original) { doc->acceptAnimationExport(result.png, result.meta, plannedSerial == doc->changeSerial()); session.notify(doc); }
+        if (original) { doc->acceptAnimationExport(result.png, result.meta, plannedSerial == doc->changeSerial()); session.notify(doc); baselineSaved(doc); }
         statusBar()->showMessage("Minecraft animation pair exported · Recoverable backups retained · Save editable source to retain the export baseline", 7000);
         dialog.accept();
     });
@@ -369,7 +374,8 @@ void Window::recoverAnimationExport(const QString &requested) {
         const auto journal = list->currentItem()->text(); QFutureWatcher<QString> watcher; QEventLoop wait;
         connect(&watcher, &QFutureWatcherBase::finished, &wait, &QEventLoop::quit); retry->setEnabled(false); rollback->setEnabled(false);
         watcher.setFuture(QtConcurrent::run(&ioPool, [journal, action] { QString error; finishAnimationPair(journal, action, &error); return error; }));
-        if (!watcher.isFinished()) wait.exec(); retry->setEnabled(true); rollback->setEnabled(true);
+        if (!watcher.isFinished()) wait.exec();
+        retry->setEnabled(true); rollback->setEnabled(true);
         if (!watcher.result().isEmpty()) { status->setText(watcher.result()); return; }
         bool matches = false;
         if (action == PairAction::Retry && doc && doc->animated()) {

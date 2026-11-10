@@ -2,7 +2,9 @@
 #include "monitor.h"
 #include <QDir>
 #ifdef Q_OS_WIN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <QWinEventNotifier>
 #include <windows.h>
 #endif

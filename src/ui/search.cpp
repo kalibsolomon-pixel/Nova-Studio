@@ -27,6 +27,7 @@ const QHash<QString, QStringList> &aliases() {
         {"validateResources", {"problems", "errors", "warnings", "validate", "check", "lint"}},
         {"mcpAccess", {"mcp", "ai", "agent", "claude", "codex", "integration", "permissions", "access",
                        "model context protocol", "assistant"}},
+        {"acpSession", {"acp", "agent client protocol", "agent session", "opencode", "ai", "assistant"}},
         {"commandPaletteCommand", {"search", "find", "commands", "palette"}},
         {"licensesCommand", {"license", "gpl", "copyright", "legal", "notices", "source code", "third party"}},
         {"preferencesCommand", {"settings", "options", "preferences", "configuration", "appearance"}},
@@ -41,6 +42,12 @@ const QHash<QString, QStringList> &aliases() {
         {"workspacePreset-model", {"3d", "model", "cube", "workspace"}},
         {"workspacePreset-uv", {"uv", "unwrap", "texture coordinates", "faces", "workspace"}},
         {"keyboardShortcutsCommand", {"keyboard", "keys", "hotkeys", "shortcuts"}},
+        {"resetToVanillaCommand", {"vanilla", "baseline", "reset", "revert", "original texture", "override"}},
+        {"resetAllToVanillaCommand", {"vanilla", "baseline", "reset all", "overrides"}},
+        {"removeFromProjectCommand", {"remove", "delete", "texture", "baseline"}},
+        {"useVanillaBaselineCommand", {"vanilla", "baseline", "default textures", "minecraft textures"}},
+        {"repairBaselineCommand", {"vanilla", "baseline", "download", "repair", "verify"}},
+        {"manageBaselinesCommand", {"vanilla", "baseline", "cache", "disk space", "download"}},
     };
     return table;
 }
@@ -374,6 +381,7 @@ bool SearchDialog::eventFilter(QObject *object, QEvent *event) {
 
 // ------------------------------------------------------------------ the Window's index
 SearchIndex Window::searchIndex() {
+    updateBaselineActions(); // Vanilla Baseline commands report their current availability
     SearchIndex index;
     QSet<QAction *> seen;
     const auto palette = findChild<QAction *>("commandPaletteCommand");
@@ -415,7 +423,9 @@ SearchIndex Window::searchIndex() {
         return QString("Command");
     };
     const auto add = [&](QAction *action, const QStringList &path, const QList<QMenu *> &chain) {
-        if (!action || action->isSeparator() || seen.contains(action) || cleanText(action->text()).isEmpty())
+        // Hidden commands (an experimental feature that is turned off) are not offered.
+        if (!action || action->isSeparator() || !action->isVisible() || seen.contains(action) ||
+            cleanText(action->text()).isEmpty())
             return;
         seen.insert(action);
         SearchEntry entry;
@@ -493,6 +503,9 @@ SearchIndex Window::searchIndex() {
     setting("Undo history per document", "Editing", "preferenceHistory", {"editor", "undo", "history", "memory"});
     setting("Reopen the last project at startup", "Startup", "preferenceReopen", {"startup", "restore", "session", "recent"});
     setting("Reset workspace layout", "Workspace", "preferenceResetWorkspace", {"workspace", "panels", "layout", "reset"});
+    setting("Vanilla texture cache location", "Vanilla textures", "preferenceBaselineLocation", {"vanilla", "baseline", "cache", "folder", "location"});
+    setting("Manage cached vanilla textures", "Vanilla textures", "preferenceBaselineManage", {"vanilla", "baseline", "cache", "disk space", "remove", "verify"});
+    setting("Experimental Agent Session (ACP)", "Experimental", "preferenceExperimentalAgentSession", {"experimental", "acp", "agent session", "opencode"});
     // Controls that live in panels rather than Preferences.
     const auto control = [&](const QString &title, const QString &location, QDockWidget *dock, QWidget *bar,
                              const QString &name, const QStringList &keywords) {

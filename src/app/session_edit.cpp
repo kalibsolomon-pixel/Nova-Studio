@@ -2,6 +2,7 @@
 // DocumentSession editing commands. Each validates document ownership and the
 // session pixel budget, delegates to the Document model and emits changed().
 #include "session.h"
+#include "texture_edit.h"
 #include <QJsonArray>
 #include <algorithm>
 
@@ -136,6 +137,16 @@ bool DocumentSession::fill(const std::shared_ptr<Document> &doc, QUuid layer, QP
         emit changed(doc->id());
     return ok;
 }
+bool DocumentSession::universalFill(const std::shared_ptr<Document> &doc, QUuid layer, QPoint seed,
+                                    QRgb color, int tolerance, bool sampleComposite, int opacity,
+                                    QString *error) {
+    if (!owns(doc, error))
+        return false;
+    const bool ok = doc->universalFill(layer, seed, color, tolerance, sampleComposite, opacity, error);
+    if (ok)
+        emit changed(doc->id());
+    return ok;
+}
 bool DocumentSession::applyLayers(const std::shared_ptr<Document> &doc, const QVector<QUuid> &layers,
                                   const ops::Spec &input, QString *error, const ops::Context *context) {
     if (!owns(doc,error)) return false;
@@ -148,7 +159,8 @@ bool DocumentSession::applyLayers(const std::shared_ptr<Document> &doc, const QV
         if (!withinPixelBudget(doc,estimate-doc->pixelBytes())) {if(error)*error="Session pixel budget exceeded";return false;}
     }
     const auto ok=doc->applyLayers(layers,spec,error,context);
-    if(ok)emit changed(doc->id());return ok;
+    if(ok)emit changed(doc->id());
+    return ok;
 }
 bool DocumentSession::shape(const std::shared_ptr<Document> &doc, QUuid layer, const ops::ShapeSpec &shape,
                             QRgb color, int opacity, bool erase, QString *error) {
@@ -349,6 +361,31 @@ bool DocumentSession::execute(const std::shared_ptr<Document> &doc, const QJsonO
         spec.bounds = rect();
         spec.filled = true;
         return shape(doc, layer, spec, color("color"), c["opacity"].toInt(), false, error);
+    }
+    if (texture::compactCommand(command)) {
+        // Compact texture edits: computed for one layer, then committed as one native pixel
+        // replacement. put_pixels and erase paint, so like fill_rect they need the active layer;
+        // palette_remap and gradient_map are adjustments and may target any visible layer.
+        const auto target = doc->layer(layer);
+        if (!target) {
+            if (error)
+                *error = "Layer identity is not present";
+            return false;
+        }
+        if ((command == "put_pixels" || command == "erase") && layer != doc->activeLayer()) {
+            if (error)
+                *error = "Select the target layer before drawing";
+            return false;
+        }
+        QImage pixels;
+        if (const auto failure = texture::apply(command, c, target->pixels, doc->selection(), &pixels); !failure.ok()) {
+            if (error)
+                *error = failure.message;
+            return false;
+        }
+        static const QMap<QString, QString> labels{{"put_pixels", "Put Pixels"}, {"palette_remap", "Palette Remap"},
+                                                   {"gradient_map", "Gradient Map"}, {"erase", "Erase"}};
+        return replacePixels(doc, layer, pixels, labels.value(command), error);
     }
     if (command == "fill")
         return fill(doc, layer, QPoint(c.value("x").toInt(), c.value("y").toInt()), color("color"),

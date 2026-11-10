@@ -8,8 +8,9 @@ This preview ships the components below. Their license texts are in the `license
 `qt/` holds the Qt Base notices and license texts (167 files from the Qt Base 6.12.0 source, including every license file that Qt's
 attribution metadata names),
 `qtbase-6.12.0.spdx.json` is Qt's software bill of materials, `qt-build/config_qtbase.opt` records
-how The Qt Company configured the shipped Qt build, `MICROSOFT-REDIST.txt` covers the Microsoft
-runtime, and `gradle-wrapper-9.8.2-LICENSE.txt` covers the Gradle wrapper.
+how The Qt Company configured the shipped Qt build, `MICROSOFT-VC-RUNTIME-TERMS.txt` and
+`MICROSOFT-REDIST.txt` cover the Microsoft runtime, `MaterialSymbolsOutlined-LICENSE.txt` covers the
+Material Symbols font, and `gradle-wrapper-9.8.2-LICENSE.txt` covers the Gradle wrapper.
 
 ## Qt Base 6.12.0
 
@@ -71,12 +72,28 @@ The license texts for every component above are in `qt/` and in the Qt Base sour
 
 ## Microsoft Visual C++ runtime
 
-`msvcp140*.dll`, `vcruntime140*.dll` (including `vcruntime140_threads.dll`), `concrt140.dll` and
-`vccorlib140.dll` are the Microsoft
-Visual C++ 14.51 runtime, copied from the Visual Studio redistributable folder and redistributed
-under `MICROSOFT-REDIST.txt`. They are not covered by the GPL. They are the runtime of the compiler
-that built Nova Studio, which GPL-3.0 section 1 treats as a System Library, so their source code is
-not part of Nova Studio's corresponding source.
+`concrt140.dll`, `msvcp140.dll`, `msvcp140_1.dll`, `msvcp140_2.dll`, `msvcp140_atomic_wait.dll`,
+`msvcp140_codecvt_ids.dll`, `vccorlib140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll` and
+`vcruntime140_threads.dll` are the Microsoft Visual C++ 14.51 runtime (file version
+14.51.36247.0), copyright Microsoft Corporation. They are copied unmodified from the
+`VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT` folder of Visual Studio Build Tools 2026 and
+distributed as Microsoft "Distributable Code" (Microsoft's list: https://aka.ms/vs/18/redistribution;
+`MICROSOFT-REDIST.txt` is Microsoft's own pointer to it).
+
+**They are not covered by the GPL**, and Nova Studio's license gives no rights to them. By
+installing, copying or using them you agree to the terms in `MICROSOFT-VC-RUNTIME-TERMS.txt`, which
+protect them as Microsoft requires. Microsoft does not endorse, sponsor or support Nova Studio.
+They are the runtime of the compiler that built Nova Studio, which GPL-3.0 section 1 treats as a
+System Library, so their source code is not part of Nova Studio's corresponding source.
+
+## Material Symbols Outlined
+
+`nova-studio.exe` embeds the unmodified Material Symbols Outlined variable font, copyright 2026
+Google LLC, from the Google Material Design Icons project at commit
+`10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7` (SHA-256
+`f7837ba8573d9a7a74931618ced8307bc81f96d49af296bf6c8052c772ed5282`). It supplies command and
+editor-tool glyphs under the Apache License 2.0 (`MaterialSymbolsOutlined-LICENSE.txt`). The font
+and its license are also in the corresponding source archive under `assets/fonts/`.
 
 ## Gradle wrapper 9.8.2
 

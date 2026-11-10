@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "inspection.h"
+#include "relationships.h"
 #include "scope.h"
+#include "sources.h"
+#include "vanilla/cache.h"
+#include "vanilla_access.h"
 #include <QBuffer>
 #include "protocol.h"
 #include "validation.h"
@@ -453,7 +457,8 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
                 {"packFormat", format("pack_format", false)}, {"minFormat", format("min_format", false)},
                 {"maxFormat", format("max_format", true)}, {"assetCount", count},
                 {"indexRevision", s.indexRevision},
-                {"namespaces", QJsonArray::fromStringList(names)}, {"validationAvailable", true}};
+                {"namespaces", QJsonArray::fromStringList(names)}, {"validationAvailable", true},
+                {"styleNotes", s.styleNotes}, {"unsavedCount", s.unsavedCount}};
     }
     if (args["generation"] != s.generation)
         return toolError("stale_project", "The project generation is no longer authorized.");
@@ -494,6 +499,12 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         return {{"generation", s.generation}, {"assets", assets},
                 {"nextOffset", more ? QJsonValue(offset + limit) : QJsonValue()}};
     }
+    if (tool == "nova.vanilla.list")
+        return vanillaList(s, args, cancel);
+    if (tool == "nova.vanilla.texture")
+        return vanillaTexture(s, args);
+    if (tool == "nova.asset.relationships")
+        return relationships(s, scope, args, cancel);
     const auto ids = args["assetIds"].toArray();
     const auto paths = targets(s, ids, *cancel);
     if (cancel->load())
@@ -601,8 +612,10 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         for (const auto &candidate : s.index.files) {
             if (cancel->load())
                 return canceled();
+            // Never-saved models are validated from their live source, like other open drafts.
             if (logicalAsset(candidate) && (!s.provisional.contains(candidate) ||
-                (changes && s.models.contains(candidate) && provisionalAvailable(s, scope, candidate)))) {
+                ((changes || s.drafts.contains(candidate)) && s.models.contains(candidate) &&
+                 provisionalAvailable(s, scope, candidate)))) {
                 editable.files.append(candidate);
                 editable.records.insert(candidate, s.index.records.value(candidate));
             }
@@ -621,9 +634,20 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         if (!path.isEmpty() && !reader(path))
             return unsafe();
         mc::ValidationReport report;
+        // nova.pack.validate resolves references through every allowed source (project, open drafts, the
+        // configured resource stack, the verified texture cache); validate_changes keeps the project only.
+        std::unique_ptr<SourceSet> sources;
+        if (!changes) {
+            sources = std::make_unique<SourceSet>(s, scope, cancel);
+            if (sources->canceled() || cancel->load())
+                return canceled();
+        }
         if (!changes || !selected.isEmpty()) {
             mc::Library library(s.version);
-            library.update(s.root, editable, {}, cancel, reader);
+            if (sources)
+                library = sources->library();
+            else
+                library.update(s.root, editable, {}, cancel, reader);
             if (cancel->load())
                 return canceled();
             QMap<QString, QJsonObject> models;
@@ -636,14 +660,22 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         }
         if (cancel->load() || report.canceled)
             return canceled();
+        QStringList liveTargets;
         if (changes) {
-            auto liveTargets = selected;
+            liveTargets = selected;
             for (const auto &target : paths)
                 if (s.provisional.contains(target) && !liveTargets.contains(target)) {
                     liveTargets.append(target);
                     ++report.files;
                     ++report.inspected;
                 }
+        } else {
+            // Open texture and animation drafts: their pixels and frames are checked live.
+            for (auto it = s.animationDocuments.begin(); it != s.animationDocuments.end(); ++it)
+                if (path.isEmpty() || it.key() == path)
+                    liveTargets.append(it.key());
+        }
+        {
             liveTargets.removeDuplicates();
             for (const auto &target : liveTargets) {
                 if (cancel->load())
@@ -677,16 +709,174 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
             return safeIds.value(file);
         };
         const int limit = args["limit"].toInt(100);
+        QJsonArray includedDrafts, unavailableDrafts;
+        if (!changes) {
+            for (auto it = s.drafts.begin(); it != s.drafts.end(); ++it)
+                if ((path.isEmpty() || it.key() == path) && includedDrafts.size() < 64)
+                    includedDrafts.append(QJsonObject{{"path", it.key()}, {"type", it->type},
+                        {"revision", it->revision}, {"provisional", it->provisional}});
+            for (auto it = s.unavailableDrafts.begin(); it != s.unavailableDrafts.end(); ++it) {
+                if (!path.isEmpty() && it.key() != path)
+                    continue;
+                unavailableDrafts.append(QJsonObject{{"path", it.key()}, {"reason", it.value()}});
+                mc::Diagnostic diagnostic;
+                diagnostic.file = it.key();
+                diagnostic.code = "draft_unavailable";
+                diagnostic.severity = mc::Severity::Warning;
+                diagnostic.message = "An open unsaved document could not be read for validation (" + it.value() +
+                                     "). Only its saved file was checked; finish or save it, then validate again.";
+                diagnostic.suggestion = "Ask the user to finish the current edit in Nova, then validate again.";
+                report.diagnostics.append(diagnostic);
+            }
+        }
+        // Phase 3: a stable rule per finding, evidence, and an honest severity when the data needed to
+        // check a reference (vanilla models) is not available from any configured source.
+        struct Classified {
+            QString severity, rule, message, next;
+            QJsonArray evidence;
+        };
+        auto classify = [&](const mc::Diagnostic &d) {
+            Classified c{mc::severityName(d.severity), d.code, d.message, d.suggestion, {}};
+            if (!sources)
+                return c;
+            QJsonArray affects;
+            for (const auto &file : d.affected.first(std::min<qsizetype>(8, d.affected.size())))
+                affects.append(file);
+            if (!affects.isEmpty())
+                c.evidence.append(QJsonObject{{"affects", affects}});
+            static const QRegularExpression element("^Element \\d+: ");
+            const auto text = QString(d.message).remove(element);
+            QString id, kind;
+            if (d.code == "model") {
+                if (text.startsWith("Missing parent/model: ")) {
+                    id = text.mid(22).trimmed();
+                    kind = "model";
+                    c.rule = "unresolved_parent";
+                } else if (text.startsWith("Missing texture: ")) {
+                    id = text.mid(17).trimmed();
+                    kind = "texture";
+                    c.rule = "missing_texture";
+                } else if (text.startsWith("Cyclic or excessive parent chain")) {
+                    c.rule = "parent_cycle_or_depth";
+                } else if (text.startsWith("Missing texture variable"))
+                    c.rule = "unresolved_texture_variable";
+                else if (text.startsWith("Cyclic texture variable"))
+                    c.rule = "texture_variable_cycle";
+                else if (text.startsWith("unresolved face texture"))
+                    c.rule = "unresolved_face_texture";
+                else if (text.startsWith("invalid UV"))
+                    c.rule = "invalid_uv";
+                else if (text.startsWith("Invalid texture resource"))
+                    c.rule = "invalid_texture_reference";
+            } else if (d.code == "missing_model" && d.message.startsWith("Missing referenced model: ")) {
+                id = mc::Location::fromAsset(d.message.mid(26).trimmed(), "models");
+                kind = "model";
+                c.rule = "unresolved_model";
+            }
+            const auto location = mc::Location::parse(id);
+            if (location.valid()) {
+                c.evidence.append(QJsonObject{{"reference", location.id()},
+                    {"searched", QJsonArray{"open_draft", "project", "resource_stack"}},
+                    {"vanillaModelSource", sources->vanillaModelSource()}});
+                const auto &cache = sources->textureCache();
+                if (kind == "texture" && sources->vanillaTexture(location.asset("textures"))) {
+                    c.severity = "Information";
+                    c.rule = "texture_in_vanilla_cache";
+                    c.message = QString("Texture %1 is not in the project or resource stack; Nova's verified vanilla texture "
+                                        "cache for Java %2 provides it.").arg(location.id(), s.version);
+                    c.next = "No action needed unless the pack should replace this vanilla texture.";
+                    c.evidence.append(QJsonObject{{"source", "vanilla_texture_cache"}, {"identity", cache.entry->identity}});
+                } else if (kind == "texture" && location.nameSpace == "minecraft" && cache.status != "verified") {
+                    c.severity = "Unsupported";
+                    c.rule = "texture_source_unavailable";
+                    c.message = QString("Texture %1 is not in the project or resource stack, and Nova's vanilla texture cache "
+                                        "has no verified Java %2 entry (%3), so Nova cannot check it.")
+                                    .arg(location.id(), s.version, cache.status);
+                    c.next = "Ask the user to add the vanilla baseline for this version in Nova, then validate again.";
+                } else if (kind == "model" && !sources->catalogComplete()) {
+                    c.severity = "Unsupported";
+                    c.rule = "model_catalog_incomplete";
+                    c.message = QString("Model %1 was not found, but Nova's model catalog budget (8192 JSON files / 32 MiB) "
+                                        "was exceeded, so the project and resource stack were read only in part; Nova "
+                                        "cannot tell whether it exists.").arg(location.id());
+                    c.next = "Reduce the resource stack in Models › Resource stack, then validate again.";
+                } else if (kind == "model" && location.nameSpace == "minecraft" && !sources->vanillaModelSource()) {
+                    c.severity = "Unsupported";
+                    c.rule = c.rule == "unresolved_parent" ? "parent_source_unavailable" : "model_source_unavailable";
+                    c.message = QString("Model %1 is not in the project or the configured resource stack. It is probably a "
+                                        "vanilla model, but no verified vanilla resource source is configured for Java %2 and "
+                                        "Nova's vanilla texture cache contains textures only, so Nova cannot check it or the "
+                                        "textures it inherits.").arg(location.id(), s.version);
+                    c.next = "Ask the user to add a verified vanilla resource source in Models › Resource stack to check "
+                             "vanilla parents; otherwise treat this as unchecked, not as an error.";
+                }
+            }
+            if (d.code == "pack_target" || d.code == "pack_format" || d.code == "missing_pack_metadata")
+                for (const auto &v : gameVersions())
+                    if (v.id == s.version)
+                        c.evidence.append(QJsonObject{{"selectedVersion", s.version}, {"packFormat", v.format.json()},
+                                                      {"source", "nova_version_registry"}});
+            if (d.code == "animation" || d.code == "missing_spritesheet" || d.code == "animation_budget")
+                c.evidence.append(QJsonObject{{"selectedVersion", s.version},
+                                              {"source", "nova_animation_parser"}, {"texture", d.file.chopped(7)}});
+            return c;
+        };
+        QJsonArray limitations;
+        QJsonArray extra;
+        if (sources) {
+            extra = relationshipFindings(s, *sources, path, cancel, limitations);
+            if (cancel->load())
+                return canceled();
+            if (!sources->vanillaModelSource())
+                limitations.append(QString("No verified vanilla resource source is configured for Java %1: references to "
+                    "vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla texture cache "
+                    "contains textures only.").arg(s.version));
+            if (!sources->stackComplete())
+                limitations.append("At least one configured resource-stack source is unavailable; see resource_stack_unavailable.");
+            if (!supportedVersion(s.version))
+                limitations.append(QString("Nova has no rules for Minecraft %1; version-specific checks were skipped.").arg(s.version));
+        }
+        qsizetype total = 0;
+        // pack.validate findings carry evidence; keep the result inside the response limit (it is sent twice).
+        qsizetype bytes = 0;
+        auto fits = [&](const QJsonObject &finding) {
+            if (!sources)
+                return true;
+            const auto size = QJsonDocument(finding).toJson(QJsonDocument::Compact).size();
+            if (bytes + size > RelationshipBytes)
+                return false;
+            bytes += size;
+            return true;
+        };
         for (const auto &d : report.diagnostics) {
-            const auto severity = mc::severityName(d.severity);
+            const auto classified = classify(d);
+            const auto &severity = classified.severity;
             counts[severity] = counts[severity].toInt() + 1;
+            ++total;
             if (diagnostics.size() >= limit)
                 continue;
             if (cancel->load())
                 return canceled();
             QJsonObject diagnostic{{"severity", severity}, {"code", d.code},
                 {"assetId", editable.records.contains(d.file) ? QJsonValue(assetIdentifier(s, d.file)) : QJsonValue()},
-                {"message", diagnosticText(d.message)}, {"field", d.field.left(256)}, {"line", d.line}};
+                {"message", diagnosticText(classified.message)}, {"field", d.field.left(256)}, {"line", d.line}};
+            if (sources) {
+                diagnostic["rule"] = classified.rule;
+                diagnostic["nextStep"] = diagnosticText(classified.next);
+                diagnostic["evidence"] = classified.evidence;
+            }
+            if (!changes) {
+                // Findings on an open model draft, and live checks, describe the unsaved document.
+                const auto draft = s.drafts.constFind(d.file);
+                const bool unavailable = d.code == "draft_unavailable";
+                const bool live = unavailable || (draft != s.drafts.cend() &&
+                    (draft->type == "model" || d.code.startsWith("live_")));
+                diagnostic["source"] = live ? "open_draft" : "disk";
+                diagnostic["path"] = unavailable || editable.records.contains(d.file) || draft != s.drafts.cend()
+                    ? QJsonValue(d.file) : QJsonValue();
+                if (live && draft != s.drafts.cend())
+                    diagnostic["revision"] = draft->revision;
+            }
             if (changes) {
                 diagnostic["assetId"] = safeId(d.file);
                 QJsonArray affected;
@@ -697,12 +887,38 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
                 }
                 diagnostic["affectedAssetIds"] = affected;
             }
-            diagnostics.append(diagnostic);
+            if (fits(diagnostic))
+                diagnostics.append(diagnostic);
         }
+        for (const auto &value : extra) {
+            auto finding = value.toObject();
+            const auto severity = finding["severity"].toString();
+            counts[severity] = counts[severity].toInt() + 1;
+            ++total;
+            if (diagnostics.size() >= limit)
+                continue;
+            const auto file = finding["path"].toString();
+            finding["assetId"] = editable.records.contains(file) ? QJsonValue(assetIdentifier(s, file)) : QJsonValue();
+            finding["message"] = diagnosticText(finding["message"].toString());
+            finding["nextStep"] = diagnosticText(finding["nextStep"].toString());
+            if (fits(finding))
+                diagnostics.append(finding);
+        }
+        // Every finding is counted; `truncated` says that some were not listed (finding limit or response budget).
         QJsonObject result{{"generation", s.generation}, {"diagnostics", diagnostics}, {"counts", counts},
                 {"files", report.files}, {"inspected", report.inspected},
                 {"milliseconds", report.milliseconds},
-                {"truncated", report.truncated || report.diagnostics.size() > limit}};
+                {"truncated", report.truncated || total > diagnostics.size()}};
+        if (!changes) {
+            result["drafts"] = QJsonObject{{"included", includedDrafts}, {"unavailable", unavailableDrafts},
+                {"complete", unavailableDrafts.isEmpty()},
+                {"sources", QJsonObject{{"disk", "saved project files"},
+                    {"open_draft", "open unsaved documents: live model sources and native texture/animation checks"},
+                    {"resource_stack", "the resource stack the user configured for this project and version"}}}};
+            result["minecraftVersion"] = s.version;
+            result["sources"] = sources->summary();
+            result["limitations"] = limitations;
+        }
         if (changes) {
             result["projectId"] = s.projectId;
             result["revisions"] = revisions;

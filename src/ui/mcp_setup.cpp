@@ -9,7 +9,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
-#include <QFormLayout>
+#include <QGroupBox>
 #include <QScrollArea>
 #include <QDir>
 #include <QFileInfo>
@@ -48,10 +48,21 @@ QString stateText(const clients::Status &status) {
 }
 clients::Bridge bridge() { return clients::locateBridge(QCoreApplication::applicationDirPath()); }
 
+// The bridge check runs nova-mcp.exe with only the Windows folders on PATH, as an MCP client with an
+// unrelated PATH would. A bridge that loads its libraries from Nova's own PATH would pass otherwise.
+QProcessEnvironment bridgeEnvironment() {
+    auto environment = QProcessEnvironment::systemEnvironment();
+    const auto windows = QDir::toNativeSeparators(environment.value("SystemRoot", "C:\\Windows"));
+    environment.insert("PATH", windows + "\\System32;" + windows);
+    return environment;
+}
+
 // Runs program + arguments without blocking the GUI thread; reports exit code and output.
 void runProcess(QObject *owner, const QStringList &command, int timeoutMs,
-                std::function<void(int exitCode, bool timedOut, const QString &output)> done) {
+                std::function<void(int exitCode, bool timedOut, const QString &output)> done,
+                const QProcessEnvironment &environment = QProcessEnvironment::systemEnvironment()) {
     auto process = new QProcess(owner);
+    process->setProcessEnvironment(environment);
     process->setProcessChannelMode(QProcess::MergedChannels);
     auto timer = new QTimer(process);
     timer->setSingleShot(true);
@@ -97,84 +108,112 @@ QWidget *createMcpSetupPage(QWidget *parent, std::function<QString()> connection
     page->setObjectName("mcpSetupPage");
     scroll->setWidget(page);
     auto layout = new QVBoxLayout(page);
-    layout->setSpacing(ui::SpaceL);
+    layout->setContentsMargins(0, ui::PanelPadding, ui::SpaceS, 0);
+    layout->setSpacing(ui::PanelPadding);
+    // Bounded sections: the chosen client and its state, the bridge, setup, diagnostics.
+    const auto section = [page, layout](const QString &title, const char *name) {
+        auto box = new QGroupBox(title, page);
+        box->setObjectName(name);
+        box->setProperty("role", "section");
+        auto l = new QVBoxLayout(box);
+        l->setSpacing(ui::SpaceM);
+        layout->addWidget(box);
+        return l;
+    };
     auto intro = ui::hint("Connect an AI agent once. Setup only tells the agent where nova-mcp.exe is; it never "
                           "grants access. You still choose Allow on the Access tab for each session.", page);
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
-    auto form = new QFormLayout;
-    form->setHorizontalSpacing(ui::SpaceXL);
-    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    auto bridgeRow = new QHBoxLayout;
-    auto bridgeLabel = new QLabel(page);
-    bridgeLabel->setObjectName("mcpBridgePath");
-    bridgeLabel->setTextFormat(Qt::PlainText);
-    bridgeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    bridgeLabel->setWordWrap(true);
-    bridgeLabel->setMinimumWidth(1);
-    bridgeRow->addWidget(bridgeLabel, 1);
-    auto copyPath = new QPushButton("Copy path", page);
-    copyPath->setObjectName("mcpCopyBridgePath");
-    bridgeRow->addWidget(copyPath, 0, Qt::AlignTop);
-    form->addRow("Bridge", bridgeRow);
-
+    auto client = section("Selected client", "mcpAgentSection");
+    auto agentLabel = new QLabel("&Agent", page);
     auto agentRow = new QHBoxLayout;
+    agentRow->setSpacing(ui::SpaceM);
+    agentRow->addWidget(agentLabel);
     auto agent = new QComboBox(page);
     agent->setObjectName("mcpAgentChoice");
     agent->setAccessibleName("AI agent");
     agent->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     agent->setMinimumContentsLength(24);
+    agentLabel->setBuddy(agent);
     agentRow->addWidget(agent, 1);
     auto recheck = new QPushButton("Check again", page);
     recheck->setObjectName("mcpAgentRecheck");
+    recheck->setAccessibleName("Check agents again");
     agentRow->addWidget(recheck);
-    form->addRow("Agent", agentRow);
-
+    client->addLayout(agentRow);
     auto status = new QLabel(page);
     status->setObjectName("mcpAgentStatus");
     status->setTextFormat(Qt::PlainText);
     status->setWordWrap(true);
     status->setMinimumWidth(1);
     status->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    form->addRow("Status", status);
-    layout->addLayout(form);
+    client->addWidget(status);
 
+    auto bridgeSection = section("Bridge", "mcpBridgeSection");
+    auto bridgeRow = new QHBoxLayout;
+    bridgeRow->setSpacing(ui::SpaceM);
+    // The full path wraps anywhere (never elided) and stays selectable and copyable.
+    auto bridgeLabel = new QPlainTextEdit(page);
+    bridgeLabel->setObjectName("mcpBridgePath");
+    bridgeLabel->setProperty("role", "path");
+    bridgeLabel->setAccessibleName("MCP bridge path");
+    bridgeLabel->setReadOnly(true);
+    bridgeLabel->setTabChangesFocus(true);
+    bridgeLabel->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    bridgeLabel->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    bridgeLabel->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    bridgeLabel->setFixedHeight(bridgeLabel->fontMetrics().lineSpacing() * 3 + 2 * ui::SpaceM);
+    bridgeRow->addWidget(bridgeLabel, 1);
+    auto copyPath = new QPushButton("Copy path", page);
+    copyPath->setObjectName("mcpCopyBridgePath");
+    bridgeRow->addWidget(copyPath, 0, Qt::AlignTop);
+    bridgeSection->addLayout(bridgeRow);
+
+    auto setup = section("Setup", "mcpSetupSection");
     auto actions = new QHBoxLayout;
+    actions->setSpacing(ui::SpaceM);
     auto add = new QPushButton("Add Nova Studio…", page);
     add->setObjectName("mcpAgentConfigure");
     actions->addWidget(add);
     auto copyConfig = new QPushButton("Copy configuration", page);
     copyConfig->setObjectName("mcpCopyConfiguration");
     actions->addWidget(copyConfig);
-    auto diagnose = new QPushButton("Run diagnostics", page);
-    diagnose->setObjectName("mcpRunDiagnostics");
-    actions->addWidget(diagnose);
     actions->addStretch();
-    layout->addLayout(actions);
-
-    layout->addWidget(ui::sectionTitle("Configuration", page));
+    setup->addLayout(actions);
     auto configuration = new QPlainTextEdit(page);
     configuration->setObjectName("mcpAgentConfiguration");
     configuration->setAccessibleName("Configuration for the selected agent");
     configuration->setReadOnly(true);
     configuration->setLineWrapMode(QPlainTextEdit::NoWrap);
     configuration->setFixedHeight(configuration->fontMetrics().lineSpacing() * 6 + 16);
-    layout->addWidget(configuration);
+    configuration->setTabChangesFocus(true);
+    setup->addWidget(configuration);
     auto steps = new QLabel(page);
     steps->setObjectName("mcpAgentInstructions");
     steps->setTextFormat(Qt::PlainText);
     steps->setWordWrap(true);
     steps->setMinimumWidth(1);
     steps->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(steps);
+    setup->addWidget(steps);
+
+    auto diagnostics = section("Diagnostics", "mcpDiagnosticsSection");
+    auto diagnoseRow = new QHBoxLayout;
+    auto diagnose = new QPushButton("Run diagnostics", page);
+    diagnose->setObjectName("mcpRunDiagnostics");
+    diagnoseRow->addWidget(diagnose);
+    auto diagnoseHint = ui::hint("Runs nova-mcp.exe --version and --self-test and shows the results below.", page);
+    diagnoseHint->setWordWrap(true);
+    diagnoseRow->addWidget(diagnoseHint, 1);
+    diagnostics->addLayout(diagnoseRow);
     auto results = new QPlainTextEdit(page);
     results->setObjectName("mcpDiagnosticsResults");
     results->setAccessibleName("Diagnostics results");
     results->setReadOnly(true);
     results->setFixedHeight(results->fontMetrics().lineSpacing() * 7 + 16);
+    results->setTabChangesFocus(true);
     results->hide();
-    layout->addWidget(results);
+    diagnostics->addWidget(results);
     layout->addStretch();
 
     auto detection = std::make_shared<Detection>();
@@ -187,7 +226,7 @@ QWidget *createMcpSetupPage(QWidget *parent, std::function<QString()> connection
     };
     const auto refreshSelection = [=] {
         const auto b = bridge();
-        bridgeLabel->setText(b.exists ? QString("%1%2").arg(QDir::toNativeSeparators(b.path),
+        bridgeLabel->setPlainText(b.exists ? QString("%1%2").arg(QDir::toNativeSeparators(b.path),
                                             b.developmentBuild ? "\nThis is a development build. Configure agents "
                                                                  "from an installed copy of Nova Studio." : "")
                                       : QString("MCP bridge missing: nova-mcp.exe is not next to Nova Studio."));
@@ -393,8 +432,8 @@ QWidget *createMcpSetupPage(QWidget *parent, std::function<QString()> connection
                            .arg(code == 0 && json["tools"].toInt() > 0 ? "Pass" : "Fail",
                                 json["protocolVersion"].toString("unknown")).arg(json["tools"].toInt()));
                 done();
-            });
-        });
+            }, bridgeEnvironment());
+        }, bridgeEnvironment());
     });
     refreshSelection();
     QTimer::singleShot(0, page, detect);

@@ -1,0 +1,1 @@
+All fixture artwork and JSON are original procedural Nova Studio test material, CC0-1.0. The stack/ folder imitates the shape of common Minecraft parent models with values chosen for these tests; no Minecraft client asset is included.

@@ -76,6 +76,8 @@ class ModelEdit {
     bool create(const QJsonObject &source, QString *error = nullptr);
     bool bindProvisional(const QString &root, const QString &asset, QString *error = nullptr);
     bool provisional() const { return !provisionalRoot.isEmpty(); }
+    // The file content this document was opened or last saved from.
+    const Revision &savedRevision() const { return revision; }
     bool saveAs(const QString &root, const QString &asset, QString *error = nullptr);
     bool renameKeepingAlias(const QString &root, const QString &newAsset, QString *error = nullptr);
     bool externalChange() const;

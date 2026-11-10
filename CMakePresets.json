@@ -1,0 +1,36 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "mingw-ucrt64-release",
+      "displayName": "Phase 4-I experimental: GCC/MinGW-w64 (MSYS2 UCRT64), Qt 6.12.0, Release",
+      "description": "Needs NOVA_MSYS2_ROOT (MSYS2 folder) and NOVA_MINGW_QT (Qt 6.12.0 built with that GCC). scripts/build-mingw.ps1 does the same with checks. The MSVC build does not use presets.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mingw-ucrt64-preset-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "$env{NOVA_MSYS2_ROOT}/ucrt64/bin/g++.exe",
+        "CMAKE_RC_COMPILER": "$env{NOVA_MSYS2_ROOT}/ucrt64/bin/windres.exe",
+        "CMAKE_MAKE_PROGRAM": "$env{NOVA_MSYS2_ROOT}/ucrt64/bin/ninja.exe",
+        "CMAKE_PREFIX_PATH": "$env{NOVA_MINGW_QT}",
+        "CMAKE_FIND_USE_PACKAGE_REGISTRY": "OFF"
+      },
+      "environment": {
+        "PATH": "$env{NOVA_MINGW_QT}/bin;$env{NOVA_MSYS2_ROOT}/ucrt64/bin;$env{SystemRoot}/System32;$env{SystemRoot}"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "mingw-ucrt64-release", "configurePreset": "mingw-ucrt64-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "mingw-ucrt64-release",
+      "configurePreset": "mingw-ucrt64-release",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2 }
+    }
+  ]
+}

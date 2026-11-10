@@ -14,10 +14,23 @@
 #include <cstdlib>
 #include <thread>
 #include <qt_windows.h>
+#if !defined(_MSC_VER)
+#include <pthread.h>
+#endif
 
 using namespace nova::mcp;
 
 namespace {
+// The Win32 handle of a running std::thread, for CancelSynchronousIo. With MSVC the native handle
+// is that HANDLE; with GCC on MinGW-w64 (POSIX thread model) it is a winpthreads pthread_t that
+// owns the HANDLE.
+HANDLE win32ThreadHandle(std::thread &thread) {
+#if defined(_MSC_VER)
+    return thread.native_handle();
+#else
+    return static_cast<HANDLE>(pthread_gethandle(thread.native_handle()));
+#endif
+}
 void print(const QByteArray &text) {
     std::fwrite(text.constData(), 1, size_t(text.size()), stdout);
     std::fflush(stdout);
@@ -34,12 +47,16 @@ int selfTest() {
                                {"clientInfo", QJsonObject{{"name", "nova-self-test"}, {"version", "1"}}}}}}));
     protocol.receive(line({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}));
     const auto listed = protocol.receive(line({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}));
+    const auto resources = protocol.receive(line({{"jsonrpc", "2.0"}, {"id", 3}, {"method", "resources/list"}}));
     const auto result = initialized.response["result"].toObject();
     const auto tools = listed.response["result"].toObject()["tools"].toArray();
+    const auto listedResources = resources.response["result"].toObject()["resources"].toArray();
+    const bool instructions = !result["instructions"].toString().isEmpty();
     print(QJsonDocument(QJsonObject{{"version", nova::AppVersion}, {"revision", nova::BuildRevision},
         {"protocolVersion", result["protocolVersion"]}, {"server", result["serverInfo"]},
-        {"tools", tools.size()}}).toJson(QJsonDocument::Compact) + '\n');
-    return tools.isEmpty() ? 1 : 0;
+        {"tools", tools.size()}, {"resources", listedResources.size()}, {"instructions", instructions}})
+              .toJson(QJsonDocument::Compact) + '\n');
+    return tools.isEmpty() || listedResources.isEmpty() || !instructions ? 1 : 0;
 }
 QString offeredCode() {
     QString reason;
@@ -155,7 +172,7 @@ int main(int argc, char **argv) {
     stop.store(true);
     socket.abort();
     for (int attempt = 0; !finished.load() && attempt < 250; ++attempt) {
-        CancelSynchronousIo(input.native_handle());
+        CancelSynchronousIo(win32ThreadHandle(input));
         Sleep(1);
     }
     if (!finished.load()) {

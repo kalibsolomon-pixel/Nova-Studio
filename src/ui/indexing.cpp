@@ -61,7 +61,8 @@ void Window::updateIndex() {
                 QElapsedTimer timer;
                 timer.start();
                 collection = std::move(result);
-                model->applyIndex(workspaceIndex(), full ? QStringList{""} : paths);
+                ++collectionSerial;
+                model->applyIndex(browserIndex(), full ? QStringList{""} : paths);
                 updateModelIndex(full ? QStringList{""} : paths);
                 metrics.record("incremental_model_install", timer);
                 metrics.count("index_updates", 1);

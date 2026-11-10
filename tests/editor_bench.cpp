@@ -12,7 +12,9 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <algorithm>
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <psapi.h>
 

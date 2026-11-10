@@ -19,6 +19,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <thread>
 #include <QtCore/private/qzipwriter_p.h>
 #include <QtTest>
 #ifdef Q_OS_WIN
@@ -28,6 +29,13 @@
 
 using namespace nova;
 using namespace nova::testing;
+
+namespace nova::testing {
+class FabricRuntimeTestAccess {
+  public:
+    static void watch(FabricRuntime &runtime, const ProcessIdentity &identity) { runtime.watch(identity); }
+};
+} // namespace nova::testing
 
 namespace {
 void write(const QString &path, const QByteArray &bytes) {
@@ -554,6 +562,131 @@ class FabricRuntimeTest : public QObject {
         QVERIFY(prepareSocketDirectory(own.filePath(QString(64, 'x'))).isEmpty());
 #endif
     }
+    // The 88-byte limit is exact and counted in UTF-8 bytes. A refusal says why, with
+    // the system error when Windows refuses the folder, and creates nothing.
+    void socketDirectoryBoundaryUnicodeAndErrors() {
+#ifdef Q_OS_WIN
+        QTemporaryDir own;
+        QVERIFY(own.isValid());
+        // A base whose "<base>/Temp/NovaSockets" is exactly `bytes` UTF-8 bytes long.
+        const auto sized = [&](const QString &name, int bytes) {
+            const auto prefix = own.path() + '/' + name;
+            const auto pad = bytes - int((prefix + "/Temp/NovaSockets").toUtf8().size());
+            return pad >= 0 ? prefix + QString(pad, 'x') : QString();
+        };
+        const auto fits = sized("fit", socketDirectoryMaxBytes);
+        QVERIFY2(!fits.isEmpty(), "TEMP is too long for this test; use the short-TEMP driver");
+        QString error;
+        const auto sockets = prepareSocketDirectory(QDir::toNativeSeparators(fits), nullptr, 600, &error);
+        QVERIFY2(!sockets.isEmpty(), qPrintable(error));
+        QCOMPARE(int(QDir::fromNativeSeparators(sockets).toUtf8().size()), socketDirectoryMaxBytes);
+        // The longest name Java generates still binds there (106 bytes).
+        WSADATA wsa;
+        QCOMPARE(WSAStartup(MAKEWORD(2, 2), &wsa), 0);
+        const auto handle = socket(AF_UNIX, SOCK_STREAM, 0);
+        sockaddr_un address{};
+        address.sun_family = AF_UNIX;
+        const auto longest = (sockets + "\\socket_2147483647").toUtf8();
+        QCOMPARE(longest.size(), 106);
+        memcpy(address.sun_path, longest.constData(), size_t(longest.size()));
+        QCOMPARE(bind(handle, reinterpret_cast<sockaddr *>(&address), sizeof address), 0);
+        closesocket(handle);
+        WSACleanup();
+        QVERIFY(QFile::remove(QString::fromUtf8(longest)));
+
+        const auto over = sized("over", socketDirectoryMaxBytes + 1);
+        QVERIFY(prepareSocketDirectory(QDir::toNativeSeparators(over), nullptr, 600, &error).isEmpty());
+        QVERIFY2(error.contains("is 89 bytes long; the limit is 88 bytes"), qPrintable(error));
+        QVERIFY(!QFileInfo::exists(over));
+        // "é" is two bytes: 89 bytes are refused even though they are only 87 characters.
+        const auto wideOver = sized("é d é", socketDirectoryMaxBytes + 1);
+        QCOMPARE(int((wideOver + "/Temp/NovaSockets").size()), socketDirectoryMaxBytes - 1);
+        QVERIFY(prepareSocketDirectory(QDir::toNativeSeparators(wideOver), nullptr, 600, &error).isEmpty());
+        QVERIFY2(error.contains("89 bytes"), qPrintable(error));
+        const auto wide = sized("é d é", socketDirectoryMaxBytes);
+        QVERIFY(!wide.isEmpty());
+        QCOMPARE(prepareSocketDirectory(QDir::toNativeSeparators(wide), nullptr, 600, &error),
+                 QDir::toNativeSeparators(wide + "/Temp/NovaSockets"));
+        QVERIFY(QFileInfo(wide + "/Temp/NovaSockets").isDir());
+
+        // A file in the folder's place: refused with Windows' reason, file kept.
+        const auto blocked = own.filePath("blocked");
+        write(blocked + "/Temp/NovaSockets", "not a folder");
+        QVERIFY(prepareSocketDirectory(QDir::toNativeSeparators(blocked), nullptr, 600, &error).isEmpty());
+        QVERIFY2(error.contains("Windows error 183"), qPrintable(error));
+        QCOMPARE(read(blocked + "/Temp/NovaSockets"), QByteArray("not a folder"));
+        // Folder creation denied on this test-owned Temp folder only.
+        const auto denied = own.filePath("denied");
+        QVERIFY(QDir().mkpath(denied + "/Temp"));
+        const auto user = qEnvironmentVariable("USERNAME");
+        const auto icacls = [](const QStringList &args) {
+            QProcess p;
+            p.start("icacls", args);
+            return p.waitForFinished(10000) && p.exitCode() == 0;
+        };
+        QVERIFY(icacls({QDir::toNativeSeparators(denied + "/Temp"), "/deny", user + ":(AD)"}));
+        const auto refused = prepareSocketDirectory(QDir::toNativeSeparators(denied), nullptr, 600, &error);
+        QVERIFY(icacls({QDir::toNativeSeparators(denied + "/Temp"), "/remove:d", user}));
+        QVERIFY(refused.isEmpty());
+        QVERIFY2(error.contains("Windows error 5"), qPrintable(error));
+        QVERIFY(!QFileInfo::exists(denied + "/Temp/NovaSockets"));
+#endif
+    }
+    // Only a folder that is too long moves to the user's own profile. Links and
+    // creation failures stay refusals, and the deep location is left untouched.
+    void socketDirectoryFallsBackOnlyWhenTooLong() {
+#ifdef Q_OS_WIN
+        QTemporaryDir own;
+        QVERIFY(own.isValid());
+        const auto deep = own.filePath(QString(80, 'd'));
+        const auto profile = QDir::toNativeSeparators(own.filePath("p"));
+        QString error;
+        QCOMPARE(chooseSocketDirectory(QDir::toNativeSeparators(deep), profile, &error),
+                 QDir::toNativeSeparators(own.filePath("p/Temp/NovaSockets")));
+        QVERIFY(!QFileInfo::exists(deep));
+        // A configured location that fits is kept.
+        QCOMPARE(chooseSocketDirectory(QDir::toNativeSeparators(own.filePath("s")), profile),
+                 QDir::toNativeSeparators(own.filePath("s/Temp/NovaSockets")));
+        // A junction is refused, not bypassed through the fallback.
+        const auto outside = own.filePath("outside");
+        QVERIFY(QDir().mkpath(outside));
+        QVERIFY(QDir().mkpath(own.filePath("j")));
+        QCOMPARE(QProcess::execute("cmd.exe", {"/c", "mklink", "/J",
+                     QDir::toNativeSeparators(own.filePath("j/Temp")), QDir::toNativeSeparators(outside)}), 0);
+        const auto other = QDir::toNativeSeparators(own.filePath("other"));
+        QVERIFY(chooseSocketDirectory(QDir::toNativeSeparators(own.filePath("j")), other, &error).isEmpty());
+        QVERIFY2(error.contains("link, junction"), qPrintable(error));
+        QVERIFY(!QFileInfo::exists(own.filePath("other")));
+        QVERIFY(!QFileInfo::exists(outside + "/NovaSockets"));
+        // Both too long, or no fallback: the error names every refused folder.
+        QVERIFY(chooseSocketDirectory(QDir::toNativeSeparators(deep), QDir::toNativeSeparators(deep + "2"), &error).isEmpty());
+        QCOMPARE(error.count("bytes long"), 2);
+        QVERIFY(chooseSocketDirectory(QDir::toNativeSeparators(deep), {}, &error).isEmpty());
+        QCOMPARE(error.count("bytes long"), 1);
+        // Concurrent launches agree on the fallback.
+        const auto race = QDir::toNativeSeparators(own.filePath("race"));
+        std::vector<QString> seen(16);
+        std::vector<std::thread> threads;
+        for (int i = 0; i < 16; ++i)
+            threads.emplace_back([&, i] { seen[size_t(i)] = chooseSocketDirectory(QDir::toNativeSeparators(deep), race); });
+        for (auto &t : threads)
+            t.join();
+        for (const auto &s : seen)
+            QCOMPARE(s, QDir::toNativeSeparators(own.filePath("race/Temp/NovaSockets")));
+        QVERIFY(!QFileInfo::exists(deep));
+        // The profile comes from the process token, not a redirected environment.
+        const auto real = profileLocalAppData();
+        QVERIFY(!real.isEmpty());
+        QVERIFY(QFileInfo(QDir::fromNativeSeparators(real) + "/Temp").isDir());
+        const auto profileVariable = qgetenv("USERPROFILE"), localVariable = qgetenv("LOCALAPPDATA");
+        qputenv("USERPROFILE", QDir::toNativeSeparators(deep).toLocal8Bit());
+        qputenv("LOCALAPPDATA", QDir::toNativeSeparators(deep).toLocal8Bit());
+        const auto redirected = profileLocalAppData();
+        qputenv("USERPROFILE", profileVariable);
+        qputenv("LOCALAPPDATA", localVariable);
+        QCOMPARE(redirected, real);
+#endif
+    }
     void junctionCannotRedirectManagedGradleHome() {
 #ifdef Q_OS_WIN
         const auto base = temp.filePath("preflight-junction");
@@ -646,6 +779,46 @@ class FabricRuntimeTest : public QObject {
         QVERIFY(runtime.launch({}));
         QVERIFY(second.wait(10000));
         QCOMPARE(runtime.game(), FabricRuntime::Game::LaunchFailed);
+    }
+    // Force the actual supervision boundary: a valid process identity whose last handle has
+    // closed before watch starts. This makes the detached-process race deterministic.
+    void anExitBeforeWatchIsReported() {
+        const auto base = preparedBase("before-watch");
+        ProcessIdentity identity;
+        {
+            QProcess child;
+            child.start(QCoreApplication::applicationDirPath() + "/nova-fake-gradle.exe", {"--child"});
+            QVERIFY(child.waitForStarted());
+            identity = identifyProcess(child.processId());
+            QVERIFY(identity.valid());
+            child.kill();
+            QVERIFY(child.waitForFinished());
+        }
+        QVERIFY(!processAlive(identity));
+        FabricRuntime runtime(options(base));
+        QSignalSpy exited(&runtime, &FabricRuntime::gameExited);
+        FabricRuntimeTestAccess::watch(runtime, identity);
+        QTRY_COMPARE_WITH_TIMEOUT(exited.size(), 1, 10000);
+        QCOMPARE(runtime.game(), FabricRuntime::Game::LaunchFailed);
+        QCOMPARE(runtime.state(), FabricRuntime::State::Ready);
+        QVERIFY(!runtime.metadata().contains("session"));
+    }
+    // Gradle can end before Nova starts watching it (startDetached keeps no handle). That exit
+    // must still be reported, or the runtime stays "Launching" and refuses every later launch.
+    void anImmediateExitIsAlwaysReported() {
+        const auto base = preparedBase("immediate");
+        script("NOVA_FAKE_GRADLE_RUN", "exit 1\n");
+        FabricRuntime runtime(options(base));
+        for (int attempt = 0; attempt < 25; ++attempt) {
+            QSignalSpy exited(&runtime, &FabricRuntime::gameExited);
+            QString error;
+            QVERIFY2(runtime.launch({}, &error), qPrintable(QString("attempt %1: %2").arg(attempt).arg(error)));
+            QTRY_VERIFY2_WITH_TIMEOUT(exited.size() == 1,
+                                      qPrintable(QString("attempt %1: no exit signal").arg(attempt)), 10000);
+            QCOMPARE(runtime.game(), FabricRuntime::Game::LaunchFailed);
+            QCOMPARE(runtime.state(), FabricRuntime::State::Ready);
+            QVERIFY(!runtime.metadata().contains("session"));
+        }
     }
     void novaShutdownLeavesTheGameAndReattaches() {
         const auto base = preparedBase("shutdown");

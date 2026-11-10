@@ -1,0 +1,26 @@
+--- a/src/3rdparty/pcre2/src/config.h
++++ b/src/3rdparty/pcre2/src/config.h
+@@ -18,6 +18,12 @@
+ 
+ #define SUPPORT_UNICODE
+ #define PCRE2_EXPORT
++#if defined(__has_attribute)
++#  if __has_attribute(uninitialized)
++#    define HAVE_ATTRIBUTE_UNINITIALIZED 1
++#  endif
++#endif
++
+ 
+ /*
+     man 3 pcre2jit for a list of supported platforms;
+--- a/src/3rdparty/pcre2/src/pcre2_jit_match_inc.h
++++ b/src/3rdparty/pcre2/src/pcre2_jit_match_inc.h
+@@ -52,7 +52,7 @@
+ 
+ static SLJIT_NOINLINE int jit_machine_stack_exec(jit_arguments *arguments, jit_function executable_func)
+ {
+-sljit_u8 local_space[MACHINE_STACK_SIZE];
++sljit_u8 local_space[MACHINE_STACK_SIZE] PCRE2_KEEP_UNINITIALIZED;
+ struct sljit_stack local_stack;
+ 
+ local_stack.min_start = local_space;

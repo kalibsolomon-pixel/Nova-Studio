@@ -1,0 +1,68 @@
+Phase 4-I EXPERIMENTAL GCC/MinGW-w64 BUILD - NOT FOR PUBLICATION
+
+Nova Studio @NOVA_DISPLAY_VERSION@ (preview)
+==========================================
+
+Nova Studio is a native Windows editor for Minecraft Java Edition resource packs: textures,
+animations, models and UVs, with a managed test runtime for Minecraft Java Edition 1.21.11.
+
+This is a PREVIEW release. Keep backups of resource packs you care about.
+
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+Nova Studio is developed and published by the Nova Studio contributors, who are solely
+responsible for it. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation.
+Nova Studio contains no Minecraft game assets.
+
+Requirements
+  * Windows 11, 64-bit (x64). Other Windows versions are not tested.
+  * A graphics driver with OpenGL 2.1 or later.
+  * No administrator rights. Nova Studio installs and runs for your Windows account only.
+
+Start here
+  * Open Nova Studio from the Start menu.
+  * Open a resource pack folder (File > Open Resource Pack) or create one.
+  * Press Ctrl+K to search for any command, tool, setting, workspace or texture.
+  * docs\FIRST_RUN.md walks through a first session.
+
+AI agents (MCP)
+  * nova-mcp.exe in this folder lets an AI agent such as Claude Desktop, Claude Code or Codex
+    work with the open resource pack. Set it up in Resources > MCP Integration > Agent Setup.
+  * Agents get no access until you choose Allow on the Access tab, for one session and one
+    project at a time. See docs\MCP_SETUP.md.
+
+Your data
+  * Resource packs stay where you keep them. Settings, recovery snapshots and the Minecraft test
+    runtime are in %LOCALAPPDATA%\Nova Studio. Upgrading or uninstalling never removes them.
+
+License
+  * Nova Studio uses Qt under LGPL-3.0-only. See licenses\qt\LICENSES\LGPL-3.0-only.txt
+    and licenses\THIRD_PARTY_NOTICES.md for notices, corresponding source and replacement rights.
+  * @NOVA_COPYRIGHT@
+  * Nova Studio is free software: you can redistribute it and/or modify it under the terms of
+    the GNU General Public License as published by the Free Software Foundation, either
+    version 3 of the License, or (at your option) any later version (@NOVA_LICENSE@).
+  * It comes with NO WARRANTY, to the extent permitted by law. LICENSE.txt is the license.
+  * licenses\COPYRIGHT.md says what the license covers. Third-party components (Qt, the GCC
+    runtime, MinGW-w64 winpthreads, the Gradle wrapper) keep their own licenses: see
+    licenses\THIRD_PARTY_NOTICES.md. In Nova Studio: Help > Licenses and Source Code.
+  * libstdc++-6.dll and libgcc_s_seh-1.dll are the GCC runtime (GPL-3.0-or-later with the GCC
+    Runtime Library Exception 3.1); libwinpthread-1.dll is MinGW-w64 winpthreads (MIT and
+    BSD-3-Clause). The program files also contain statically linked parts of the MinGW-w64
+    runtime (notices in licenses\mingw-w64-runtime). This build contains no Microsoft Visual
+    C++ runtime files.
+
+Source code
+  * The Qt source is modified only by the shipped licenses\qt-build\ PCRE2 patch.
+  * GCC runtime corresponding source accompanies the candidate as a separate MSYS2 source
+    archive; retain that source sidecar with any future authorized binary distribution.
+  * source\ holds the complete corresponding source code of this exact build
+    (revision @NOVA_GIT_REVISION@). docs\BUILDING.md explains how to build it.
+  * licenses\qtbase-everywhere-src-6.12.0.tar.xz is the source of the Qt libraries, built with
+    GCC (MinGW-w64) as recorded in licenses\qt-build. You may replace the Qt DLLs with your own
+    MinGW-w64 build of Qt 6.12.0.
+
+More
+  * docs\RELEASE_NOTES.md, docs\INSTALLATION.md, docs\SEARCH.md, docs\KNOWN_LIMITATIONS.md,
+    docs\BUILDING.md
+
+Source revision: @NOVA_GIT_REVISION@@NOVA_SOURCE_DIRTY@

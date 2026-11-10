@@ -247,6 +247,17 @@ ValidationReport ValidationEngine::run(const QString &root, const Index &index, 
                                 auto messages = mesh(m).diagnostics;
                                 messages.removeDuplicates();
                                 for (const auto &msg : messages) {
+                                    // This exact mesh notice describes preview capability, not pack data.
+                                    if (msg == "Generated item: flat layers; contour extrusion is not reproduced") {
+                                        add(Severity::Information, "preview_limitation", "",
+                                            "Preview limitation: Nova's 3D preview represents this generated-item "
+                                            "model as flat layers without contour extrusion and cannot faithfully "
+                                            "render it. The model may be valid; this finding does not indicate "
+                                            "invalid pack data.",
+                                            "Check the model's appearance in Minecraft; Nova's preview cannot "
+                                            "establish rendering parity.");
+                                        continue;
+                                    }
                                     auto severity =
                                         msg.contains("Unsupported", Qt::CaseInsensitive) ||
                                                 msg.contains("retained") || msg.contains("omits")

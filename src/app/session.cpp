@@ -71,6 +71,7 @@ bool DocumentSession::adopt(const std::shared_ptr<Document> &doc) {
     if (bytes > 512LL * 1024 * 1024)
         return false;
     documents.push_back(doc);
+    emit changed(doc->id()); // listeners such as the unsaved-document count see adopted documents
     return true;
 }
 static QString normalized(const QString &path) {

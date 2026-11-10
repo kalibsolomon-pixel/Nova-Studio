@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/fx_no_such_parent",
+  "textures": {
+    "all": "minecraft:block/fx_lost"
+  }
+}

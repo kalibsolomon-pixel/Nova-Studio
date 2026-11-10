@@ -16,6 +16,7 @@
 #include <QtCore/private/qzipreader_p.h>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
+#include <userenv.h>
 #endif
 
 namespace nova::testing {
@@ -91,16 +92,35 @@ bool safeRuntimePath(const QString &path) {
     }
 }
 
-QString prepareSocketDirectory(const QString &localAppData, int *removed, int staleSeconds) {
-    if (removed)
-        *removed = 0;
+QString socketDirectoryFor(const QString &localAppData) {
     const auto base = QDir::fromNativeSeparators(localAppData);
     if (base.isEmpty() || !QFileInfo(base).isAbsolute())
         return {};
-    const auto sockets = QDir::cleanPath(base + "/Temp/NovaSockets");
-    // "\socket_", a ten-digit name and the terminator must still fit in 108 bytes.
-    // Concurrent runtime launches may create the same folders at the same moment, so a
-    // failed mkpath counts only if the folder still does not exist afterwards.
+    return QDir::cleanPath(base + "/Temp/NovaSockets");
+}
+
+QString prepareSocketDirectory(const QString &localAppData, int *removed, int staleSeconds,
+                               QString *error) {
+    if (removed)
+        *removed = 0;
+    const auto refuse = [&](const QString &reason) {
+        if (error)
+            *error = reason;
+        return QString();
+    };
+    const auto sockets = socketDirectoryFor(localAppData);
+    if (sockets.isEmpty())
+        return refuse("The per-user application data folder is not an absolute path");
+    const auto native = QDir::toNativeSeparators(sockets);
+    // Java refuses socket paths of 107 UTF-8 bytes or more, and its names add
+    // "\socket_" and up to ten digits. Concurrent runtime launches may create the
+    // same folders at the same moment, so a failed mkpath counts only if the folder
+    // still does not exist afterwards.
+    if (const auto bytes = sockets.toUtf8().size(); bytes > socketDirectoryMaxBytes)
+        return refuse(QString("%1 is %2 bytes long; the limit is %3 bytes")
+                          .arg(native).arg(bytes).arg(socketDirectoryMaxBytes));
+    if (!safeRuntimePath(sockets))
+        return refuse(native + " or a folder above it is a link, junction or unsafe name");
     const auto created = [&] {
         for (int attempt = 0; attempt < 5; ++attempt) {
             if (QDir().mkpath(sockets) || QFileInfo(sockets).isDir())
@@ -109,9 +129,21 @@ QString prepareSocketDirectory(const QString &localAppData, int *removed, int st
         }
         return false;
     };
-    if (sockets.toUtf8().size() > 88 || !safeRuntimePath(sockets) || !created() ||
-        !safeRuntimePath(sockets) || !QFileInfo(sockets).isDir())
-        return {};
+    if (!created()) {
+#ifdef Q_OS_WIN
+        // mkpath does not report why. Repeat its last step to read the system error.
+        if (!CreateDirectoryW(reinterpret_cast<LPCWSTR>(native.utf16()), nullptr)) {
+            const auto code = GetLastError();
+            if (code != ERROR_ALREADY_EXISTS || !QFileInfo(sockets).isDir())
+                return refuse(QString("Could not create %1 (Windows error %2: %3)")
+                                  .arg(native).arg(code).arg(qt_error_string(int(code))));
+        }
+#else
+        return refuse("Could not create " + native);
+#endif
+    }
+    if (!safeRuntimePath(sockets) || !QFileInfo(sockets).isDir())
+        return refuse(native + " is not a plain folder");
     // A JVM deletes each socket file right after connecting. Leftovers belong to
     // terminated processes; keep anything recent in case another JVM is binding.
     const auto cutoff = QDateTime::currentDateTimeUtc().addSecs(-staleSeconds);
@@ -146,6 +178,43 @@ QString prepareSocketDirectory(const QString &localAppData, int *removed, int st
     if (removed)
         *removed = count;
     return QDir::toNativeSeparators(sockets);
+}
+
+QString profileLocalAppData() {
+#ifdef Q_OS_WIN
+    // The profile comes from the process token. The environment and the known-folder
+    // API both follow a redirected USERPROFILE, which test harnesses set deep.
+    wchar_t buffer[MAX_PATH]{};
+    DWORD size = MAX_PATH;
+    if (!GetUserProfileDirectoryW(GetCurrentProcessToken(), buffer, &size))
+        return {};
+    const auto local = QDir::fromNativeSeparators(QString::fromWCharArray(buffer)) + "/AppData/Local";
+    // Use only an existing Temp folder; never create folders in the profile.
+    return QFileInfo(local + "/Temp").isDir() ? QDir::toNativeSeparators(local) : QString();
+#else
+    return {};
+#endif
+}
+
+QString chooseSocketDirectory(const QString &localAppData, const QString &fallbackLocalAppData,
+                              QString *error) {
+    QString reason;
+    auto sockets = prepareSocketDirectory(localAppData, nullptr, 600, &reason);
+    const auto preferred = socketDirectoryFor(localAppData);
+    const auto fallback = socketDirectoryFor(fallbackLocalAppData);
+    // Only a path that is too long moves to the profile. Links, junctions and
+    // creation failures stay refusals.
+    if (sockets.isEmpty() && !preferred.isEmpty() && !fallback.isEmpty() &&
+        preferred.toUtf8().size() > socketDirectoryMaxBytes &&
+        fallback.compare(preferred, Qt::CaseInsensitive) != 0) {
+        QString fallbackReason;
+        sockets = prepareSocketDirectory(fallbackLocalAppData, nullptr, 600, &fallbackReason);
+        if (sockets.isEmpty())
+            reason += ". " + fallbackReason;
+    }
+    if (sockets.isEmpty() && error)
+        *error = reason;
+    return sockets;
 }
 
 bool safeRuntimeTree(const QString &path) {

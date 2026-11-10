@@ -34,7 +34,8 @@ bool write(const QString &root, const QString &asset, const QByteArray &bytes) {
 }
 QJsonObject readJson(const QString &path) {
     QFile f(path);
-    f.open(QIODevice::ReadOnly);
+    if (!f.open(QIODevice::ReadOnly))
+        qWarning("readJson: cannot open %s", qPrintable(path));
     return QJsonDocument::fromJson(f.readAll()).object();
 }
 void evidence(QWidget *w, const QString &name) {

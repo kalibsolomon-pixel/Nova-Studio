@@ -54,7 +54,8 @@ class ToolState : public QObject {
     int snap = 1; // shape / rectangle-selection grid snapping in pixels
     double radius = 2, innerRatio = .5, rotation = 0;
     bool flipH = false, flipV = false;
-    // fill / gradient / replace
+    // fill / gradient / replace. Fill mode: true = Contiguous (the default for every new
+    // session; not persisted), false = Universal Fill (ops::universalFillMatches()).
     bool contiguous = true;
     int fillOpacity = 255, replaceTolerance = 32;
     QString gradientType = "Linear";
@@ -98,13 +99,29 @@ class ToolBox : public QToolBar {
     QMap<QString, QToolButton *> groups;
     QMap<Tool, QAction *> actions;
     QActionGroup *exclusive;
+    QAction *spacerItem = nullptr, *chipItem = nullptr;
+    // Wrapping mode: the strip's own widgets move into one row-wrapping container.
+    QWidget *flow = nullptr; // a plain child laid over the toolbar's padded area
+    QList<QAction *> wrappedActions;
     void sync();
+    void placeFlow();
+
+  protected:
+    void resizeEvent(QResizeEvent *) override;
 
   public:
     ToolBox(ToolState *state, QWidget *parent = nullptr);
     QAction *actionFor(Tool t) const { return actions.value(t); }
     QToolButton *effectsButton = nullptr;
     void refreshIcons(const QColor &ink);
+    // In a panel (above Colours or Assets, floating) the strip wraps onto further rows
+    // instead of hiding tools behind QToolBar's overflow button. The same buttons, actions,
+    // shortcuts, tooltips and accessible names are kept, in the same order. Edge
+    // placements use the plain toolbar layout.
+    void setWrapping(bool wrap);
+    bool wrapping() const { return flow != nullptr; }
+    // Width of the strip on one row in wrapping mode (0 otherwise).
+    int singleRowWidth() const;
   signals:
     void colorsRequested();
 };

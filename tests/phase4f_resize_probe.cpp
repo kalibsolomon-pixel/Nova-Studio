@@ -497,7 +497,8 @@ int main(int argc, char **argv) {
         mark("window constructed");
         window.resize(1400, 900);
         window.show();
-        QTest::qWaitForWindowExposed(&window);
+        if (!QTest::qWaitForWindowExposed(&window))
+            qWarning("resize probe: window was not exposed in time");
         mark("exposed");
         QElapsedTimer wait;
         wait.start();

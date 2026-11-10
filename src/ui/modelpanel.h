@@ -24,7 +24,9 @@ class ModelPanel : public QWidget {
     Cube *cube;
     DocumentSession *session;
     std::shared_ptr<mc::Library> library;
-    QString root, activeAsset, target;
+    // target: "model:<id>", "definition:<asset>", "cube:" (explicit generic cube) or empty
+    // (no model: the texture is shown flat with fallbackReason).
+    QString root, activeAsset, target, fallbackReason;
     QComboBox *targets, *versions, *contexts;
     QLineEdit *inputs;
     QLabel *diagnostics, *faceInfo;
@@ -44,6 +46,7 @@ class ModelPanel : public QWidget {
     bool syncing = false, pinned = false;
     void rebuild();
     void choices();
+    void showFallback(const QString &notice, const QString &details);
     void overlay();
     void configureResources();
     void loadResources();
@@ -120,6 +123,10 @@ class ModelPanel : public QWidget {
                              bool comparison = false);
     QStringList openModelAssets() const { return modelEdits.keys(); }
     std::shared_ptr<mc::ModelEdit> openModelDocument(const QString &asset) const;
+    // Saves without dialogs (Save All and MCP); the caller reports the error.
+    bool saveModelDocument(const std::shared_ptr<mc::ModelEdit> &, QString *error);
+    // Including a model open in the authoring window (for unsaved-state reporting).
+    std::shared_ptr<mc::ModelEdit> anyModelDocument(const QString &asset) const { return modelEdits.value(asset); }
     QString publishModelEdit(const std::shared_ptr<mc::ModelEdit> &edit);
     void authorModel();
     void restoreModel();
@@ -128,6 +135,8 @@ class ModelPanel : public QWidget {
                                           : target.startsWith("definition:") ? target.mid(11) : QString();
     }
     std::shared_ptr<mc::Library> catalog() const { return library; }
+    // The resource-stack folders the user configured for this project and the catalog's version.
+    QStringList resourceStackPaths() const;
     QMap<QString,QJsonObject> documentSources() const {
         QMap<QString,QJsonObject> sources;
         for(auto it=modelEdits.begin();it!=modelEdits.end();++it)if(it.value()->modified() || it.value()->previewing())sources[it.key()]=it.value()->source();

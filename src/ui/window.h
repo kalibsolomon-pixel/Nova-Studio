@@ -10,6 +10,8 @@
 #include "palette.h"
 #include "presets.h"
 #include "tools.h"
+#include "baseline_reset.h"
+#include "project_config.h"
 #include "recovery.h"
 #include "session.h"
 #include "settings.h"
@@ -30,7 +32,15 @@
 #include <QTabWidget>
 #include <QTreeView>
 namespace nova {
-namespace mcp { class Service; }
+namespace mcp { class Service; struct Snapshot; struct Request; }
+namespace vanilla { struct BaselineEntry; }
+// The result of saving one document into the pack. `code` is empty on success; `written` lists
+// what reached disk ("pack": PNG, PNG + .png.mcmeta or model JSON; "editable": layered source).
+struct SaveOutcome {
+    QString path, type, code, message;
+    QStringList written;
+    bool ok() const { return code.isEmpty(); }
+};
 class ColorPanel;
 struct SearchIndex;
 class HistoryPanel;
@@ -41,6 +51,11 @@ class ResourceTools;
 class Window : public QMainWindow {
     mcp::Service *mcpService = nullptr;
     void showMcpAccess(int page = 0); // 0 Access, 1 Agent Setup
+    void ensureMcpService();
+    void createMcpAccessDialog(int page);
+    void showAgentSession(); // ACP prototype: a Nova-launched agent with Nova's MCP bridge attached
+    void updateExperimentalActions(); // shows or hides the experimental Agent Session command
+    void endAgentSessionForProjectChange();
     struct Comparison {
         QString path, beforeRevision, afterRevision, detail, owner;
         QUuid instance;
@@ -80,6 +95,14 @@ class Window : public QMainWindow {
     Settings settings;
     Preferences preferences;
     QByteArray defaultLayout;
+    // Tool strip position (tool_placement.h) and the arrangement right after the current
+    // workspace preset was applied, to tell the user's own changes from the preset's.
+    class ToolStripPlacement *toolPlacement = nullptr;
+    QByteArray presetBaseline;
+    QByteArray currentLayout();
+    bool applyLayout(const QByteArray &packed);
+    void rememberPresetLayout();
+    void watchScreens();
     QAction *themeAction = nullptr;
     QMenu *recentMenu = nullptr;
     void updateRecent();
@@ -97,7 +120,60 @@ class Window : public QMainWindow {
     bool fresh = false, qaMode = false, exercise = false;
     Metrics metrics;
     Index collection;
+    quint64 collectionSerial = 0; // bumped whenever `collection` is replaced
     Navigation nav;
+    // ---- Vanilla baseline (baseline_ui.cpp, docs/vanilla-baseline/DESIGN.md) ----
+    // `collection` and workspaceIndex() stay project-only (MCP, search, validation, batch);
+    // the asset browser alone shows browserIndex() = workspaceIndex() merged over the baseline.
+    struct BaselineState {
+        std::optional<BaselineRef> ref; // .nova/project.json; unset for legacy/blank projects
+        std::shared_ptr<const vanilla::BaselineEntry> entry; // loaded cache entry (Check::Sizes)
+        std::shared_ptr<const Index> index;                   // baselineIndex(*entry)
+        QString unavailable, diagnostic;
+        quint64 generation = 0;
+        bool loading = false;
+    } baseline;
+    struct BaselineStep {
+        QString id;
+        QStringList assets;
+        ResetKind kind = ResetKind::ResetToVanilla;
+    };
+    QList<BaselineStep> resetHistory; // project-level Reset to Vanilla / Remove history
+    int resetCursor = 0;
+    QSet<QUuid> baselineDocs;         // documents opened from the baseline (not yet saved)
+    QSet<QString> baselineOpening;
+    QStringList baselineRestore;      // tabs to reopen once the baseline entry is loaded
+    Index browserCache;
+    quint64 browserSerial = ~0ull;
+    QStringList browserFiles;
+    QLabel *baselineLabel = nullptr;
+    QMenu *baselineMenu = nullptr;
+    Index browserIndex();
+    void loadBaseline(bool sameProject = false);
+    void resetBaselineState(bool sameProject = false);
+    void updateBaselineStatus();
+    void updateBaselineActions();
+    void buildBaselineMenu(QMenu *resources);
+    QAction *addBaselineContextAction(QMenu &menu, const QString &relative);
+    void triggerBaselineContextAction(QAction *action);
+    bool canResetToVanilla(const QString &relative) const;
+    bool canRemoveFromProject(const QString &relative) const;
+    bool baselineCandidate(const QString &path) const;
+    QString baselineOrigin(const Document &doc) const;
+    bool baselineBacked(const Document &doc) const;
+    bool openBaselineTexture(const QString &relative, bool activate = true);
+    bool prepareAssetFolder(const std::shared_ptr<Document> &doc);
+    void baselineSaved(const std::shared_ptr<Document> &doc);
+    QString baselineSelection() const;
+    QStringList baselineOverrides() const;
+    void baselineReset(const QStringList &assets, ResetKind kind);
+    bool baselineHistory(bool redo);
+    bool browserHasFocus() const;
+    bool closeBaselineAssets(const QStringList &assets, QStringList *reopen);
+    void useVanillaBaseline();
+    void repairBaseline();
+    void manageBaselines();
+    void offerResetRecovery(const QStringList &interrupted);
     QLineEdit *pathText, *search;
     QLabel *breadcrumb, *properties;
     AssetModel *model;
@@ -191,6 +267,21 @@ class Window : public QMainWindow {
     void persist();
     void restore();
     void action(const QString &name);
+    // ---- Saving (saving.cpp): one path for Save, Save All and MCP saves ----
+    QLabel *unsavedLabel = nullptr;
+    QByteArray draftKey; // per-process key for stable MCP document identifiers
+    bool documentDirty(const Document &doc) const;
+    SaveOutcome saveDocumentToPack(const std::shared_ptr<Document> &doc, bool interactive);
+    SaveOutcome saveModelToPack(const std::shared_ptr<mc::ModelEdit> &edit);
+    QList<SaveOutcome> saveAllDocuments(bool interactive);
+    void saveAll();
+    void saveCurrentToPack();
+    QStringList unsavedDocuments(bool projectOnly) const;
+    void updateUnsavedStatus();
+    QString documentIdentifier(QUuid instance);
+    QString draftRevisionToken(QUuid instance, quint64 serial, const QString &suffix = {});
+    QJsonObject mcpDraftRequest(const mcp::Snapshot &snapshot, const mcp::Request &request, bool editing,
+                                std::function<QJsonObject()> &commit);
     // ---- Phase 3-B workspace shell (workspace.cpp) ----
     QToolBar *appBar = nullptr;
     QString preset = "essentials";
@@ -211,7 +302,7 @@ class Window : public QMainWindow {
     void updateInspector();
     void buildWorkspaceMenu(QMenu *view);
     void organizeMenus();
-    void applyPreset(const QString &name);
+    void applyPreset(const QString &name, bool useSaved = true);
     void zoomCanvas(int direction); // 1 in, -1 out, 0 fit, 2 actual pixels
     void preferencesDialog(const QString &focus = {}); // focus: object name of a control to select
     void shortcutsDialog();

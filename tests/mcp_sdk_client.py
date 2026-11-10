@@ -19,6 +19,27 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 
 
+def tool_error(result):
+    """Return a tool error, which Nova reports as JSON text without structured content."""
+    assert result.isError and result.structuredContent is None, result
+    assert [item.type for item in result.content] == ["text"], result
+    error = json.loads(result.content[0].text)["error"]
+    # "details" is optional data (a JSON pointer, save outcomes, supported versions).
+    assert set(error) - {"details"} == {"code", "message"} and error["code"] and error["message"], error
+    assert isinstance(error.get("details", {}), dict), error
+    return error
+
+
+class StrictClientSession(ClientSession):
+    """The Python SDK skips error results; the TypeScript SDK validates any structuredContent."""
+
+    async def call_tool(self, name, arguments=None, *args, **kwargs):
+        result = await super().call_tool(name, arguments, *args, **kwargs)
+        if result.isError:
+            tool_error(result)
+        return result
+
+
 class TranscriptStream:
     def __init__(self, stream, direction, transcript):
         self.stream = stream
@@ -104,7 +125,7 @@ async def edit(client: ClientSession) -> None:
     })
     assert validated["files"] == 2
     stale = await client.call_tool("nova.edit.preview", {**target, "operations": operations})
-    assert stale.isError and stale.structuredContent["error"]["code"] == "revision_conflict"
+    assert tool_error(stale)["code"] == "revision_conflict"
     assert result["changed"] and result["undoAvailable"] and result["appliedOperations"] == 2
     undone = await call("nova.edit.undo", {**target, "expectedRevision": result["revision"]})
     assert undone["redoAvailable"]
@@ -116,9 +137,15 @@ async def edit(client: ClientSession) -> None:
 
 async def preview_lifecycle(client: ClientSession, reconnect=False) -> None:
     async def call(tool, args=None, error=None):
-        result = await client.call_tool(tool, args)
+        for attempt in range(100):
+            result = await client.call_tool(tool, args)
+            unavailable = result.isError and tool_error(result)["code"] == "validation_unavailable"
+            if not unavailable or tool not in ("nova.asset.preview_image", "nova.edit.capabilities",
+                                               "nova.project.info", "nova.assets.list"):
+                break
+            await asyncio.sleep(0.05)
         if error:
-            assert result.isError and result.structuredContent["error"]["code"] == error, result
+            assert tool_error(result)["code"] == error, result
             assert all(item.type != "image" for item in result.content)
         else:
             assert not result.isError, result.structuredContent
@@ -319,7 +346,7 @@ async def phase4d(client: ClientSession) -> None:
     async def call(tool, args=None, error=None):
         response = await client.call_tool(tool, args)
         if error:
-            assert response.isError and response.structuredContent["error"]["code"] == error
+            assert tool_error(response)["code"] == error
         else:
             assert not response.isError, response.structuredContent
         return response
@@ -523,7 +550,7 @@ def decode_png(data, width, height):
 async def workflow_lifecycle(config, mode, wire):
     async with stdio_client(config) as (read, write):
         outgoing = TranscriptStream(write, "client", wire)
-        async with ClientSession(TranscriptStream(read, "server", wire), outgoing) as client:
+        async with StrictClientSession(TranscriptStream(read, "server", wire), outgoing) as client:
             await client.initialize()
 
             async def call(tool, args=None):
@@ -565,11 +592,11 @@ async def workflow_lifecycle(config, mode, wire):
                 await client.send_ping()
                 print("cancel delivered", flush=True)
                 result = await mutation
-                assert result.isError and result.structuredContent["error"]["code"] == "operation_canceled"
+                assert tool_error(result)["code"] == "operation_canceled"
                 return
             if mode == "workflow-switch-preparation":
                 result = await client.call_tool("nova.workflow.execute", {**project, "stages": stages})
-                assert result.isError and result.structuredContent["error"]["code"] == "stale_project"
+                assert tool_error(result)["code"] == "stale_project"
                 return
             if mode.startswith("workflow-disconnect-"):
                 mutation = asyncio.create_task(call("nova.workflow.execute", {**project, "stages": stages}))
@@ -725,6 +752,183 @@ async def animation_profile(client):
         print(json.dumps({"dimension": dimension, "frames": frames, "warmup": warmup, "milliseconds": summary}))
 
 
+async def phase1(client: ClientSession, initialized) -> dict:
+    """MCP Phase 1 through the official SDK. The SDK validates every structured result against the
+    tool's output schema, so this also checks the new schemas."""
+    instructions = initialized.instructions or ""
+    for phrase in ("never filesystem paths", "not proof", "nova.drafts.save", "nova.guide.get"):
+        assert phrase in instructions, (phrase, instructions)
+    assert initialized.capabilities.resources is not None
+    uris = {str(resource.uri) for resource in (await client.list_resources()).resources}
+    assert {"nova://rules/index", "nova://rules/1.21.11/items", "nova://project/style-notes"} <= uris, uris
+    templates = (await client.list_resource_templates()).resourceTemplates
+    assert templates[0].uriTemplate == "nova://rules/{version}/{topic}"
+    catalog = await client.call_tool("nova.guide.list", {})
+    topics = [entry["topic"] for entry in catalog.structuredContent["topics"]]
+    assert topics == ["pack", "items", "textures", "armor", "trims", "animations", "pvp"], topics
+    for topic in topics:
+        read = await client.read_resource(f"nova://rules/1.21.11/{topic}")
+        tool = await client.call_tool("nova.guide.get", {"topic": topic, "version": "1.21.11"})
+        assert not tool.isError and tool.structuredContent["text"] == read.contents[0].text, topic
+    assert tool_error(await client.call_tool("nova.guide.get", {"topic": "items", "version": "26.1"}))["code"] == "guide_unavailable"
+    try:
+        await client.read_resource("nova://rules/26.1/items")
+        raise AssertionError("an unsupported guide version was served")
+    except McpError as error:
+        assert error.error.code == -32002, error
+    style = json.loads((await client.read_resource("nova://project/style-notes")).contents[0].text)
+    assert style["present"] is True and style["theme"] == "Cozy medieval" and style["kind"] == "user_content", style
+    info = await client.call_tool("nova.project.info")
+    for _ in range(50):
+        if not info.isError:
+            break
+        await asyncio.sleep(0.1)
+        info = await client.call_tool("nova.project.info")
+    assert info.structuredContent["styleNotes"]["present"] is True
+    assert info.structuredContent["unsavedCount"] >= 1
+    scope = {"generation": info.structuredContent["generation"], "projectId": info.structuredContent["projectId"]}
+    drafts = await client.call_tool("nova.drafts.list", scope)
+    draft = next(row for row in drafts.structuredContent["drafts"] if row["dirty"])
+    adopted = await client.call_tool("nova.drafts.adopt", {**scope, "documentId": draft["documentId"],
+                                                           "path": draft["path"], "draftRevision": draft["draftRevision"]})
+    assert not adopted.isError and adopted.structuredContent["adopted"] is True
+    validation = await client.call_tool("nova.pack.validate", {"generation": scope["generation"]})
+    assert validation.structuredContent["drafts"]["complete"] is True
+    assert any(entry["path"] == draft["path"] for entry in validation.structuredContent["drafts"]["included"])
+    saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": draft["documentId"],
+                                                        "expectedRevision": adopted.structuredContent["revision"]})
+    assert not saved.isError and saved.structuredContent["status"] == "saved", saved
+    assert saved.structuredContent["saved"][0]["path"] == draft["path"]
+    assert "pack" in saved.structuredContent["saved"][0]["written"]
+    again = await client.call_tool("nova.drafts.save", {**scope, "documentId": draft["documentId"],
+                                                        "expectedRevision": adopted.structuredContent["revision"]})
+    assert tool_error(again)["code"] == "revision_conflict"
+    return {"saved": draft["path"], "unsavedCount": saved.structuredContent["unsavedCount"], "topics": len(topics)}
+
+
+async def phase2(client: ClientSession) -> dict:
+    """MCP Phase 2 compact texture tools through the official SDK. The SDK validates every structured
+    result against the tool's output schema; jsonschema checks that the published input schemas accept
+    and reject the same arguments as Nova, except the checks that need the canvas."""
+    import jsonschema
+    tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+    names = ["nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map", "nova.texture.erase"]
+    validators = {}
+    for name in names:
+        tool = tools[name]
+        assert tool.outputSchema and tool.annotations.readOnlyHint is False, name
+        jsonschema.Draft202012Validator.check_schema(tool.inputSchema)
+        jsonschema.Draft202012Validator.check_schema(tool.outputSchema)
+        validators[name] = jsonschema.Draft202012Validator(tool.inputSchema)
+    info = await client.call_tool("nova.project.info")
+    for _ in range(50):
+        if not info.isError:
+            break
+        await asyncio.sleep(0.1)
+        info = await client.call_tool("nova.project.info")
+    scope = {"generation": info.structuredContent["generation"], "projectId": info.structuredContent["projectId"]}
+    drafts = await client.call_tool("nova.drafts.list", scope)
+    row = next(entry for entry in drafts.structuredContent["drafts"] if entry["type"] == "texture")
+    capabilities = await client.call_tool("nova.edit.capabilities", {"generation": scope["generation"], "assetId": row["assetId"]})
+    assert set(names) <= set(capabilities.structuredContent["tools"]), capabilities.structuredContent["tools"]
+    revision = capabilities.structuredContent["document"]["revision"]
+    target = {**scope, "assetId": row["assetId"]}
+    edits = [
+        ("nova.texture.put_pixels", {"x": 0, "y": 0, "width": 4, "height": 2, "palette": ["#ff0000", "#00ff0080"],
+                                     "rows": ["0101", "1.10"]}),
+        ("nova.texture.palette_remap", {"mappings": [{"from": "#ff0000", "to": "#0000ff"}], "tolerance": 0}),
+        ("nova.texture.gradient_map", {"stops": [{"position": 0, "color": "#000000"}, {"position": 255, "color": "#ffffff"}],
+                                       "region": {"x": 0, "y": 0, "width": 4, "height": 2}}),
+        ("nova.texture.erase", {"region": {"x": 0, "y": 0, "width": 1, "height": 1}}),
+    ]
+    for name, args in edits:
+        full = {**target, "expectedRevision": revision, **args}
+        validators[name].validate(full)
+        result = await client.call_tool(name, full)
+        assert not result.isError, result
+        content = result.structuredContent
+        assert content["path"] == row["path"] and content["documentId"] == row["documentId"], content
+        assert content["changed"] is True and content["dirty"] is True and content["pixelsChanged"] > 0, content
+        revision = content["revision"]
+    # Schema-level errors: Nova and jsonschema both reject them, and Nova names the field.
+    base = {**target, "expectedRevision": revision, "x": 0, "y": 0, "width": 1, "height": 1, "palette": ["#000000"], "rows": ["0"]}
+    invalid = [({**base, "palette": ["red"]}, "/palette/0"), ({**base, "rows": ["0 "]}, "/rows/0"),
+               ({**base, "width": 0}, "/width"), ({**base, "mode": "add"}, "/mode"), ({**base, "extra": 1}, "/extra")]
+    for args, pointer in invalid:
+        assert not validators["nova.texture.put_pixels"].is_valid(args), args
+        error = tool_error(await client.call_tool("nova.texture.put_pixels", args))
+        assert error["code"] == "invalid_arguments" and error["details"]["pointer"] == pointer, (args, error)
+    # Canvas checks: the schema cannot know the canvas, so only Nova rejects these.
+    canvas = [({**base, "x": 15, "width": 4, "rows": ["0000"]}, "/width"), ({**base, "rows": ["1"]}, "/rows/0"),
+              ({**base, "height": 2}, "/rows")]
+    for args, pointer in canvas:
+        assert validators["nova.texture.put_pixels"].is_valid(args), args
+        error = tool_error(await client.call_tool("nova.texture.put_pixels", args))
+        assert error["code"] == "invalid_arguments" and error["details"]["pointer"] == pointer, (args, error)
+    undone = await client.call_tool("nova.edit.undo", {**target, "expectedRevision": revision})
+    assert not undone.isError, undone
+    redone = await client.call_tool("nova.edit.redo", {**target, "expectedRevision": undone.structuredContent["revision"]})
+    assert not redone.isError and redone.structuredContent["revision"] != undone.structuredContent["revision"], redone
+    saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
+                                                        "expectedRevision": redone.structuredContent["revision"]})
+    assert not saved.isError and saved.structuredContent["status"] == "saved", saved
+    return {"saved": row["path"], "tools": len(tools), "edits": len(edits), "argumentErrors": len(invalid) + len(canvas)}
+
+
+async def phase3(client: ClientSession) -> dict:
+    """MCP Phase 3 read-only tools through the official SDK. The SDK validates every structured result
+    against the tool's output schema; errors must carry no structured content (StrictClientSession)."""
+    import hashlib
+    import jsonschema
+    tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+    names = ["nova.vanilla.list", "nova.vanilla.texture", "nova.asset.relationships", "nova.pack.validate"]
+    for name in names:
+        tool = tools[name]
+        assert tool.outputSchema and tool.annotations.readOnlyHint is True, name
+        jsonschema.Draft202012Validator.check_schema(tool.inputSchema)
+        jsonschema.Draft202012Validator.check_schema(tool.outputSchema)
+    info = await client.call_tool("nova.project.info")
+    for _ in range(50):
+        if not info.isError:
+            break
+        await asyncio.sleep(0.1)
+        info = await client.call_tool("nova.project.info")
+    scope = {"generation": info.structuredContent["generation"], "projectId": info.structuredContent["projectId"]}
+    version = info.structuredContent["minecraftVersion"]
+    listing = await client.call_tool("nova.vanilla.list", {**scope, "version": version, "limit": 3})
+    assert not listing.isError and listing.structuredContent["textures"], listing
+    path = listing.structuredContent["textures"][0]["path"]
+    texture = await client.call_tool("nova.vanilla.texture", {**scope, "version": version, "path": path})
+    assert not texture.isError, texture
+    images = [item for item in texture.content if item.type == "image"]
+    assert len(images) == 1 and images[0].mimeType == "image/png", texture.content
+    assert hashlib.sha256(base64.b64decode(images[0].data)).hexdigest() == texture.structuredContent["sha256"]
+    metadata = await client.call_tool("nova.vanilla.texture", {**scope, "version": version, "path": path, "include": "metadata"})
+    assert not metadata.isError and not [item for item in metadata.content if item.type == "image"], metadata
+    errors = {
+        "texture_not_in_cache": ("nova.vanilla.texture", {**scope, "version": version,
+                                                          "path": "assets/minecraft/textures/block/not_cached.png"}),
+        "vanilla_not_cached": ("nova.vanilla.list", {**scope, "version": "26.3"}),
+        "unsupported_version": ("nova.vanilla.list", {**scope, "version": "1.20.1"}),
+        "version_unavailable": ("nova.asset.relationships", {**scope, "path": path, "version": "26.3"}),
+        "invalid_arguments": ("nova.asset.relationships", {**scope, "path": "assets/nova/../x.json"}),
+    }
+    for expected, (name, args) in errors.items():
+        error = tool_error(await client.call_tool(name, args))
+        assert error["code"] == expected, (expected, error)
+    target = os.environ.get("NOVA_PHASE3_TEXTURE", path)
+    related = await client.call_tool("nova.asset.relationships", {**scope, "path": target})
+    assert not related.isError and related.structuredContent["relationships"], related
+    validation = await client.call_tool("nova.pack.validate", {"generation": scope["generation"], "limit": 50})
+    assert not validation.isError, validation
+    content = validation.structuredContent
+    assert content["minecraftVersion"] == version and "resourceStack" in content["sources"], content["sources"]
+    for finding in content["diagnostics"]:
+        assert finding["rule"] and "nextStep" in finding and isinstance(finding["evidence"], list), finding
+    return {"tools": len(tools), "relationships": len(related.structuredContent["relationships"]),
+            "findings": len(content["diagnostics"]), "errors": len(errors)}
+
+
 async def main() -> None:
     env = dict(os.environ)
     config = StdioServerParameters(command=sys.argv[1], env=env)
@@ -742,20 +946,32 @@ async def main() -> None:
         finally:
             save_wire(f"sdk-{mode}.jsonl")
         return
-    if mode not in ("inspect", "edit", "phase4d", "animation_profile", "restored-preview", "preview-lifecycle", "preview-reconnect", "lifecycle-profile", "phase4e-pack"):
+    if mode not in ("inspect", "edit", "phase4d", "phase1", "phase2", "phase3", "animation_profile", "restored-preview", "preview-lifecycle", "preview-reconnect", "lifecycle-profile", "phase4e-pack"):
         try:
             await lifecycle(config, mode, wire)
         finally:
             save_wire(f"sdk-{mode}.jsonl")
         return
     async with stdio_client(config) as (read, write):
-        async with ClientSession(TranscriptStream(read, "server", wire),
-                                 TranscriptStream(write, "client", wire)) as client:
+        async with StrictClientSession(TranscriptStream(read, "server", wire),
+                                       TranscriptStream(write, "client", wire)) as client:
             initialized = await client.initialize()
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 26
+            assert len(tools.tools) == 39
+            if mode == "phase3":
+                print(json.dumps(await phase3(client)), flush=True)
+                save_wire("sdk-phase3.jsonl")
+                return
+            if mode == "phase2":
+                print(json.dumps(await phase2(client)), flush=True)
+                save_wire("sdk-phase2.jsonl")
+                return
+            if mode == "phase1":
+                print(json.dumps(await phase1(client, initialized)), flush=True)
+                save_wire("sdk-phase1.jsonl")
+                return
             if mode == "phase4e-pack":
                 await phase4e_pack(client)
                 save_wire("sdk-phase4e-pack.jsonl")
@@ -809,8 +1025,7 @@ async def main() -> None:
             validation = await client.call_tool("nova.pack.validate", {"generation": generation, "limit": 10})
             assert not validation.isError and validation.structuredContent["files"] == 4
             rejected = await client.call_tool("nova.asset.inspect", {"generation": generation, "assetId": "../secret"})
-            assert rejected.isError
-            assert rejected.structuredContent["error"]["code"] == "invalid_arguments"
+            assert tool_error(rejected)["code"] == "invalid_arguments"
             records = [initialized, tools, info, page, *results, validation, rejected]
             transcript = "\n".join(json.dumps(r.model_dump(by_alias=True, exclude_none=True)) for r in records)
             print(transcript)
@@ -824,7 +1039,7 @@ async def lifecycle(config, mode, wire):
 
     async with stdio_client(config) as (read, write):
         outgoing = TranscriptStream(write, "client", wire)
-        async with ClientSession(TranscriptStream(read, "server", wire), outgoing) as client:
+        async with StrictClientSession(TranscriptStream(read, "server", wire), outgoing) as client:
             try:
                 await asyncio.wait_for(client.initialize(), 8)
             except McpError as error:
@@ -835,11 +1050,10 @@ async def lifecycle(config, mode, wire):
 
             async def call(tool, args=None, error=None):
                 response = await asyncio.wait_for(client.call_tool(tool, args), 8)
-                result = response.structuredContent
-                assert response.isError == (error is not None), result
+                assert response.isError == (error is not None), response
                 if error:
-                    assert result["error"]["code"] == error, result
-                return result
+                    assert tool_error(response)["code"] == error, response
+                return response.structuredContent
 
             info = await call("nova.project.info")
             scope = {key: info[key] for key in ("projectId", "generation")}

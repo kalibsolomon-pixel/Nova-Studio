@@ -6,19 +6,13 @@
 #include "opdialog.h"
 #include "panels.h"
 #include "theme.h"
+#include "tool_placement.h"
 #include "window.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QtWidgets>
 
 namespace nova {
-namespace {
-QJsonObject brushJson(const ops::Brush &b) {
-    return {{"shape", int(b.shape)}, {"size", b.size}, {"opacity", b.opacity}, {"hardness", b.hardness},
-            {"spacing", b.spacing}};
-}
-} // namespace
-
 void Window::configureCanvas(Canvas *canvas) {
     canvas->session = &session;
     canvas->transformLayers = [this] { return layersPanel->selectedLayers(); };
@@ -206,6 +200,11 @@ void Window::canvasMenu(QPoint global) {
         if (auto a = findChild<QAction *>(name))
             menu.addAction(a);
     }
+    if (baseline.entry) { // baseline projects: put the current override back to vanilla
+        updateBaselineActions();
+        menu.addSeparator();
+        menu.addAction(findChild<QAction *>("resetToVanillaCommand"));
+    }
     menu.exec(global);
 }
 void Window::updateLayouts() {
@@ -219,7 +218,7 @@ void Window::updateLayouts() {
         const auto name = QInputDialog::getText(this, "Save workspace layout", "Layout name", QLineEdit::Normal, "My layout", &ok).trimmed();
         if (!ok || name.isEmpty())
             return;
-        preferences.layouts.insert(name.left(64), saveState(1));
+        preferences.layouts.insert(name.left(64), currentLayout());
         persist();
         updateLayouts();
     });
@@ -228,7 +227,7 @@ void Window::updateLayouts() {
     for (auto it = preferences.layouts.begin(); it != preferences.layouts.end(); ++it) {
         auto sub = layoutsMenu->addMenu(it.key());
         sub->addAction("Apply", this, [this, name = it.key()] {
-            if (!restoreState(preferences.layouts.value(name), 1))
+            if (!applyLayout(preferences.layouts.value(name)))
                 statusBar()->showMessage("Layout could not be restored", 4000);
             keepOnScreen();
         });
@@ -349,6 +348,7 @@ void Window::buildEditor(QMenu *view) {
     tabifyDockWidget(layersDock, historyDock);
     colorsDock->raise();
     layersDock->raise();
+    toolPlacement = new ToolStripPlacement(this, toolBox, colorsDock, assetsDock);
     connect(&toolState, &ToolState::changed, this, [this] {
         if (current())
             current()->update();

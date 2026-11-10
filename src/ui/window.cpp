@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "window.h"
+#include "tool_placement.h"
 #include "service.h"
 #include "branding.h"
 #include "fabric_testing.h"
@@ -168,11 +169,12 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             const auto &doc = canvas->document;
             if (canvas == current() || doc->id() != id)
                 continue;
-            tabs->setTabText(i, QFileInfo(doc->path).fileName() + (doc->modified() ? " ●" : "") +
+            tabs->setTabText(i, QFileInfo(doc->path).fileName() + (documentDirty(*doc) ? " ●" : "") +
                                 (doc->nativeDocument() && doc->exportModified() ? " ↑PNG" : ""));
             canvas->update();
         }
     });
+    connect(&session, &DocumentSession::closed, this, [this] { updateUnsavedStatus(); });
     resize(1280, 820);
     setMinimumSize(800, 550);
     setDockNestingEnabled(true);
@@ -249,7 +251,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             if (doc->minecraftOutputPending()) {
                 QMessageBox::information(
                     this, "Update textures first",
-                    "Save or update the modified Minecraft PNGs before exporting the pack.");
+                    "Save the modified documents first (File › Save All), then export the pack.");
                 return;
             }
         const auto target = QFileDialog::getSaveFileName(
@@ -303,6 +305,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         fullRescan = invalidateFallback = false;
         if (mcpService)
             mcpService->projectChanged();
+        endAgentSessionForProjectChange();
         project.clear();
         clearComparisons();
         if (auto related = findChild<QDialog *>("relatedAssetsDialog"))
@@ -314,6 +317,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         modelPanel->setLibrary(modelLibrary,{});
         pathText->clear();
         collection = {};
+        ++collectionSerial;
+        resetBaselineState();
         nav = {};
         model->setIndex(collection, {});
         cube->setDocument({});
@@ -346,6 +351,11 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         connect(a, &QAction::triggered, this,
                 [this, name = QString(pair.first)] { action(name == "Save" ? "save" : "saveAs"); });
     }
+    // Save All is new; it takes a free shortcut (Ctrl+Alt+S stays Save Workspace).
+    auto saveAllAction = file->addAction("Save All", QKeySequence("Ctrl+Alt+Shift+S"));
+    saveAllAction->setObjectName("saveAllCommand");
+    saveAllAction->setStatusTip("Save every unsaved document of this project to the pack");
+    connect(saveAllAction, &QAction::triggered, this, [this] { saveAll(); });
     auto saveEditable = file->addAction("Save Editable Document");
     saveEditable->setObjectName("saveNativeCommand");
     connect(saveEditable, &QAction::triggered, this, [this] { action("saveNative"); });
@@ -384,14 +394,14 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     }
     for (QAction *a : std::initializer_list<QAction *>{
              newPack, openPack, recent->menuAction(), closeProject, nullptr, openPng, openModel, nullptr,
-             findChild<QAction *>("saveCommand"), findChild<QAction *>("saveAsCommand"), saveEditable,
+             findChild<QAction *>("saveCommand"), findChild<QAction *>("saveAsCommand"), saveAllAction, saveEditable,
              updatePng, closeTab, nullptr, exportPack, propertiesAction, review, nullptr, quit})
         if (a)
             file->addAction(a);
         else
             file->addSeparator();
     findChild<QAction *>("saveCommand")->setProperty("novaIcon", "save");
-    findChild<QAction *>("saveCommand")->setToolTip("Save (Ctrl+S)");
+    findChild<QAction *>("saveCommand")->setToolTip("Save to the pack (Ctrl+S)");
     openPack->setProperty("novaIcon", "open");
     auto view = menuBar()->addMenu("&View");
     view->setObjectName("menu-View");
@@ -451,6 +461,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         project = QDir(pathText->text()).canonicalPath();
         if (mcpService)
             mcpService->projectChanged();
+        endAgentSessionForProjectChange();
         auto detected = Project::inspect(project);
         setWindowTitle("Nova Studio · " + detected.name +
                        (detected.kind == Project::Kind::ResourcePack ? " · Resource Pack"
@@ -487,7 +498,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             if (!modelPanel->closeModel(page->doc))
                 return;
             removeDocumentTab(i);
-            model->applyIndex(workspaceIndex(), {asset});
+            model->applyIndex(browserIndex(), {asset});
             setDirectory(nav.directory);
             refresh();
             return;
@@ -498,9 +509,10 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         recovery->remove(canvas->document->id());
         const bool provisional = !canvas->document->revision().exists;
         const auto path = QDir(project).relativeFilePath(canvas->document->path);
+        baselineDocs.remove(canvas->document->id());
         session.close(canvas->document);
         if (provisional) {
-            model->applyIndex(workspaceIndex(), {path});
+            model->applyIndex(browserIndex(), {path});
             setDirectory(nav.directory);
         }
         clearComparisons(path);
@@ -511,6 +523,11 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     QElapsedTimer thumbnailInitialization;
     thumbnailInitialization.start();
     model = new AssetModel(this);
+    // Baseline rows: muted (vanilla, not in the project) and accent (project override), read at paint time.
+    model->setOriginForeground([](int origin) {
+        const auto &tokens = ui::current();
+        return QVariant::fromValue(origin == AssetModel::BaselineRow ? tokens.muted : tokens.accent);
+    });
     metrics.record("thumbnail_service_init", thumbnailInitialization);
     proxy = new QSortFilterProxyModel(this);
     proxy->setSourceModel(model);
@@ -664,7 +681,10 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             related->setEnabled(!model->isDirectory(proxy->mapToSource(index)));
             auto copy = menu.addAction("Copy relative path");
             auto batchAction = menu.addAction("Batch Process…");
+            auto vanillaAction = addBaselineContextAction(menu, model->pathFor(proxy->mapToSource(index)));
             auto selected = menu.exec(itemView->viewport()->mapToGlobal(pos));
+            if (selected && selected == vanillaAction)
+                triggerBaselineContextAction(vanillaAction);
             if (selected == open)
                 openAsset(index);
             if (selected == related)
@@ -752,7 +772,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     modelPanel->modelRegistered = [this](const QString &path) {
         QElapsedTimer index;
         index.start();
-        model->applyIndex(workspaceIndex(), {path});
+        model->applyIndex(browserIndex(), {path});
         metrics.record("model_publication_tree_refresh", index);
         nav.selected = path;
         setDirectory(QFileInfo(path).path());
@@ -760,7 +780,10 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     };
     modelPanel->openWorkspaceModel = [this](const QString &asset) { openModelAsset(asset); };
     modelPanel->modelOpened = [this](const auto &doc) { showModelDocument(doc, false); };
-    modelPanel->modelChanged = [this] { updateModelTabs(); };
+    modelPanel->modelChanged = [this] {
+        updateModelTabs();
+        updateUnsavedStatus();
+    };
     modelPanel->modelCheckpointed = [this](const QElapsedTimer &timer) {
         metrics.record("model_recovery_serialize_and_write", timer);
     };
@@ -1120,7 +1143,9 @@ void Window::indexProject() {
     pendingChanges.clear();
     fullRescan = false;
     monitor.stop();
+    loadBaseline();
     collection = {};
+    ++collectionSerial;
     model->setIndex(collection, project);
     if (project.isEmpty()) {
         indexBusy = false;
@@ -1143,12 +1168,13 @@ void Window::indexProject() {
             return;
         }
         collection = std::move(index);
+        ++collectionSerial;
         restoreModelWorkspacePending = true;
         updateModelIndex();
         metrics.samples["index"].append(ms);
         QElapsedTimer install;
         install.start();
-        model->setIndex(workspaceIndex(), project);
+        model->setIndex(browserIndex(), project);
         metrics.record("initial_model_install", install);
         statusBar()->showMessage(
             QString("%1 assets indexed in %2 ms").arg(collection.files.size()).arg(ms, 0, 'f', 1));
@@ -1166,6 +1192,8 @@ void Window::indexProject() {
                     continue; // Restored after the model catalog is installed.
                 } else if (QFileInfo::exists(path) || QFileInfo::exists(nativeDocumentPath(project, path)))
                     openTexture(path);
+                else if (baselineCandidate(path)) // a vanilla texture opened but not yet saved
+                    openBaselineTexture(QDir(project).relativeFilePath(path), path == preferences.activeDocument);
             }
             for (int i = 0; i < tabs->count(); ++i)
                 if (tabPath(tabs->widget(i)) ==
@@ -1188,7 +1216,7 @@ void Window::indexProject() {
 }
 void Window::setDirectory(QString d) {
     nav.directory = d == "." ? QString() : std::move(d);
-    if (!collection.directories.contains(nav.directory))
+    if (baseline.index ? !model->hasDirectory(nav.directory) : !collection.directories.contains(nav.directory))
         nav.directory.clear();
     QSignalBlocker a(tree->selectionModel()), b(grid->selectionModel());
     auto index = proxy->mapFromSource(model->indexFor(nav.directory));
@@ -1255,6 +1283,12 @@ void Window::openTexture(const QString &path) {
                 setDirectory(QFileInfo(nav.selected).path());
             return;
         }
+    // A vanilla texture the project does not contain opens as a virtual baseline document.
+    if (baselineCandidate(path) && !QFileInfo::exists(path) && !QFileInfo(path).isSymLink() &&
+        !QFileInfo::exists(nativeDocumentPath(project, path))) {
+        openBaselineTexture(QDir(project).relativeFilePath(path));
+        return;
+    }
     QString error;
     auto doc = session.open(path, &error);
     if (!doc) {
@@ -1321,12 +1355,12 @@ void Window::refresh() {
         tabs->setTabText(
             tabs->indexOf(canvas),
             QFileInfo(canvas->document->path).fileName() +
-                (canvas->document->modified() ? " ●" : "") +
+                (documentDirty(*canvas->document) ? " ●" : "") +
                 (canvas->document->nativeDocument() && canvas->document->exportModified() ? " ↑PNG"
                                                                                           : ""));
         tabs->setTabToolTip(tabs->indexOf(canvas), canvas->document->path);
         if (auto save = findChild<QAction *>("saveCommand"))
-            save->setText(canvas->document->nativeDocument() ? "Save Editable Document" : "Save");
+            save->setText("Save");
         if (auto saveAs = findChild<QAction *>("saveAsCommand"))
             saveAs->setText(canvas->document->nativeDocument() ? "Export PNG As…" : "Save As…");
         canvas->update();
@@ -1334,6 +1368,7 @@ void Window::refresh() {
         cube->setDocument({});
     }
     updateInspector();
+    updateUnsavedStatus();
     auto page = dynamic_cast<ModelTab *>(tabs->currentWidget());
     if (auto previous = dynamic_cast<ModelTab *>(cube->parentWidget()); previous && previous != page)
         previous->face = cube->selectedFace;
@@ -1389,6 +1424,12 @@ void Window::refresh() {
         metrics.record("animation_viewport_refresh", viewportStage);
 }
 void Window::action(const QString &name) {
+    // Reset to Vanilla history when the asset browser has focus (baseline projects only).
+    if ((name == "undo" || name == "redo") && baseline.ref && browserHasFocus() &&
+        (name == "redo" ? resetCursor < resetHistory.size() : resetCursor > 0)) {
+        baselineHistory(name == "redo");
+        return;
+    }
     if (auto page = dynamic_cast<ModelTab *>(tabs->currentWidget())) {
         if (name == "undo" || name == "redo") {
             if (!modelPanel->authoringModel(page->doc->assetPath()))
@@ -1413,7 +1454,16 @@ void Window::action(const QString &name) {
     if ((name.startsWith("save") || name == "exportPng") && current()->hasFloating() &&
         !current()->commitFloating())
         return;
-    if (doc->animated() && (name == "save" || name == "saveNative")) {
+    // Save writes the document into the pack (saving.cpp), including layered and animated documents.
+    if (name == "save") {
+        saveCurrentToPack();
+        metrics.record(name, t);
+        return;
+    }
+    // The first export of a vanilla texture creates its pack folders inside the project.
+    if (name == "exportPng" && !doc->animated() && !prepareAssetFolder(doc))
+        return;
+    if (doc->animated() && name == "saveNative") {
         saveAnimationNative();
         return;
     }
@@ -1481,6 +1531,7 @@ void Window::action(const QString &name) {
             recovery->remove(doc->id());
         if (command == Command::ExportPng || !doc->nativeDocument())
             externalRevisions.remove(doc->id());
+        baselineSaved(doc);
         statusBar()->showMessage(
             (command == Command::SaveNative || (command == Command::Save && doc->nativeDocument()))
                 ? "Editable layers saved · Update Minecraft PNG to export"
@@ -1501,7 +1552,8 @@ void Window::persist() {
     preferences.gridMode = nav.grid;
     preferences.thumbnailSize = thumbSize;
     preferences.geometry = saveGeometry();
-    preferences.layout = saveState(1);
+    preferences.layout = currentLayout();
+    rememberPresetLayout();
     preferences.projectPath = project;
     preferences.directory = nav.directory;
     preferences.selected = nav.selected;
@@ -1562,14 +1614,24 @@ void Window::restore() {
                           : QString("essentials");
     bool ok = false;
     if (!preferences.layout.isEmpty()) {
-        ok = restoreState(preferences.layout, 1);
+        // An unknown tool position falls back to the left edge; the rest of the layout stays.
+        ok = applyLayout(preferences.layout);
         metrics.count("layout_restored", ok ? 1 : 0);
     }
     if (!ok && name != "essentials")
-        applyPreset(name);
-    else if (!ok)
+        applyPreset(name, false);
+    else if (!ok) {
+        if (toolPlacement)
+            toolPlacement->place(ToolPlacement::LeftEdge);
         restoreState(defaultLayout, 1);
+    }
     preset = name;
+    // The restored arrangement is this workspace's baseline once it has settled.
+    QTimer::singleShot(0, this, [this, name] {
+        if (preset == name && presetBaseline.isEmpty())
+            presetBaseline = preferences.presetLayouts.value(name, currentLayout());
+    });
+    watchScreens();
     if (presetGroup)
         for (auto a : presetGroup->actions())
             a->setChecked(a->data().toString() == preset);
@@ -1594,6 +1656,30 @@ void Window::keepOnScreen() {
         if (dock && dock->isFloating())
             if (const auto target = Settings::visibleGeometry(dock->geometry(), available); target != dock->geometry())
                 dock->setGeometry(target);
+    if (toolPlacement)
+        toolPlacement->keepReachable();
+}
+// Screens added, removed, resized or rescaled (DPI): keep the window and floating
+// panels, including a floating tool strip, on an available screen.
+void Window::watchScreens() {
+    auto check = [this] {
+        metrics.count("screen_change_rechecks", 1);
+        QTimer::singleShot(0, this, [this] { keepOnScreen(); });
+    };
+    auto watch = [this, check](QScreen *screen) {
+        connect(screen, &QScreen::availableGeometryChanged, this, check);
+        connect(screen, &QScreen::logicalDotsPerInchChanged, this, check);
+    };
+    if (property("novaScreensWatched").toBool())
+        return;
+    setProperty("novaScreensWatched", true);
+    for (auto screen : QGuiApplication::screens())
+        watch(screen);
+    connect(qApp, &QGuiApplication::screenAdded, this, [watch, check](QScreen *screen) {
+        watch(screen);
+        check();
+    });
+    connect(qApp, &QGuiApplication::screenRemoved, this, check);
 }
 void Window::resetWorkspace() {
     for (auto dock : {assetsDock, inspectorDock, previewDock, layersDock, colorsDock, historyDock, animationDock,
@@ -1604,7 +1690,11 @@ void Window::resetWorkspace() {
     for (auto bar : {static_cast<QToolBar *>(toolBox), static_cast<QToolBar *>(toolOptions), appBar})
         if (bar)
             bar->show();
-    applyPreset("essentials");
+    // Product default: every workspace forgets the user's arrangement, tools on the left.
+    preferences.presetLayouts.clear();
+    if (toolPlacement)
+        toolPlacement->place(ToolPlacement::LeftEdge);
+    applyPreset("essentials", false);
     statusBar()->showMessage("Workspace reset to Essentials");
 }
 bool Window::confirmClose(Canvas *canvas) {
@@ -1629,6 +1719,8 @@ bool Window::confirmClose(Canvas *canvas) {
             return !canvas->document->modified();
         }
         QString error;
+        if (!canvas->document->nativeDocument() && !prepareAssetFolder(canvas->document))
+            return false;
         if (!session.dispatch(canvas->document, Command::Save, {}, false, &error)) {
             QMessageBox::warning(this, "Save failed", error);
             return false;

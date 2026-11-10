@@ -68,6 +68,64 @@ class RenderingTest : public QObject {
         QCOMPARE(reflected.faces.size(), 10);
         QVERIFY(reflected.faces[0].normal.length() > .99f);
     }
+    void generatedLayerGeometryAndLimits() {
+        mc::Model model;
+        model.valid = model.generated = true;
+        model.version = "26.1";
+        model.id = "nova:item/layers";
+        QJsonObject textures;
+        QMap<QString, QImage> sprites;
+        QImage image(8, 16, QImage::Format_RGBA8888);
+        image.fill(Qt::white);
+        image.setPixelColor(3, 7, Qt::transparent); // interior hole, including non-square sprites
+        for (int layer = 0; layer < 5; ++layer) {
+            const auto key = "layer" + QString::number(layer);
+            const auto id = "nova:item/layer" + QString::number(layer);
+            const auto path = mc::Location::parse(id).asset("textures");
+            textures[key] = id;
+            model.textures[key] = path;
+            sprites[path] = image;
+        }
+        model.resolved["textures"] = textures;
+        const auto geometry = mc::generatedMesh(model, sprites);
+        QVERIFY(geometry.previewLimitation.isEmpty());
+        QCOMPARE(geometry.faces.size(), 50); // front/back, four outside edges and four hole walls per layer
+        QCOMPARE(geometry.minimum, QVector3D(-1, -1, -.0625f));
+        QCOMPARE(geometry.maximum, QVector3D(1, 1, .0625f));
+        for (int i = 0; i < geometry.faces.size(); ++i) {
+            const auto &face = geometry.faces[i];
+            QCOMPARE(face.generatedLayer, i / 10);
+            QCOMPARE(face.texture, model.textures["layer" + QString::number(i / 10)]);
+            QCOMPARE(face.tint, face.generatedLayer);
+        }
+        QMatrix4x4 pose;
+        pose.rotate(50, 0, 0, 1);
+        pose.translate(.2f, .3f, .4f);
+        const auto moved = mc::applyTransform(geometry, pose);
+        for (int i = 0; i < moved.faces.size(); ++i)
+            QCOMPARE(moved.faces[i].generatedLayer, geometry.faces[i].generatedLayer);
+
+        auto unavailable = sprites;
+        unavailable.remove(model.textures["layer1"]);
+        const auto missing = mc::generatedMesh(model, unavailable);
+        QVERIFY(missing.previewLimitation.contains(model.textures["layer1"]));
+        QVERIFY(missing.previewLimitation.contains("unavailable"));
+        QVERIFY(!missing.faces.isEmpty()); // retain the explicit flat approximation
+        unavailable = sprites;
+        unavailable[model.textures["layer0"]] = QImage(1025, 1, QImage::Format_RGBA8888);
+        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("1024-pixel"));
+        QImage busy(64, 64, QImage::Format_RGBA8888);
+        busy.fill(Qt::transparent);
+        for (int y = 0; y < busy.height(); ++y)
+            for (int x = 0; x < busy.width(); ++x)
+                if ((x + y) % 2 == 0)
+                    busy.setPixelColor(x, y, Qt::white);
+        unavailable[model.textures["layer0"]] = busy;
+        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("4096-span"));
+        model.valid = false;
+        QVERIFY(mc::generatedMesh(model, {}).faces.isEmpty());
+    }
+
 };
 QTEST_GUILESS_MAIN(RenderingTest)
 #include "c6_rendering_test.moc"

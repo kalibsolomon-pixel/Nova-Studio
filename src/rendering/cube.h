@@ -8,6 +8,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLWidget>
 #include <memory>
+class QLabel;
 namespace nova {
 class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
@@ -38,6 +39,9 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     QMatrix4x4 contextTransform;
     QMatrix4x4 matrix() const;
     float captureAspect = 0;
+    QString noticeText;
+    QLabel *noticeLabel = nullptr; // child widget: shown on screen and in grabs
+    void placeNotice();
     const mc::Mesh &scene() const { return modelMesh ? *modelMesh : genericMesh; }
     int vertexCount = 0;
     void uploadGeometry();
@@ -51,6 +55,8 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     void wheelEvent(QWheelEvent *) override;
     void showEvent(QShowEvent *) override;
     void hideEvent(QHideEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    void changeEvent(QEvent *) override;
 
   public:
     std::shared_ptr<Document> document;
@@ -67,6 +73,18 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     bool contextFraming = false, displayManipulation = false;
     int referenceFrame = 0;
     void setContextFraming(bool enabled, bool frontView);
+    // Banner over the view saying what is shown when it is not the texture's resolved
+    // Minecraft model (texture-only fallback, explicit generic cube, unresolved model).
+    // Empty clears it. The banner takes at most a quarter of the view's height (never
+    // less than one line), so the fallback stays visible at any size or scale; text that
+    // does not fit is elided. The full text is the banner's accessible name, the view's
+    // accessible description and tooltip, and the Models / UV diagnostics.
+    void setNotice(const QString &text);
+    QString notice() const { return noticeText; }
+    // Lines of the banner for a text width and line budget: wrapped at words (anywhere in
+    // over-long words), the last line elided with an ellipsis when text remains.
+    static QStringList noticeLines(const QString &text, const QFont &font, int width, int maxLines);
+    static constexpr double NoticeMaxShare = 0.25;
     void setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editableTexture = {},
                   const QMap<QString, QImage> &materials = {});
     void setContextTransform(const QMatrix4x4 &transform) {

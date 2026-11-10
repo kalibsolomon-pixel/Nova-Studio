@@ -341,7 +341,7 @@ bool Document::replaceLayersPixels(const QMap<QUuid, QImage> &pixels, const QStr
         estimate.selectionAfter = *newSelection;
     }
     if (!patches.empty() &&
-        (operationLimit < 1 || operationBytes(estimate) + sizeof(Operation) > historyBudget))
+        (operationLimit < 1 || operationBytes(estimate) + qint64(sizeof(Operation)) > historyBudget))
         return failWith(error, "Transform exceeds the undo history budget; increase File > Undo "
                                "history limits before committing");
     return rasterCommit(std::move(patches), label, {}, newSelection);
@@ -528,6 +528,17 @@ bool Document::fill(QUuid id, QPoint seed, QRgb color, int tolerance, ops::Dista
                                        std::clamp(tolerance, 0, 255), metric, contiguous, true);
     const QImage out = ops::paintCoverage(target->pixels, region, color, opacity, false, &selectionMask);
     return replaceLayerPixels(id, out, contiguous ? "Fill" : "Global Fill", error);
+}
+bool Document::universalFill(QUuid id, QPoint seed, QRgb color, int tolerance, bool sampleComposite,
+                             int opacity, QString *error) {
+    auto target = findLayer(id);
+    if (!target || id != active)
+        return failWith(error, "Select the target layer before filling");
+    if (!image.rect().contains(seed))
+        return failWith(error, "Fill seed is outside the image");
+    const auto region = ops::universalFillMask(sampleComposite ? image : target->pixels, seed, tolerance);
+    const QImage out = ops::paintCoverage(target->pixels, region, color, opacity, false, &selectionMask);
+    return replaceLayerPixels(id, out, "Universal Fill", error);
 }
 bool Document::drawShape(QUuid id, const ops::ShapeSpec &shape, QRgb color, int opacity, bool erase,
                          QString *error) {

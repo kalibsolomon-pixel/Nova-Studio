@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "theme.h"
+#include <QDebug>
+#include <QFontDatabase>
+#include <QFontMetrics>
 #include <QHash>
 #include <QIconEngine>
 #include <QLabel>
 #include <QPainter>
-#include <QPainterPath>
 #include <QToolButton>
-#include <cmath>
-#include <numbers>
 
 namespace nova::ui {
 namespace {
@@ -40,6 +40,9 @@ Tokens tokens(bool dark, const QString &accent) {
         t.warning = QColor("#e3b45c");
         t.danger = QColor("#f07474");
         t.success = QColor("#6cc38f");
+        t.checkerDark = QColor("#5a5e68");
+        t.checkerLight = QColor("#6a6e78");
+        t.pixelGrid = QColor(0, 0, 0, 65);
     } else {
         t.window = QColor("#f0f2f6");
         t.surface = QColor("#f6f7fa");
@@ -58,6 +61,9 @@ Tokens tokens(bool dark, const QString &accent) {
         t.warning = QColor("#94600a");
         t.danger = QColor("#b42318");
         t.success = QColor("#1f7a45");
+        t.checkerDark = QColor("#a9adb5");
+        t.checkerLight = QColor("#bec1c8");
+        t.pixelGrid = QColor(0, 0, 0, 65);
     }
     return t;
 }
@@ -101,11 +107,12 @@ QPalette palette(const Tokens &t) {
 // Inputs keep Fusion's native frames (palette-driven); only spacing is tuned.
 QString styleSheet(const Tokens &t) {
     QString s = QStringLiteral(
-        "QToolBar{spacing:4px;padding:3px 6px;border:0;border-bottom:1px solid @border;background:@window}"
-        "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:4px 3px}"
-        "QToolBar::separator{background:@border;width:1px;height:1px;margin:4px 6px}"
-        "QToolBar#toolBox::separator{margin:5px 4px}"
-        "QDockWidget::title{padding:5px 8px;background:@surface;border-bottom:1px solid @border;"
+        "QToolBar{spacing:@tbSpacing;padding:@tbPadV @tbPadH;border:0;border-bottom:1px solid @border;background:@window}"
+        "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:@stripPadV @stripPadH}"
+        "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
+        "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
+        "QWidget#toolsDockHost QToolBar#toolBox{border:0;border-bottom:1px solid @border}"
+        "QDockWidget::title{padding:@panelPadV @panelPad;background:@surface;border-bottom:1px solid @border;"
         "text-align:left;font-weight:600}"
         "QMainWindow::separator{background:@border;width:3px;height:3px}"
         "QMainWindow::separator:hover{background:@accent}"
@@ -123,12 +130,19 @@ QString styleSheet(const Tokens &t) {
         "QPushButton[role=\"icon\"]{padding:3px;min-width:18px;border-color:transparent;background:transparent}"
         "QPushButton[role=\"icon\"]:hover{background:@raised;border-color:@border}"
         "QPushButton[role=\"icon\"]:disabled{background:transparent;border-color:transparent}"
-        "QToolButton{border:1px solid transparent;border-radius:4px;padding:2px}"
+        "QToolButton{border:@btnBorder solid transparent;border-radius:4px;padding:@btnPad}"
         "QToolButton:hover{background:@raised;border-color:@border}"
         "QToolButton:pressed{background:@surface}"
         "QToolButton:checked{background:palette(highlight);border-color:@accent}"
         "QToolButton:focus{border-color:@accent}"
-        "QToolButton::menu-button{border:0;width:10px}"
+        // Split buttons reserve the arrow segment plus a gap, so the arrow never touches the icon.
+        "QToolButton[popupMode=\"1\"]{padding-right:@arrowReserve}"
+        "QToolButton::menu-button{border:0;width:@arrowWidth}"
+        "QToolButton#toolPlacementGrip::menu-indicator{image:none;width:0}"
+        "QGroupBox[role=\"section\"]{font-weight:600;border:1px solid @border;border-radius:4px;"
+        "margin-top:12px;padding:@panelPad @panelPad @panelPadV @panelPad}"
+        "QGroupBox[role=\"section\"]::title{subcontrol-origin:margin;left:@panelPad;padding:0 @btnPad;color:@text}"
+        "QPlainTextEdit[role=\"path\"]{border:1px solid @border;border-radius:4px;background:@surface}"
         "QToolButton[role=\"disclosure\"]{border:0;padding:3px 2px;font-weight:600;color:@muted}"
         "QToolButton[role=\"disclosure\"]:hover{color:@text;background:transparent}"
         "QToolButton[role=\"disclosure\"]:checked{background:transparent;color:@text}"
@@ -166,178 +180,129 @@ QString styleSheet(const Tokens &t) {
         {"@disabled", t.disabled},         {"@warning", t.warning}, {"@danger", t.danger}};
     for (const auto &[key, color] : values)
         s.replace(key, color.alpha() == 255 ? hex(color) : rgba(color));
+    const auto px = [](int v) { return QString::number(v) + "px"; };
+    const std::pair<const char *, QString> metrics[] = {
+        {"@tbSpacing", px(ToolbarSpacing)},     {"@tbPadV", px(ToolbarPaddingV)},
+        {"@tbPadH", px(ToolbarPaddingH)},       {"@sepTool", px(ToolStripSeparatorMargin)},
+        {"@stripPadV", px(ToolStripPaddingV)},  {"@stripPadH", px(ToolStripPaddingH)},
+        {"@sepMajor", px(SeparatorMarginMajor)}, {"@sepMinor", px(SeparatorMarginMinor)},
+        {"@btnBorder", px(ButtonBorder)},       {"@btnPad", px(ButtonPadding)},
+        {"@arrowReserve", px(MenuArrowWidth + MenuArrowGap + ButtonPadding)},
+        {"@arrowWidth", px(MenuArrowWidth)},     {"@panelPadV", px(PanelPaddingV)},
+        {"@panelPad", px(PanelPadding)}};
+    for (const auto &[key, value] : metrics)
+        s.replace(key, value);
     return s;
 }
 const Tokens &current() { return active; }
 void setCurrent(const Tokens &t) { active = t; }
 
 namespace {
-void drawIcon(QPainter &p, const QString &name, const QColor &ink) {
-    QPen pen(ink, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    p.setPen(pen);
-    p.setBrush(Qt::NoBrush);
-    auto arrowHead = [&](QPointF tip, double angle) {
-        const double a = angle * std::numbers::pi / 180.0;
-        for (double side : {-0.6, 0.6})
-            p.drawLine(tip, tip - QPointF(std::cos(a + side), std::sin(a + side)) * 4.5);
-    };
-    if (name == "save") {
-        p.drawRoundedRect(QRectF(4.5, 4.5, 15, 15), 2, 2);
-        p.drawRect(QRectF(8, 4.5, 8, 5));
-        p.drawRect(QRectF(7.5, 13, 9, 6.5));
-    } else if (name == "undo" || name == "redo") {
-        if (name == "redo") {
-            p.translate(24, 0);
-            p.scale(-1, 1);
+QString materialFontFamily() {
+    static const QString family = [] {
+        const int id = QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/MaterialSymbolsOutlined.ttf"));
+        if (id < 0) {
+            qWarning() << "Unable to load the embedded Material Symbols Outlined font";
+            return QString();
         }
-        QPainterPath path(QPointF(6, 10));
-        path.lineTo(14, 10);
-        path.cubicTo(20, 10, 20, 19, 14, 19);
-        path.lineTo(10, 19);
-        p.drawPath(path);
-        arrowHead(QPointF(5.5, 10), 0);
-    } else if (name == "open" || name == "folder") {
-        QPainterPath path(QPointF(3.5, 7));
-        path.lineTo(9, 7);
-        path.lineTo(11, 9);
-        path.lineTo(20.5, 9);
-        path.lineTo(20.5, 18.5);
-        path.lineTo(3.5, 18.5);
-        path.closeSubpath();
-        p.drawPath(path);
-        if (name == "open")
-            p.drawLine(QPointF(3.5, 12), QPointF(20.5, 12));
-    } else if (name == "search" || name == "command") {
-        p.drawEllipse(QPointF(10.5, 10.5), 5.5, 5.5);
-        p.drawLine(QPointF(14.5, 14.5), QPointF(19.5, 19.5));
-        if (name == "command") {
-            p.drawLine(QPointF(8, 10.5), QPointF(13, 10.5));
+        const QStringList families = QFontDatabase::applicationFontFamilies(id);
+        if (families.isEmpty()) {
+            qWarning() << "The embedded Material Symbols Outlined font has no family";
+            return QString();
         }
-    } else if (name == "close") {
-        p.drawLine(QPointF(7, 7), QPointF(17, 17));
-        p.drawLine(QPointF(17, 7), QPointF(7, 17));
-    } else if (name == "add") {
-        p.drawLine(QPointF(12, 5), QPointF(12, 19));
-        p.drawLine(QPointF(5, 12), QPointF(19, 12));
-    } else if (name == "duplicate") {
-        p.drawRoundedRect(QRectF(8.5, 8.5, 11, 11), 1.5, 1.5);
-        p.drawPolyline(QPolygonF({QPointF(15.5, 5.5), QPointF(4.5, 5.5), QPointF(4.5, 15.5)}));
-    } else if (name == "delete") {
-        p.drawLine(QPointF(5, 7), QPointF(19, 7));
-        p.drawLine(QPointF(10, 4.5), QPointF(14, 4.5));
-        p.drawPolyline(QPolygonF({QPointF(7, 7), QPointF(8, 19.5), QPointF(16, 19.5), QPointF(17, 7)}));
-    } else if (name == "rename") {
-        p.drawLine(QPointF(5, 19), QPointF(19, 19));
-        p.drawLine(QPointF(8, 15.5), QPointF(16.5, 7));
-        p.drawLine(QPointF(15, 5.5), QPointF(18, 8.5));
-    } else if (name == "up" || name == "down") {
-        if (name == "down") {
-            p.translate(0, 24);
-            p.scale(1, -1);
-        }
-        p.drawLine(QPointF(12, 19), QPointF(12, 5.5));
-        arrowHead(QPointF(12, 5), -90);
-    } else if (name == "parent") {
-        p.drawPolyline(QPolygonF({QPointF(18, 19), QPointF(18, 11), QPointF(7, 11)}));
-        arrowHead(QPointF(6.5, 11), 180);
-    } else if (name == "tree") {
-        for (double y : {6.0, 12.0, 18.0})
-            p.drawLine(QPointF(y == 6 ? 5 : 10, y), QPointF(19, y));
-        p.drawPolyline(QPolygonF({QPointF(6, 8), QPointF(6, 18), QPointF(9, 18)}));
-        p.drawLine(QPointF(6, 12), QPointF(9, 12));
-    } else if (name == "grid") {
-        for (double x : {4.5, 13.5})
-            for (double y : {4.5, 13.5})
-                p.drawRoundedRect(QRectF(x, y, 6, 6), 1, 1);
-    } else if (name == "sort") {
-        p.drawLine(QPointF(8, 5), QPointF(8, 19));
-        arrowHead(QPointF(8, 19.5), 90);
-        for (int i = 0; i < 3; ++i)
-            p.drawLine(QPointF(12, 7 + i * 5), QPointF(20 - i * 3, 7 + i * 5));
-    } else if (name == "zoom-in" || name == "zoom-out") {
-        p.drawEllipse(QPointF(10.5, 10.5), 5.5, 5.5);
-        p.drawLine(QPointF(14.5, 14.5), QPointF(19.5, 19.5));
-        p.drawLine(QPointF(8, 10.5), QPointF(13, 10.5));
-        if (name == "zoom-in")
-            p.drawLine(QPointF(10.5, 8), QPointF(10.5, 13));
-    } else if (name == "fit") {
-        for (auto [x, y, dx, dy] : {std::tuple{4.5, 4.5, 1, 1}, {19.5, 4.5, -1, 1}, {4.5, 19.5, 1, -1}, {19.5, 19.5, -1, -1}}) {
-            p.drawLine(QPointF(x, y), QPointF(x + dx * 5, y));
-            p.drawLine(QPointF(x, y), QPointF(x, y + dy * 5));
-        }
-        p.drawRect(QRectF(9, 9, 6, 6));
-    } else if (name == "actual") {
-        p.drawRect(QRectF(5.5, 5.5, 13, 13));
-        p.drawLine(QPointF(10.5, 9), QPointF(10.5, 15));
-        p.drawLine(QPointF(14, 9), QPointF(14, 15));
-    } else if (name == "center") {
-        p.drawEllipse(QPointF(12, 12), 6.5, 6.5);
-        p.drawLine(QPointF(12, 3), QPointF(12, 7));
-        p.drawLine(QPointF(12, 17), QPointF(12, 21));
-        p.drawLine(QPointF(3, 12), QPointF(7, 12));
-        p.drawLine(QPointF(17, 12), QPointF(21, 12));
-    } else if (name == "settings") {
-        p.drawEllipse(QPointF(12, 12), 3, 3);
-        for (int i = 0; i < 8; ++i) {
-            const double a = i * std::numbers::pi / 4;
-            p.drawLine(QPointF(12 + std::cos(a) * 5.5, 12 + std::sin(a) * 5.5),
-                       QPointF(12 + std::cos(a) * 8, 12 + std::sin(a) * 8));
-        }
-        p.drawEllipse(QPointF(12, 12), 5.5, 5.5);
-    } else if (name == "activity") {
-        QPainterPath bell(QPointF(6, 17));
-        bell.lineTo(6, 11);
-        bell.cubicTo(6, 4.5, 18, 4.5, 18, 11);
-        bell.lineTo(18, 17);
-        p.drawPath(bell);
-        p.drawLine(QPointF(4.5, 17), QPointF(19.5, 17));
-        p.drawLine(QPointF(10.5, 20), QPointF(13.5, 20));
-    } else if (name == "workspace") {
-        p.drawRoundedRect(QRectF(3.5, 5, 17, 14), 2, 2);
-        p.drawLine(QPointF(9, 5), QPointF(9, 19));
-        p.drawLine(QPointF(15.5, 5), QPointF(15.5, 19));
-    } else if (name == "keyboard") {
-        p.drawRoundedRect(QRectF(3, 7, 18, 11), 2, 2);
-        for (int i = 0; i < 4; ++i)
-            p.drawPoint(QPointF(7 + i * 3.4, 10.5));
-        p.drawLine(QPointF(8, 14.5), QPointF(16, 14.5));
-    } else if (name == "transform") {
-        p.drawRect(QRectF(6.5, 6.5, 11, 11));
-        for (auto c : {QPointF(6.5, 6.5), QPointF(17.5, 6.5), QPointF(6.5, 17.5), QPointF(17.5, 17.5)})
-            p.drawRect(QRectF(c - QPointF(1.8, 1.8), QSizeF(3.6, 3.6)));
-    } else if (name == "eye") {
-        QPainterPath eye(QPointF(3.5, 12));
-        eye.quadTo(12, 3.5, 20.5, 12);
-        eye.quadTo(12, 20.5, 3.5, 12);
-        p.drawPath(eye);
-        p.drawEllipse(QPointF(12, 12), 2.5, 2.5);
-    }
+        return families.first();
+    }();
+    return family;
 }
-// Vector icon rendered on demand at the exact logical size and device pixel
-// ratio requested (crisp at 100–200 % and on mixed-DPI moves); each rendered
-// size is cached, so nothing is painted until an icon is actually shown.
-class LineIconEngine : public QIconEngine {
-    QString name;
+
+QChar materialGlyph(const QString &name) {
+    static const QHash<QString, QChar> glyphs = {
+        {"save", QChar(0xe161)},
+        {"undo", QChar(0xe166)},
+        {"redo", QChar(0xe15a)},
+        {"open", QChar(0xe2c8)},
+        {"folder", QChar(0xe2c7)},
+        {"search", QChar(0xef7a)},
+        {"command", QChar(0xef7a)},
+        {"close", QChar(0xe5cd)},
+        {"add", QChar(0xe145)},
+        {"duplicate", QChar(0xe14d)},
+        {"delete", QChar(0xe92e)},
+        {"rename", QChar(0xf097)},
+        {"up", QChar(0xe5d8)},
+        {"down", QChar(0xe5db)},
+        {"parent", QChar(0xe5d9)},
+        {"tree", QChar(0xe97a)},
+        {"grid", QChar(0xe9b0)},
+        {"sort", QChar(0xe164)},
+        {"zoom-in", QChar(0xe8ff)},
+        {"zoom-out", QChar(0xe900)},
+        {"fit", QChar(0xea10)},
+        {"actual", QChar(0xe693)},
+        {"center", QChar(0xe3b4)},
+        {"settings", QChar(0xe8b8)},
+        {"activity", QChar(0xe7f5)},
+        {"workspace", QChar(0xe871)},
+        {"keyboard", QChar(0xe312)},
+        {"transform", QChar(0xe428)},
+        {"eye", QChar(0xe8f4)},
+        {"pencil", QChar(0xf604)},
+        {"brush", QChar(0xe3ae)},
+        {"eraser", QChar(0xe6d0)},
+        {"replace", QChar(0xf20a)},
+        {"rect-select", QChar(0xf74d)},
+        {"ellipse-select", QChar(0xef4a)},
+        {"lasso", QChar(0xeb03)},
+        {"polygon-lasso", QChar(0xebbb)},
+        {"magic-wand", QChar(0xf31e)},
+        {"color-range", QChar(0xe40a)},
+        {"move", QChar(0xe89f)},
+        {"line", QChar(0xf41e)},
+        {"shape", QChar(0xe602)},
+        {"fill", QChar(0xe23a)},
+        {"gradient", QChar(0xe3e9)},
+        {"eyedropper", QChar(0xe3b8)},
+        {"drag", QChar(0xe945)} // drag_indicator: the tool strip's move grip
+    };
+    return glyphs.value(name);
+}
+
+// Material Symbols Outlined rendered at the exact logical size and device
+// pixel ratio requested. Font outlines and palette ink replace bespoke paths;
+// the existing on-demand rendered-size caching behavior is retained.
+class MaterialIconEngine : public QIconEngine {
+    QChar glyph;
     QColor ink, off;
-    QHash<quint64, QPixmap> pixmaps;
+    QHash<QString, QPixmap> pixmaps;
 
   public:
-    LineIconEngine(QString n, QColor i, QColor o) : name(std::move(n)), ink(i), off(o) {}
-    QIconEngine *clone() const override { return new LineIconEngine(name, ink, off); }
+    MaterialIconEngine(QChar g, QColor i, QColor o) : glyph(g), ink(i), off(o) {}
+    QIconEngine *clone() const override { return new MaterialIconEngine(glyph, ink, off); }
     bool isNull() override { return false; }
-    QString key() const override { return QStringLiteral("NovaLineIcon"); }
+    QString key() const override { return QStringLiteral("NovaMaterialSymbol"); }
     void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State) override {
         painter->save();
-        painter->setRenderHint(QPainter::Antialiasing);
-        painter->translate(rect.topLeft());
-        painter->scale(rect.width() / 24.0, rect.height() / 24.0);
-        drawIcon(*painter, name, mode == QIcon::Disabled ? off : ink);
+        painter->setRenderHint(QPainter::TextAntialiasing);
+        painter->setPen(mode == QIcon::Disabled ? off : ink);
+        QFont font(materialFontFamily());
+        font.setWeight(QFont::Normal);
+        font.setPixelSize(qMax(1, qMin(rect.width(), rect.height())));
+        painter->setFont(font);
+        const QString text(glyph);
+        const QFontMetricsF metrics(font);
+        const QRectF bounds = metrics.tightBoundingRect(text);
+        painter->drawText(QRectF(rect).center() - bounds.center(), text);
         painter->restore();
     }
     QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale) override {
         const QSize device = (QSizeF(size) * scale).toSize();
-        const quint64 key = (quint64(device.width()) << 32) | (quint64(device.height()) << 8) |
-                            (mode == QIcon::Disabled ? 1 : 0);
+        // Device dimensions alone are insufficient: 18 px at DPR 2 and 24 px at
+        // DPR 1.5 share pixels but must return pixmaps with different DPR metadata.
+        const QString key = QStringLiteral("%1x%2@%3/%4")
+                                .arg(device.width())
+                                .arg(device.height())
+                                .arg(scale, 0, 'g', 17)
+                                .arg(mode == QIcon::Disabled ? 1 : 0);
         if (auto it = pixmaps.constFind(key); it != pixmaps.constEnd())
             return *it;
         QPixmap pm(device);
@@ -359,6 +324,13 @@ class LineIconEngine : public QIconEngine {
 } // namespace
 
 QIcon lineIcon(const QString &name, const QColor &ink, const QColor &disabledInk) {
+    const QChar glyph = materialGlyph(name);
+    if (glyph.isNull()) {
+        qWarning() << "Unknown Material Symbols icon name:" << name;
+        return {};
+    }
+    if (materialFontFamily().isEmpty())
+        return {};
     // Icons are shared (QIcon is implicitly shared): one engine per name and ink,
     // so dozens of buttons and repeated theme applications share rendered sizes.
     static QHash<QString, QIcon> cache;
@@ -366,7 +338,7 @@ QIcon lineIcon(const QString &name, const QColor &ink, const QColor &disabledInk
     const auto key = name + ink.name(QColor::HexArgb) + off.name(QColor::HexArgb);
     if (auto it = cache.constFind(key); it != cache.constEnd())
         return *it;
-    QIcon icon(new LineIconEngine(name, ink, off));
+    QIcon icon(new MaterialIconEngine(glyph, ink, off));
     if (cache.size() > 256) // theme/accent churn cannot grow it without bound
         cache.clear();
     cache.insert(key, icon);

@@ -27,13 +27,23 @@ struct Handle {
     ~Handle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
     Handle(const Handle &) = delete;
 };
-std::unique_ptr<Handle> checked(const QString &path, bool directory) {
+Vacancy openFailure(DWORD error) {
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+        return Vacancy::Missing;
+    return error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION ? Vacancy::Denied : Vacancy::Unsafe;
+}
+// Opens an ordinary file or folder; on failure, *failure (when given) says why.
+std::unique_ptr<Handle> checked(const QString &path, bool directory, Vacancy *failure = nullptr) {
     const auto native = QDir::toNativeSeparators(path);
     const auto extended = QStringLiteral("\\\\?\\") + native;
-    auto handle = std::make_unique<Handle>(CreateFileW(
+    const auto raw = CreateFileW(
         reinterpret_cast<LPCWSTR>(extended.utf16()), directory ? FILE_READ_ATTRIBUTES : GENERIC_READ,
         directory ? FILE_SHARE_READ | FILE_SHARE_WRITE : FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-        FILE_FLAG_OPEN_REPARSE_POINT | (directory ? FILE_FLAG_BACKUP_SEMANTICS : 0), nullptr));
+        FILE_FLAG_OPEN_REPARSE_POINT | (directory ? FILE_FLAG_BACKUP_SEMANTICS : 0), nullptr);
+    const auto error = GetLastError();
+    auto handle = std::make_unique<Handle>(raw);
+    if (failure)
+        *failure = raw == INVALID_HANDLE_VALUE ? openFailure(error) : Vacancy::Unsafe;
     BY_HANDLE_FILE_INFORMATION info{};
     if (handle->value == INVALID_HANDLE_VALUE || GetFileType(handle->value) != FILE_TYPE_DISK ||
         !GetFileInformationByHandle(handle->value, &info) ||
@@ -68,12 +78,14 @@ struct Scope::Handles {
     QString root;
     QByteArray id;
     std::map<QString, std::unique_ptr<Handle>> directories;
-    Handle *directory(const QString &path) {
+    Handle *directory(const QString &path, Vacancy *failure = nullptr) {
         if (auto it = directories.find(path); it != directories.end())
             return it->second.get();
+        if (failure)
+            *failure = Vacancy::Unsafe;
         if (directories.size() >= 8192)
             return nullptr;
-        auto opened = checked(path, true);
+        auto opened = checked(path, true, failure);
         if (!opened)
             return nullptr;
         return directories.emplace(path, std::move(opened)).first->second.get();
@@ -112,20 +124,30 @@ Scope::Scope(const QString &root, const QByteArray &expected) : handles(std::mak
 Scope::~Scope() = default;
 QByteArray Scope::identity() const { return handles->id; }
 
-bool Scope::vacant(const QString &relative) {
+Vacancy Scope::vacancy(const QString &relative, QString *failed) {
+    if (failed)
+        *failed = relative;
     if (handles->id.isEmpty() || !logicalAsset(relative))
-        return false;
+        return Vacancy::Unsafe;
     auto parts = relative.split('/');
     const auto file = parts.takeLast();
-    QString path = handles->root;
+    QString path = handles->root, folder;
     for (const auto &part : parts) {
         path += '/' + part;
-        if (!handles->directory(path))
-            return false;
+        folder += (folder.isEmpty() ? "" : "/") + part;
+        auto failure = Vacancy::Unsafe;
+        if (!handles->directory(path, &failure)) {
+            if (failed)
+                *failed = folder;
+            return failure;
+        }
     }
     const auto native = QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(path + '/' + file);
-    return GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16())) == INVALID_FILE_ATTRIBUTES &&
-           GetLastError() == ERROR_FILE_NOT_FOUND;
+    if (GetFileAttributesW(reinterpret_cast<LPCWSTR>(native.utf16())) != INVALID_FILE_ATTRIBUTES)
+        return Vacancy::Occupied;
+    const auto error = GetLastError();
+    return error == ERROR_FILE_NOT_FOUND ? Vacancy::Vacant : openFailure(error) == Vacancy::Denied ? Vacancy::Denied
+                                                                                                      : Vacancy::Unsafe;
 }
 
 std::unique_ptr<QIODevice> Scope::open(const QString &relative) {

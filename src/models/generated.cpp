@@ -3,22 +3,25 @@
 #include <QJsonArray>
 namespace nova::mc {
 Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites) {
-    if (!model.generated || !model.resolved["elements"].toArray().isEmpty())
+    if (!model.valid || !model.generated || !model.resolved["elements"].toArray().isEmpty())
         return mesh(model);
+    auto flat = [&](const QString &reason) {
+        auto result = mesh(model);
+        result.previewLimitation = reason;
+        result.diagnostics << "Generated item uses flat layers: " + reason;
+        return result;
+    };
     QJsonArray elements;
-    QStringList diagnostics;
     auto vec = [](double x, double y, double z) { return QJsonArray{x, y, z}; };
     for (int layer = 0; layer < 5; ++layer) {
         const auto key = "layer" + QString::number(layer), texture = model.textures.value(key);
         if (texture.isEmpty())
             break;
         const auto image = sprites.value(texture);
-        if (image.isNull() || image.width() > 1024 || image.height() > 1024) {
-            auto fallback = mesh(model);
-            fallback.diagnostics
-                << "Generated contour requires a bounded decoded sprite (up to 1024px)";
-            return fallback;
-        }
+        if (image.isNull())
+            return flat("Sprite unavailable: " + texture);
+        if (image.width() > 1024 || image.height() > 1024)
+            return flat("Sprite exceeds the 1024-pixel contour limit: " + texture);
         auto face = [&](QJsonArray uv) {
             return QJsonObject{{"texture", '#' + key}, {"uv", uv}, {"tintindex", layer}};
         };
@@ -74,12 +77,8 @@ Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites) {
                                             {"to", to},
                                             {"shade", false},
                                             {"faces", QJsonObject{{name, face(uv)}}}};
-                    if (elements.size() > 4096) {
-                        auto fallback = mesh(model);
-                        fallback.diagnostics
-                            << "Generated contour exceeds 4096-span budget; flat preview";
-                        return fallback;
-                    }
+                    if (elements.size() > 4096)
+                        return flat("Generated contour exceeds the 4096-span budget: " + texture);
                     a = b;
                 }
         }
@@ -98,6 +97,7 @@ Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites) {
     }
     auto result = mesh(generated);
     for (auto &f : result.faces) {
+        f.generatedLayer = f.tint;
         f.elementIndex = -1;
         f.element = "Generated " + f.element;
     }
