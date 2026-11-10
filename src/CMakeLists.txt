@@ -177,7 +177,7 @@ if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /utf-8)
   endforeach()
 elseif(MINGW)
-  # Phase 4-I (experimental): GCC counterparts of /W4 /utf-8 (warnings only, UTF-8 source and
+  # GCC/MinGW-w64: GCC counterparts of /W4 /utf-8 (warnings only, UTF-8 source and
   # narrow execution character set). -Wmissing-field-initializers is the one -Wextra check left out:
   # Nova initialises command structs such as LayerEdit with their leading members only, relying on
   # C++'s value-initialisation of the rest (well-defined, and not a /W4 warning either).

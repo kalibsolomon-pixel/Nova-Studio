@@ -11,7 +11,8 @@
 Nova Studio is a Windows 11 desktop editor for Minecraft Java Edition resource packs. It is written
 in C++20 with Qt Widgets and is free software under the GNU GPL, version 3 or later.
 
-**Status: preview.** Version `0.1.0-preview.1` is the first preview. Keep backups of resource packs
+**Status: public preview.** Version `0.1.0-preview.1` is the first preview.
+[Downloads and release notes](https://github.com/kalibsolomon-pixel/Nova-Studio/releases/tag/v0.1.0-preview.1). Keep backups of resource packs
 you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 
 ## Features
@@ -53,7 +54,7 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 ## Building
 
 The candidate package uses GCC/MinGW-w64 UCRT64 and the modified Qt Base 6.12.0 build described in
-[the GCC guide](docs/phase-4i/MINGW_BUILD_GUIDE.md). It remains experimental and not for publication.
+[the GCC guide](docs/phase-4i/MINGW_BUILD_GUIDE.md). This is the toolchain selected for the public preview.
 MSVC is a separate regression-test build. [BUILDING.md](docs/release/BUILDING.md) describes both.
 The commands below build the MSVC test variant with Windows 11 x64, the pinned standalone Build
 Tools, Qt Base 6.12.0 for MSVC x64 and Python 3.12.
@@ -99,8 +100,8 @@ See [COPYRIGHT.md](COPYRIGHT.md) and the [GCC notices](packaging/mingw/THIRD_PAR
 
 ## Source code for binary releases
 
-The source home is https://github.com/kalibsolomon-pixel/Nova-Studio (`main`). Publishing source
-does not approve or publish the unsigned binary candidate. The [correspondence record](docs/release/SOURCE_CORRESPONDENCE.md)
+The source home is https://github.com/kalibsolomon-pixel/Nova-Studio. The public preview uses
+the annotated tag `v0.1.0-preview.1` and includes its corresponding source archive. The [correspondence record](docs/release/SOURCE_CORRESPONDENCE.md)
 identifies its exact source commit and hashes.
 
 Every binary release must include the complete corresponding source code of that exact build, in the

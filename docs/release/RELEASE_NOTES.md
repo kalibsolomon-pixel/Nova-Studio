@@ -1,74 +1,105 @@
-# Nova Studio 0.1.0-preview.1 — release notes
+# Nova Studio 0.1.0-preview.1
 
-**Preview source.** Public source access does not publish or approve the existing unsigned,
-experimental Windows candidate. Binary release and owner acceptance remain pending. Keep backups
-of resource packs you care about. See [exact source correspondence](SOURCE_CORRESPONDENCE.md).
+The first public **preview**, distributed as GitHub prerelease `v0.1.0-preview.1`.
+Keep backups of resource packs you care about.
+
+The owner authorized source, tag and binary publication on 2026-11-10 while deferring personal
+visual and physical-presentation review. This authorization is not personal testing or legal sign-off.
 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 Nova Studio is developed and published by the Nova Studio contributors, who are solely responsible
-for it. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation. Nova Studio contains no
-Minecraft game assets.
+for it. Minecraft is a trademark of Mojang AB and Microsoft Corporation. No Minecraft game assets
+are bundled in the source or packages; included test fixtures are original synthetic material.
 
-## What Nova Studio does
+## Downloads and platform
 
-- Edits Minecraft Java Edition resource-pack textures with layers, selections, transforms,
-  filters, palettes and pixel-accurate tools.
-- Edits animated textures on a timeline and exports Minecraft `.mcmeta` animations.
-- Edits block and item models and their UVs, with a live 3D preview and display transforms.
-- Validates a pack and lists problems with the assets that cause them.
-- Tests the pack in a Nova-managed Minecraft Java Edition 1.21.11 runtime (Fabric), downloaded on
-  your request from each component's publisher.
-- Saves atomically, keeps undo history, and recovers unsaved work after a crash.
+- Windows 11 x64; tested on one development PC with an AMD graphics driver. OpenGL 2.1 or later.
+- Installer: `nova-studio-0.1.0-preview.1-windows-x64-mingw.exe` (per-user, no administrator rights).
+- Portable: `nova-studio-0.1.0-preview.1-windows-x64-mingw.zip`.
+- Corresponding Nova source: `nova-studio-0.1.0-preview.1-source.zip`, also inside both packages.
+- Exact GCC runtime source sidecar: `mingw-w64-gcc-16.2.0-6.src.tar.zst`, with
+  `gcc-runtime-source.json`. Separate MinGW CRT/winpthreads source packages and signatures accompany
+  the release. Matching Qt source, patch, configuration and notices are inside both packages.
+- `SHA256SUMS.txt` and `release-manifest.json` identify the selected artifacts and committed source.
 
-## New in this release
+**Unsigned:** no authorized signing certificate was available. The installer and programs have no
+code signature; no SmartScreen trust or reputation is claimed. Verify downloads against the checksums.
+See [installation instructions](INSTALLATION.md).
 
-- **Windows installer.** A per-user installer (no administrator rights) with a Start menu entry
-  and an uninstaller that keeps your projects, settings and recovery data. A portable ZIP of the
-  same files is also prepared locally; neither is published by this source consolidation.
-- **Search (Ctrl+K).** One search box for commands, tools, settings, workspaces, panels and
-  textures. It finds things by name, alias or shortcut and explains when a command is unavailable.
-  The previous command palette shortcut, Ctrl+Shift+P, still works.
-- **AI agent setup (MCP).** Resources › MCP Integration › Agent Setup adds Nova Studio to
-  Claude Desktop, Claude Code or Codex for you, or shows the configuration to copy for other
-  MCP clients. Agents still need your explicit permission for each session and project.
-- **MCP diagnostics.** A local check that the bridge starts and declares its tools.
+The distribution toolchain is MSYS2 UCRT64 GCC 16.2.0-6, CMake 4.4.5, Ninja 1.13.2 and self-built
+Qt Base 6.12.0 with the supplied PCRE2 patch; NSIS 3.13 builds the installer. The separate regression
+toolchain is MSVC 19.51 (Build Tools 18.10, toolset 14.51, Windows SDK 10.0.26100.0), Qt 6.12.0,
+CMake 4.3.1 and Ninja 1.13.2. MSVC binaries and runtimes are not distributed in this release.
 
-## Requirements
+## Included features
 
-- Windows 11, 64-bit. Other Windows versions are not tested.
-- OpenGL 2.1 or later. Tested on an AMD graphics driver only.
-- About 220 MB of disk space for the installation.
-- Internet access only if you use Test in Minecraft (to download the runtime once).
+- Layered pixel editing, selections, transforms, filters, palette tools and animated texture timelines.
+- Model JSON and UV editing, resource validation and a live approximate 3D preview.
+- Atomic saves, undo, external-change handling, and recovery that distinguishes earlier sessions
+  from the current session's checkpoints. Ctrl+S saves editable Nova work; **Update Minecraft PNG**
+  writes the game-facing texture. Review this distinction before using an existing pack.
+- Optional vanilla texture baseline, project overrides, reset-to-vanilla and cached-texture tools.
+- Search with Ctrl+K, refined editor panels and tool controls, and generated/handheld item preview.
+- A managed Minecraft Java Edition 1.21.11 Fabric test runtime, downloaded only on request.
+- MCP setup, read-only queries, consent-controlled asset/edit/save operations, compact texture tools,
+  diagnostics and a 39-tool bridge self-test. Each agent session/project needs explicit authorization.
+- Agent Session (ACP), **experimental and off by default**, enabled through Preferences > Experimental.
 
-## Installing
+## Qualification criteria and accepted limitations
 
-See [INSTALLATION.md](INSTALLATION.md). The installer is **not code-signed**, so Windows SmartScreen
-may say it does not recognize the app. Choose **More info**, check that the file name and the
-SHA-256 checksum match the published ones, then choose **Run anyway**. Do not turn off Windows
-security features to install Nova Studio.
+The published candidate must pass both complete 67-test GCC and MSVC CTest suites on its exact
+committed source, plus package, installer and portable checks. Actual batch results, optional skips,
+failures and retries are recorded in the release qualification summary accompanying these notes.
 
-## Upgrading from internal builds
+- **Windows acceptance uses the owner-approved composite dependency-isolation test on this host.**
+  Installer install/launch/repair/uninstall, portable extraction/launch, Windows-only PATH, dependency
+  closure, actual loaded Qt/GCC modules and packaged plugins form that criterion. **No pristine
+  Windows guest was tested.** Other Windows versions, GPUs and Windows on Arm remain unqualified.
+- The owner accepts the earlier approximately **150-second 50k workload** as a temporary exception
+  to the previous 90-second threshold. The original threshold did not pass. Optional large-fixture
+  slots do not remeasure that workload; no new performance result is inferred from their skips.
+- Owner visual and physical-presentation review, including Phase 1 visuals and personal review of
+  the Ctrl+S workflow, is deferred. Automated UI checks do not complete those reviews.
+- Historical intermittent incidents include editor-gui, tool-placement, texture-pixels, save-drafts,
+  MCP, ACP and Fabric tests. Fabric supervision and fixture synchronization received reviewed fixes;
+  passing final suites do not prove all historical failures fixed. The owner accepts proceeding
+  with this disclosed history. Each failed or interrupted final attempt is retained separately.
+- Seven intentional optional QtTest slots require external fixtures: two large-fixture slots,
+  two vanilla-cache slots, real-log replay, the MCP benchmark and search screenshots. Optional
+  slots may skip; all 67 required CTest entries on each compiler must pass.
 
-Earlier internal candidates were numbered 0.3.0-rc.1 and used a different installer. If one is
-installed, uninstall it from Settings › Apps first. Its settings and projects are kept and are
-used by this release.
+## Known issues and scope
 
-## Known limitations
+- The model preview approximates Minecraft. Generated/handheld items use thin alpha-contoured layers
+  and resolved transforms. Missing sprites, sprites over 1024 pixels per side or contours beyond
+  4096 spans use an explicitly named flat approximation. Missing model data retains a fallback.
+  Full Minecraft rendering parity is not claimed; verify results in-game.
+- The vanilla cache contains textures only, not vanilla model JSON, blockstates, item definitions
+  or a complete resource stack. Project/configured stack resources are required for those previews.
+  User-downloaded vanilla assets stay in a per-user cache and enter a pack only after edit/save.
+- Native Nova documents retain editable layers; game PNG/MCMeta exports have their own format limits.
+  Sounds, language files and other project formats are not general-purpose editors in this preview;
+  asset search lists supported textures and model JSON.
+- Test in Minecraft targets Java 1.21.11 with Fabric. Production launcher hand-off is not included.
+- ACP was tested with a scripted agent. OpenCode 1.19.5 startup and bridge attachment were exercised
+  without sign-in or a message. **Real provider conversations and Claude Code/Codex ACP adapters
+  remain unqualified.** MCP setup-format/CLI checks do not establish universal agent compatibility;
+  a live Claude Desktop conversation was not tested. Agent-built-in shell/file/web tools are outside
+  Nova's permission controls. ACP shows replies/reasoning, not a tool-call transcript.
+- Screen readers have not been tested end to end. Installation paths are limited to 160 characters;
+  the NSIS installer stub is x86 while its installed payload is x64. Uninstall preserves user data
+  and does not remove agent client configuration entries.
 
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+See [known limitations](KNOWN_LIMITATIONS.md), [MCP setup](MCP_SETUP.md),
+[texture tools](MCP_TEXTURE_TOOLS.md), [asset tools](MCP_ASSET_TOOLS.md) and
+[source correspondence](SOURCE_CORRESPONDENCE.md).
 
-## Licensing
+## License and corresponding source
 
-Nova Studio is free software under the GNU General Public License version 3 or later
-(GPL-3.0-or-later). The license is `LICENSE.txt`; `licenses/COPYRIGHT.md` says what it covers.
-Third-party notices are in `licenses/THIRD_PARTY_NOTICES.md`, and **Help › Licenses and Source
-Code** shows all of them.
-
-The reviewed GCC/MinGW candidate carries Qt, GCC runtime and MinGW notices; it ships no Microsoft
-VC runtime DLLs. MSVC is a separate regression-test layout with Microsoft tool/runtime terms.
-See `packaging/mingw/THIRD_PARTY_NOTICES.md` and the source-correspondence record.
-
-The candidate's complete corresponding source is in `source/` and retained alongside the local
-installer as `nova-studio-0.1.0-preview.1-source.zip`. A future authorized binary distribution must
-provide matching source and sidecars alongside its downloads. `docs\BUILDING.md` in the package
-(`docs/release/BUILDING.md` in the source) explains how to build it.
+Nova Studio is GPL-3.0-or-later. Help > Licenses and Source Code shows the notices and the public
+repository. Both packages contain LICENSE.txt, licenses/COPYRIGHT.md, third-party license texts,
+the corresponding Nova source archive and build instructions. Qt Base 6.12.0 is dynamically linked;
+its exact upstream archive, Nova patch, configuration and replacement instructions are supplied.
+GCC Runtime Library Exception, MinGW, Apache and other component notices retain their own scope.
+Keep exact source materials with redistributed binaries. These engineering checks do not decide
+legal sufficiency, contributor scope, trademark questions or Microsoft Build Tools terms.

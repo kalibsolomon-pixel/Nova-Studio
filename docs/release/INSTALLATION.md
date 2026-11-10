@@ -1,10 +1,8 @@
 # Installing Nova Studio
 
-The current GitHub publication provides source only. The unsigned GCC/MinGW candidate remains
-local and experimental, with binary release acceptance pending. These are installation instructions
-for an independently identified binary download; the filenames below are legacy examples. Use the
-actual filename and checksum from that candidate's manifest, and see
-[source correspondence](SOURCE_CORRESPONDENCE.md) for the existing candidate's exact identity.
+Download the unsigned Windows x64 public preview from
+https://github.com/kalibsolomon-pixel/Nova-Studio/releases/tag/v0.1.0-preview.1 .
+Verify its SHA-256 checksum. See RELEASE_NOTES.md for acceptance criteria and limitations.
 
 ## Check the download
 
@@ -12,12 +10,12 @@ Compare the SHA-256 checksum of the file you downloaded with the published `SHA2
 In PowerShell:
 
 ```powershell
-Get-FileHash .\nova-studio-0.1.0-preview.1-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\nova-studio-0.1.0-preview.1-windows-x64-mingw.exe -Algorithm SHA256
 ```
 
 ## Install
 
-1. Run `nova-studio-0.1.0-preview.1-windows-x64.exe`.
+1. Run `nova-studio-0.1.0-preview.1-windows-x64-mingw.exe`.
 2. The installer is not code-signed. If Windows SmartScreen appears, choose **More info**, confirm
    the file name and checksum, then **Run anyway**. Do not disable SmartScreen or other Windows
    security features.
@@ -30,7 +28,7 @@ Setup installs for your Windows account only. It needs no administrator rights, 
 driver, scheduled task, file association, PATH entry or automatic updater, and does not change
 any AI agent's settings.
 
-Silent install (for scripting): `nova-studio-0.1.0-preview.1-windows-x64.exe /S`
+Silent install (for scripting): `nova-studio-0.1.0-preview.1-windows-x64-mingw.exe /S`
 (add `/D=C:\Path\To\Folder` as the last argument to choose the folder).
 
 ## Upgrade or reinstall
@@ -64,7 +62,7 @@ To remove all Nova Studio data as well, delete `%LOCALAPPDATA%\Nova Studio` afte
 
 ## Portable ZIP
 
-`nova-studio-0.1.0-preview.1-windows-x64.zip` contains the same files. Extract it to a folder you
+`nova-studio-0.1.0-preview.1-windows-x64-mingw.zip` contains the same files. Extract it to a folder you
 can write to and run `nova-studio.exe`. Use it for troubleshooting or where installing is not
 wanted. It has no Start menu entry or uninstaller; delete the folder to remove it.
 

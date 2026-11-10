@@ -1,46 +1,22 @@
-# Source corresponding to the reviewed preview candidate
+# Source corresponding to the public preview
 
-Source home: https://github.com/kalibsolomon-pixel/Nova-Studio, branch `main`.
-This is source access, not a binary release or release/legal approval. No binary downloads,
-GitHub Releases or release tags were created by the home-repository consolidation.
-
-## Obtain the exact Nova source
-
-The reviewed unsigned Windows x64 GCC/MinGW candidate is `0.1.0-preview.1`, with suffix
-`mingw-experimental-review-de1095db`. Its embedded revision is
-`046d6d0e26b1579dc962386e4cd678ac66a71341+snapshot.de1095db4cfd318fecf729de1965f71b7bd7562b`.
-Both executables and `release-manifest.json` retain this pre-commit snapshot identity.
-
-The corresponding public-history commit is **`9db2242c79be508eb870d69a3157055d0205097d`**, whose tree is exactly
-**`de1095db4cfd318fecf729de1965f71b7bd7562b`**, all 595 reviewed source files. It reproduces
-the tree recorded by the preserved private review commit `8b0d6c5c4eb80af44a54e5dd253578587b263d11`;
-that private commit and its private parents are not published. Later `main` commits update
-documentation and repository metadata; they are not relabelled as the candidate's build input.
+Public repository: https://github.com/kalibsolomon-pixel/Nova-Studio .
+The annotated tag **v0.1.0-preview.1** identifies the exact committed release source.
+The release-manifest.json accompanying downloads records its full source_revision and source_tree;
+both executables embed that committed revision. The matching Nova source ZIP is also inside both
+packages and includes .nova-source-revision. Verify every artifact with SHA256SUMS.txt.
 
 ```powershell
 git clone https://github.com/kalibsolomon-pixel/Nova-Studio.git
 cd Nova-Studio
-git checkout --detach 9db2242c79be508eb870d69a3157055d0205097d
-git rev-parse 'HEAD^{tree}'
+git checkout --detach v0.1.0-preview.1
+git rev-parse HEAD 'HEAD^{tree}'
 ```
 
-The original `nova-studio-0.1.0-preview.1-source.zip` has SHA-256
-`f36755c66881be61f9250f48817543372043f84e79e38a0389858e2df0d72e56` (6,897,064 bytes).
-It contains these exact 595 blobs plus `.nova-source-revision` naming the tree above.
-The candidate includes an identical copy in `source/`. GitHub's generated archive has different
-ZIP metadata/layout and does not include that extra marker; do not expect its hash to equal the
-original source ZIP. Match source by commit/tree or verify the original ZIP hash and marker.
-The original archive remains with the local candidate; there is no claimed public download for it.
-
-| Existing local artifact | SHA-256 |
-| --- | --- |
-| Experimental installer | `2bb11ec16609c3027ea53a4a048ceee2d420463691c11555afe3906eb6de5bc6` |
-| Experimental portable ZIP | `3097088ac067a574344e76eb315e9dc2ca3ee017deb97fefebbc1c77c061b1d2` |
-| `nova-studio.exe` | `9a0e688ed3dcaff8a6c62b37710b1efcad73069113d0712fe2b1e7a01e83731f` |
-| `nova-mcp.exe` | `27d91ca5a2aab8902ba8a86c68ccf917f1f3dad8f39940574089293963fde63f` |
-
-For a different binary, use its own embedded revision, release manifest and source archive.
-Do not infer correspondence from the version label or from the current tip of `main`.
+GitHub-generated archives have different ZIP metadata and no extra revision marker. The attached
+corresponding-source ZIP is verified blob by blob against the release commit. Rebuilding it is a
+new artifact; bit-identical PE output is not claimed. Earlier internal candidates and their
+snapshot hashes are preserved privately and are not the downloads for this release.
 
 ## Qt source, modifications and build information
 
@@ -82,8 +58,8 @@ records, and their bundled Git source at `e3d18511f9759d455cae20c34703eea4a0723c
 Git integrity checks and makepkg's archive checksum with line-ending conversion disabled.
 Do not describe the GCC sidecar as containing all MinGW sources.
 
-Keep the exact source materials and notices available alongside any future authorized binary
-distribution. No large upstream archives, source sidecars or binaries were added to this Git
+Keep the exact source materials and notices available alongside binary
+distributions. No large upstream archives, source sidecars or binaries were added to this Git
 repository; official verified URLs and hashes are recorded instead. Verification establishes
 correspondence and signature validity, not a reproducible rebuild or legal sufficiency.
 
@@ -92,7 +68,7 @@ correspondence and signature validity, not a reproducible rebuild or legal suffi
 Installed users can open **Help > Licenses and Source Code** for embedded notices and local-source
 instructions. The candidate installs `LICENSE.txt`, `licenses/COPYRIGHT.md`,
 `licenses/THIRD_PARTY_NOTICES.md`, component license texts, `docs/BUILDING.md` and `source/`.
-Its compiled `NOVA_SOURCE_URL` remains empty; publishing source does not change existing binaries.
+The public preview compiles the public repository URL into Help; the local source archive remains included.
 
 The bundled/dynamically linked inventory is in the GCC notices: Nova GPL-3.0-or-later; Qt/LGPL
 and its SBOM components; GCC runtime with Runtime Library Exception 3.1; MinGW CRT/winpthreads;

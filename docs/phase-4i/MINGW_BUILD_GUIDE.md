@@ -146,3 +146,12 @@ Notes from the first execution:
   `-ReleaseDependencies` / `NOVA_RELEASE_DEPENDENCIES` (read only).
 - Disk: MSYS2 + packages ≈0.9 GB, Qt prefix 104 MB, Qt build tree 3.5 GB (deletable by the owner),
   Nova build tree ≈1.5 GB.
+
+## Public preview build
+
+For v0.1.0-preview.1, use a clean checkout of that tag and build without -SourceSnapshot.
+Run serial CTest with the documented short TEMP/TMP driver on both compiler layouts.
+Package the committed GCC build with scripts/package-mingw-experimental.py --build <build-name>;
+the historical script name is retained, while download names identify windows-x64-mingw and
+the preview version. The manifest records the exact commit and tree. Source-archive builds
+remain marked +source-archive; reproducible PE binaries are not claimed.

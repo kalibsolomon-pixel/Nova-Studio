@@ -54,3 +54,14 @@
   candidate ships GCC/MinGW notices and a separate GCC source sidecar; MSVC packages instead carry
   Microsoft runtime terms in `licenses\MICROSOFT-VC-RUNTIME-TERMS.txt`.
 - Nova Studio uses a private Qt API, so replacement Qt libraries must be Qt 6.12.0 builds.
+
+## Owner-approved preview exceptions
+
+Publication is authorized while owner visual/physical review and personal Ctrl+S review remain
+deferred, not completed. Windows acceptance uses the composite dependency-isolation criterion;
+no pristine Windows guest was tested. The earlier approximately 150-second 50k workload remains
+an accepted exception to the original 90-second threshold, which did not pass. Historical
+intermittent editor-gui, tool-placement, texture-pixels, save-drafts, MCP, ACP and Fabric incidents
+remain disclosed and accepted; final passes do not establish that every historical cause is fixed.
+The vanilla cache contains textures, not vanilla model/blockstate/item-definition data. Editable
+Nova documents and Minecraft PNG/MCMeta exports have different format capabilities. See RELEASE_NOTES.md.

@@ -5,15 +5,13 @@ Nova Studio is free software under the GNU General Public License version 3 or l
 corresponding source archive (`source\nova-studio-<version>-source.zip` in a release download) or
 from a Git checkout.
 
-For the existing unsigned candidate, use the exact commit and archive hashes in
-[SOURCE_CORRESPONDENCE.md](SOURCE_CORRESPONDENCE.md). The current branch also contains later
-documentation; a rebuild is a new artifact requiring its own qualification.
+Use the release tag and manifest described in [SOURCE_CORRESPONDENCE.md](SOURCE_CORRESPONDENCE.md).
+A rebuild creates new artifacts requiring their own qualification.
 
 ## GCC/MinGW candidate package
 
 The packaged candidate uses GCC 16.2.0 (MSYS2 UCRT64), CMake 4.4.5, Ninja 1.13.2 and Qt Base
-6.12.0 built from source with the included PCRE2 patch. It remains experimental and not for
-publication. Follow `docs/phase-4i/MINGW_BUILD_GUIDE.md` and the package's `docs/BUILDING.md`.
+6.12.0 built from source with the included PCRE2 patch. It is the toolchain selected for the public preview. Follow `docs/phase-4i/MINGW_BUILD_GUIDE.md` and the package's `docs/BUILDING.md`.
 `NOVA_MSYS2_ROOT` and `NOVA_MINGW_QT` select the toolchain and Qt prefixes; neither needs to be in
 the developer's workspace. No downloads run implicitly during a build.
 

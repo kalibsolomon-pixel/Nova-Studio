@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Phase 4-I (experimental): helpers for cmake/NovaPackagingMinGW.cmake. Also runs in script mode
+# GCC/MinGW-w64: helpers for cmake/NovaPackagingMinGW.cmake. Also runs in script mode
 # for its own check (no compiler needed):
 #   cmake -DNOVA_SELF_TEST=ON -P cmake/NovaMingwHelpers.cmake
 

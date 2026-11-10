@@ -1,6 +1,6 @@
-# Building the GCC qualification candidate
+# Building the GCC public preview
 
-This is a local, unsigned qualification build, not a published release. Nova Studio remains
+The public preview is unsigned. Nova Studio is
 GPL-3.0-or-later, native Windows C++20 and Qt 6.12.0. No Microsoft compiler or separately
 installed compiler redistributable is used. The legacy MSVC build path remains supported
 by `scripts/build-studio.ps1` for existing licensed development environments.
@@ -58,8 +58,17 @@ the archived blobs. `clean_source=false` truthfully distinguishes this from a co
 An extracted source ZIP is marked `+source-archive`; bit-identical PE reproduction is not claimed.
 
 The exact GCC runtime source package and its metadata accompany the candidate separately to keep
-the installed editor small. Any future authorized download location must provide that source
+the installed editor small. The release download location must provide that source
 alongside installers and portable ZIPs. Qt DLLs may be replaced by compatible GCC Qt 6.12.0 builds;
 no signature, hash or licensing mechanism prevents replacement or debugging modified libraries.
 
 No command here authorizes publishing, pushing, merging or tagging.
+
+## Public preview build
+
+For v0.1.0-preview.1, use a clean checkout of that tag and build without -SourceSnapshot.
+Run serial CTest with the documented short TEMP/TMP driver on both compiler layouts.
+Package the committed GCC build with scripts/package-mingw-experimental.py --build <build-name>;
+the historical script name is retained, while download names identify windows-x64-mingw and
+the preview version. The manifest records the exact commit and tree. Source-archive builds
+remain marked +source-archive; reproducible PE binaries are not claimed.

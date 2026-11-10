@@ -1,5 +1,12 @@
 # Local release review: 0.1.0-preview.1
 
+> Historical source-publication/review record. On 2026-11-10 the owner explicitly authorized
+> the first public preview, normal source/tag pushes and artifact publication. Owner visual and
+> physical-presentation review remain deferred, not completed. The composite Windows criterion,
+> 50k timing exception, intermittent-test history and ACP limitations remain accepted/disclosed.
+> Current release policy and limitations: [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+
 Source access is authorized separately from binary release acceptance. The existing candidate is
 unsigned and unpublished and retains the owner's experimental / not-for-publication labels.
 [Source correspondence](SOURCE_CORRESPONDENCE.md) identifies its exact tree and public-history

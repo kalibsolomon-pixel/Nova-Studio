@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Phase 4-I (EXPERIMENTAL): release payload and packages for a GCC/MinGW-w64 (MSYS2 UCRT64) build.
+# Public preview: release payload and packages for a GCC/MinGW-w64 (MSYS2 UCRT64) build.
 # Included instead of cmake/NovaPackaging.cmake only when MINGW is true; the MSVC payload, its
-# Visual C++ runtime handling and its installer text are unchanged. Not for publication.
+# Visual C++ runtime handling and its installer text are unchanged.
 #
 #   cmake --install <build> --prefix <dir>    the payload, validated by scripts/check-mingw-payload.py
 #   cpack -G NSIS -D NOVA_PAYLOAD=<dir>       the per-user installer, from that exact payload
@@ -32,7 +32,7 @@ install(IMPORTED_RUNTIME_ARTIFACTS Qt6::QWindowsIntegrationPlugin RUNTIME_DEPEND
         LIBRARY DESTINATION plugins/platforms RUNTIME DESTINATION plugins/platforms COMPONENT runtime)
 # Deviation from the MSVC payload (Phase 4-I finding): Qt 6 loads TLS backends as plugins, and the
 # Fabric/Temurin/Modrinth downloads use HTTPS through QNetworkAccessManager. The MSVC payload ships
-# no plugins/tls folder; the experimental payload ships Qt's Schannel backend (Windows' own TLS).
+# no plugins/tls folder; the GCC payload ships Qt's Schannel backend (Windows' own TLS).
 if(TARGET Qt6::QSchannelBackendPlugin)
   install(IMPORTED_RUNTIME_ARTIFACTS Qt6::QSchannelBackendPlugin RUNTIME_DEPENDENCY_SET nova_runtime
           LIBRARY DESTINATION plugins/tls RUNTIME DESTINATION plugins/tls COMPONENT runtime)
@@ -100,8 +100,8 @@ set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Nova Studio")
-# A distinct file name, so an experimental package can never be mistaken for an MSVC candidate.
-set(CPACK_PACKAGE_FILE_NAME "nova-studio-${NOVA_DISPLAY_VERSION}-windows-x64-mingw-experimental")
+# The download name identifies the tested compiler family and preview version.
+set(CPACK_PACKAGE_FILE_NAME "nova-studio-${NOVA_DISPLAY_VERSION}-windows-x64-mingw")
 set(CPACK_GENERATOR "NSIS;ZIP")
 set(CPACK_NSIS_EXECUTABLE "${NOVA_MAKENSIS}")
 set(CPACK_NSIS_UNINSTALL_NAME "Uninstall Nova Studio")

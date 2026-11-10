@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Phase 4-I.1 (EXPERIMENTAL): package a GCC/MinGW-w64 build as a portable ZIP and NSIS installer.
+"""Public preview: package a GCC/MinGW-w64 build as a portable ZIP and NSIS installer.
 
 The GCC counterpart of scripts/package-phase4g.py. It never touches build/phase4g-distribution (the
-MSVC candidates) and its packages are named *-windows-x64-mingw-experimental, so they cannot be
-mistaken for an MSVC candidate. Not for publication.
+MSVC candidates) and its packages are named *-windows-x64-mingw, identifying the tested compiler family.
+The historical script filename is retained for build-script compatibility.
 
   1. Refuses anything but a Release build made by scripts/build-mingw.ps1 (nova-mingw-toolchain.json,
      whose g++ must be the configured compiler), and product/packaging sources that differ from HEAD
@@ -92,7 +92,7 @@ if clean:
         clean = False
 if not clean and not snapshot_verified and not a.allow_modified:
     raise SystemExit('Commit product and packaging sources, rebuild, then package (or use --allow-modified for a rehearsal)')
-label = a.label or f'nova-studio-{version}-windows-x64-mingw-experimental-{revision[:8]}'
+label = a.label or f'nova-studio-{version}-windows-x64-mingw-{revision[:8]}'
 if not re.fullmatch(r'[A-Za-z0-9_.+-]+', label):
     raise SystemExit('Label must be a simple directory name')
 out = root / 'build/phase4i-distribution' / label
@@ -164,7 +164,8 @@ if archived_blobs != expected_blobs:
     raise SystemExit('The source archive does not match the Git tree of the build revision')
 (payload / 'source').mkdir()
 shutil.copy2(source_archive, payload / 'source' / source_name)
-source_info = dict(file=f'source/{source_name}', revision=revision, git_tree=source_commit,
+source_info = dict(file=f'source/{source_name}', revision=revision, git_tree=run(['git', 'rev-parse', f'{source_commit}^{{tree}}'], cwd=root).stdout.strip(),
+                   git_commit=source_commit if clean else None,
                    matches_binaries=clean or snapshot_verified,
                    files=len(expected_blobs), paths=SOURCE_PATHS, sha256=sha256(source_archive),
                    bytes=source_archive.stat().st_size)
@@ -274,11 +275,11 @@ gxx_version = run([str(compiler), '--version'], env=tool_env).stdout.splitlines(
 # ---- 5. manifest inside the payload, then the dependency policy on the final payload
 files = sorted(f for f in payload.rglob('*') if f.is_file())
 manifest = dict(format='nova-release-payload', version=version, source_revision=revision,
-                clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_tree,
+                clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_info['git_tree'],
                 architecture='windows-x64', configuration='Release', qt='6.12.0',
-                compiler=gxx_version, toolchain_family='gcc-mingw-w64-ucrt64', experimental=True,
+                compiler=gxx_version, toolchain_family='gcc-mingw-w64-ucrt64', preview=True, experimental=False,
                 packaging_recipe_sha256=sha256(__file__),
-                signing='unsigned; no credentials used', public_distribution_authorized=False,
+                signing='unsigned; no credentials used', public_distribution_authorized=True,
                 license=dict(nova='GPL-3.0-or-later', text='LICENSE.txt', gpl_text_sha256=GPL3_SHA256,
                              copyright='licenses/COPYRIGHT.md', third_party='licenses/THIRD_PARTY_NOTICES.md'),
                 corresponding_source=source_info,
@@ -342,8 +343,8 @@ if checksums[source_name] != sha256(payload / 'source' / source_name):
 cmake_version = run([str(cmake), '--version'], env=tool_env).stdout.splitlines()[0]
 nsis_version = run([str(makensis), '-VERSION']).stdout.strip()
 release = dict(format='nova-release-candidate', product='Nova Studio', version=version, source_revision=revision,
-               clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_tree,
-               preview=True, experimental='GCC/MinGW-w64 UCRT64 qualification build (Phase 4-I.2)',
+               clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_info['git_tree'],
+               preview=True, experimental=False, channel='public-preview',
                platform='Windows 11 x64',
                artifacts={g: dict(file=p.name, bytes=p.stat().st_size, sha256=checksums[p.name]) for g, p in artifacts.items()},
                installer=dict(technology=f'NSIS {nsis_version} via CPack ({cmake_version})', stub_machine=hex(installer_machine),
@@ -356,6 +357,6 @@ release = dict(format='nova-release-candidate', product='Nova Studio', version=v
                license=manifest['license'],
                corresponding_source=dict(source_info, file=source_name, also_in_packages=f'source/{source_name}'),
                gcc_runtime_corresponding_source=runtime_source,
-               bridge=manifest['bridge'], signing='unsigned', published=False, public_distribution_authorized=False)
+               bridge=manifest['bridge'], signing='unsigned', published=False, public_distribution_authorized=True)
 (out / 'release-manifest.json').write_text(json.dumps(release, indent=2) + '\n', encoding='utf-8')
 print(json.dumps(release, indent=2))

@@ -1,4 +1,4 @@
-Phase 4-I EXPERIMENTAL GCC/MinGW-w64 BUILD - NOT FOR PUBLICATION
+Nova Studio public preview - Windows x64 (GCC/MinGW-w64) - UNSIGNED
 
 Nova Studio @NOVA_DISPLAY_VERSION@ (preview)
 ==========================================
@@ -53,8 +53,8 @@ License
 
 Source code
   * The Qt source is modified only by the shipped licenses\qt-build\ PCRE2 patch.
-  * GCC runtime corresponding source accompanies the candidate as a separate MSYS2 source
-    archive; retain that source sidecar with any future authorized binary distribution.
+  * GCC runtime corresponding source accompanies this release as a separate MSYS2 source
+    archive; retain that exact source sidecar with binary distributions.
   * source\ holds the complete corresponding source code of this exact build
     (revision @NOVA_GIT_REVISION@). docs\BUILDING.md explains how to build it.
   * licenses\qtbase-everywhere-src-6.12.0.tar.xz is the source of the Qt libraries, built with
