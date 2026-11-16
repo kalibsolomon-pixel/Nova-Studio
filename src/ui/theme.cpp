@@ -1030,7 +1030,9 @@ class NovaStyle : public QProxyStyle {
         box = box.adjusted(0.5, 0.5, -0.5, -0.5);
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
-        QColor fill = on ? (enabled ? t.accent : t.borderStrong) : (enabled ? t.base : t.window);
+        // A disabled choice keeps the accent language, faded towards the panel, so "on but
+        // unavailable" still reads as on rather than as a different kind of control.
+        QColor fill = on ? (enabled ? t.accent : mix(t.accent, t.window, 0.6)) : (enabled ? t.base : t.window);
         QColor edge = on ? fill : hover ? t.accent : (enabled ? mix(t.borderStrong, t.muted, 0.55) : t.border);
         p->setPen(QPen(edge, 1));
         p->setBrush(fill);
@@ -1039,7 +1041,7 @@ class NovaStyle : public QProxyStyle {
         else
             p->drawRoundedRect(box, 3.5, 3.5);
         if (on) {
-            const QColor mark = enabled ? t.onAccent : t.window;
+            const QColor mark = enabled ? t.onAccent : mix(t.onAccent, fill, 0.4);
             if (radio) {
                 p->setPen(Qt::NoPen);
                 p->setBrush(mark);

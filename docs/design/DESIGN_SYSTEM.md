@@ -27,7 +27,7 @@ two tokens.
 | --- | --- | --- | --- |
 | `backdrop` | `#0e0f12` | `#c9cbd2` | Gutters between docked panels, main-window background |
 | `base` | `#131418` | `#ffffff` | Field wells, lists, trees, tables |
-| `canvas` | `#131418` | `#d5d7dc` | Surround of the texture canvas and the 3D viewport |
+| `canvas` | `#131418` | `#d5d7dc` | Surround of the texture canvas and the 3D viewport; the image itself sits in a 1px `borderStrong` frame |
 | `window` | `#191a1f` | `#f4f4f6` | Panel and chrome fill (menu bar, toolbars, dock titles, status bar) |
 | `surface` | `#1e1f25` | `#ececef` | Cards and grouped sections; hover on document tabs |
 | `raised` | `#272830` | `#e5e6ea` | Hover fills, menus, tooltips, popups |
@@ -97,7 +97,7 @@ document at 1280×900.
 | Secondary button | Plain `QPushButton`: control fill and `borderStrong` outline |
 | Icon button | `ui::iconButton(icon, tooltip)`, or `QPushButton[role="icon"]` |
 | Text field, spin box, combo box | Plain Qt widgets; `NovaStyle` draws the shared field well and chevrons |
-| Checkbox, radio | Plain Qt widgets; `NovaStyle` draws rounded accent indicators |
+| Checkbox, radio | Plain Qt widgets; `NovaStyle` draws rounded accent indicators. A disabled checked indicator keeps the accent fill, faded 60% towards `window`, so it still reads as on |
 | Section title | `ui::sectionTitle("Document")` |
 | Text command beside a heading | `QPushButton[role="link"]`: frameless `accentHover` text that tints `accentMuted` on hover; a menu on it opens without a drop-down arrow (Welcome's "View all") |
 | Hint / secondary text | `ui::hint(text)`, or `QLabel[role="hint"]` |

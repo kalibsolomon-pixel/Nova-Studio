@@ -172,6 +172,15 @@ void Canvas::paintEvent(QPaintEvent *) {
     p.fillRect(rect(), ui::current().canvas);
     const QImage &image = displayed();
     QRectF target(origin(), QSizeF(document->image.size()) * zoom);
+    // A hairline frame just outside the image marks the artboard edge, even where the
+    // texture is transparent or close to the surround colour.
+    {
+        const QColor edge = ui::current().borderStrong;
+        p.fillRect(QRectF(target.left() - 1, target.top() - 1, target.width() + 2, 1), edge);
+        p.fillRect(QRectF(target.left() - 1, target.bottom(), target.width() + 2, 1), edge);
+        p.fillRect(QRectF(target.left() - 1, target.top(), 1, target.height()), edge);
+        p.fillRect(QRectF(target.right(), target.top(), 1, target.height()), edge);
+    }
     auto clip = target.intersected(rect());
     p.save();
     p.setClipRect(clip);

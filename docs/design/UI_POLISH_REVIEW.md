@@ -2,7 +2,29 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 28
+## Latest completed combined review: 29
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 6 | 6 | 6 | 6 | 6 | 5 | 6 | 6 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 8 | 7 | 8 | 7 | 8 | 8 |
+| opencode/longcat-2.5-free | 8 | 8 | 7 | 7 | 7 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 7 | 6 | 7 | 7 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** Reviewers disagree more this round (GLM free 6, z.ai 8). Two
+concrete findings: a disabled but checked box ("Tint adjacent frames") was drawn as a grey
+box with a dark tick, unlike every other checked box, and the texture had no visible edge
+where it is transparent or close to the surround. The next pass keeps the accent fill on
+disabled checked indicators (faded 60% towards `window`) and frames the image in a 1px
+`borderStrong` hairline.
+
+Not treated as defects: a serif "A" text tool and "~1px #8a8a93" rail icons (neither is in
+the captures; rail icons are `#c4c6ce`); the claim that the options row stays on Pencil in
+the Model workspace (the active tool is Pencil there, so its options are correct).
+
+## Combined review: 28
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -206,9 +228,11 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 26 | one primary Batch action, right-rail hairline facing the canvas | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit |
 | 27 | fixed left tool rail, matching status text | GLM free: 6; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 8; Terra: 7 |
 | 28 | corner-triangle rail, slider popovers, indented Batch output | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 29 | whole palette in view, brighter section titles and disabled text | GLM free: 6; GLM z.ai: 8; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
 
 ## Verification
 
+- Faded-accent disabled checks and the framed artboard: the complete regression run (MCP excluded) passed 66/66 suites in 323.84 seconds.
 - Hex and slider model on one row, brighter section titles and disabled text, frameless Presets: the complete regression run (MCP excluded) passed 66/66 suites in 324.41 seconds.
 - Corner-triangle rail, slider popovers and indented Batch output: the complete regression run (MCP excluded) passed 66/66 suites in 326.98 seconds.
 - Fixed tool rail checkpoint: the complete regression run (MCP excluded) passed 66/66 suites in 326.31 seconds with process-local `TEMP`/`TMP` at `build/t`, including the rewritten `tool-strip` suite at 100%, 150% and 200% scaling. The status bar's message now uses the body size, like its labels.
