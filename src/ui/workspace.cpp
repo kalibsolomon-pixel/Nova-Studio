@@ -47,11 +47,13 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     auto empty = new QWidget;
     auto ev = new QVBoxLayout(empty);
     ev->setContentsMargins(0, 0, 0, 0);
-    ev->addWidget(ui::sectionTitle("No document"));
-    auto emptyHint = ui::hint("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
-                              "Model JSON opens in the Models / UV panel.");
+    // One short line, centred like the other panels' empty states; the detail is a tooltip.
+    auto emptyHint = ui::emptyState("Open a texture to inspect it");
     emptyHint->setObjectName("inspectorEmptyHint");
+    emptyHint->setToolTip("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
+                          "Model JSON opens in the Models / UV panel.");
     emptyHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // wraps to the dock
+    ev->addStretch();
     ev->addWidget(emptyHint);
     ev->addStretch();
     inspectorPages->addWidget(empty);

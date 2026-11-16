@@ -38,9 +38,9 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
     list->setToolTip("Top row paints over lower rows. Check a layer to show it. F2 renames.\n"
                      "Ctrl/Shift-click selects several layers for Transform.");
     layout->addWidget(list, 1);
-    empty = ui::hint("Open a texture to see its layers.");
+    empty = ui::emptyState("Open a texture to see its layers");
     empty->setObjectName("layersEmpty");
-    layout->addWidget(empty);
+    layout->addWidget(empty, 1);
     // Compact command strip under the list.
     auto buttons = new QHBoxLayout;
     buttons->setSpacing(ui::SpaceXS);

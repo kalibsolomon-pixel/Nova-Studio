@@ -69,7 +69,7 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 - **Radii:** `RadiusS 4` (controls, rows, keycaps), `RadiusM 6` (cards, notices, popups' rows),
   `RadiusL 8` (large cards).
 - **Heights:** `ControlHeight 26` for buttons, fields and pickers. `RowHeight 26` for tree, list
-  and table rows.
+  and table rows. `InsetRowHeight 24` for short lists inset in a panel (`QListWidget[role="inset"]`).
 - **Icons:** `IconSize 18` for commands and `ToolIconSize 20` for the tool strip, drawn from
   Material Symbols Outlined (`ui::lineIcon`). `GutterWidth 4` and `ScrollBarWidth 10`.
 
@@ -89,7 +89,7 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |
 | Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text. Re-read the tokens on `QEvent::PaletteChange` so a theme switch re-tones existing rows. |
 | Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
-| Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. It never dims the last line. |
+| Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. A row the edge would cut in half is hidden whole, so a panel never ends on half a heading. |
 | Card gutter | `QSplitter[role="gutter"]` for wide handles between cards: empty space that tints `accentMuted` on hover |
 | Empty list with a first action | Put the action (a primary button) inside the empty state, and hide the list's edit bar until the list has rows (see the batch operation stack). |
 

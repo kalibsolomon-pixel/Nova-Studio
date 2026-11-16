@@ -3,6 +3,11 @@
 #include <QAbstractItemView>
 #include <QAbstractScrollArea>
 #include <QScrollBar>
+#include <QScrollArea>
+#include <QAbstractButton>
+#include <QAbstractSlider>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QDebug>
@@ -100,8 +105,8 @@ Tokens tokens(bool dark, const QString &accent) {
         t.warningSurface = QColor("#fdf4e3");
         t.dangerSurface = QColor("#fdecea");
         t.infoSurface = QColor("#e8f0fd");
-        t.checkerDark = QColor("#9c9ea4");
-        t.checkerLight = QColor("#abadb2");
+        t.checkerDark = QColor("#96989e");
+        t.checkerLight = QColor("#a4a6ab"); // a step down with the deeper canvas well
         t.pixelGrid = QColor(0, 0, 0, 65);
     }
     return t;
@@ -154,6 +159,9 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#commands{border-bottom:1px solid @border}"
         "QToolBar#toolOptions{border-bottom:1px solid @border;background:@window}"
         "QToolBar#toolOptions QLabel{color:@muted;padding-left:2px}"
+        // The options bar is chrome, not a well: its scroll rows show the toolbar fill.
+        "QToolBar#toolOptions QScrollArea,QToolBar#toolOptions QScrollArea>QWidget,"
+        "QToolBar#toolOptions QScrollArea>QWidget>QWidget{background:transparent}"
         "QToolBar#toolOptions QLabel#paintToolName{color:@text;font-weight:600;padding-left:2px;padding-right:6px}"
         "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:@stripPadV @stripPadH}"
         "QToolBar#toolBox QToolButton{padding:@toolPad}"
@@ -171,6 +179,12 @@ QString styleSheet(const Tokens &t) {
         "padding:2px}"
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
         "QSplitter::handle{background:@border}"
+        // Timeline frames: the selected tile carries an accent outline, not only a tint.
+        "QListView#frameTimeline::item{border:2px solid transparent;border-radius:@rM}"
+        "QListView#frameTimeline::item:selected{border-color:@accent;background:@selection;color:@selectionText}"
+        "QListView#frameTimeline::item:hover:!selected{background:@raised}"
+        // Search floats over the workspace: a hairline frame defines its edge in captures too.
+        "QDialog#commandPalette{border:1px solid @borderStrong}"
         // Wide gutters between cards stay empty space; they show only while dragged over.
         "QSplitter[role=\"gutter\"]::handle{background:transparent}"
         "QSplitter[role=\"gutter\"]::handle:hover{background:@accentMuted}"
@@ -267,6 +281,7 @@ QString styleSheet(const Tokens &t) {
         "QTableView::item:selected:!active{background:@inactiveSelection;color:@text}"
         // Short lists embedded in a panel sit in a bordered inset well.
         "QListWidget[role=\"inset\"]{background:@base;border:1px solid @border;border-radius:@rS;padding:2px}"
+        "QListWidget[role=\"inset\"]::item{height:@insetRow;padding:0 6px;border-radius:@rS}"
         "QHeaderView{background:@window;border:0}"
         "QHeaderView::section{background:@window;color:@muted;padding:5px 8px;border:0;"
         "border-bottom:1px solid @border;border-right:1px solid @border;font-weight:600}"
@@ -358,6 +373,7 @@ QString styleSheet(const Tokens &t) {
         {"@panelPad", px(PanelPadding)},         {"@gutter", px(GutterWidth)},
         {"@scroll", px(ScrollBarWidth)},
         {"@rowHeight", px(RowHeight)},
+        {"@insetRow", px(InsetRowHeight)},
         {"@rS", px(RadiusS)},                    {"@rM", px(RadiusM)},
         {"@rL", px(RadiusL)},                    {"@captionPt", pt(TypeCaption)},
         {"@titlePt", pt(TypeTitle)},             {"@displayPt", pt(TypeDisplay)}};
@@ -472,7 +488,6 @@ QChar materialGlyph(const QString &name) {
         {"opacity", QChar(0xe91c)},
         {"menu", QChar(0xe5d2)},
         {"go", QChar(0xe5c8)}, // arrow_forward
-        {"center", QChar(0xe3dc)}, // filter_center_focus
         {"swap-colors", QChar(0xe8d4)},  // swap_horiz
         {"reset-colors", QChar(0xe23b)}, // format_color_reset
         {"select-replace", QChar(0xe3c6)},   // crop_square
@@ -1039,8 +1054,37 @@ class ScrollFade : public QWidget {
         const auto bar = area->verticalScrollBar();
         const auto viewport = area->viewport()->geometry();
         setGeometry(viewport.left(), viewport.bottom() - 11, viewport.width(), 12);
-        setVisible(bar->maximum() > 0 && bar->value() < bar->maximum());
+        const bool more = bar->maximum() > 0 && bar->value() < bar->maximum();
+        setVisible(more);
         raise();
+        hideCutRows(more);
+    }
+    // A row that the bottom edge would slice in half is hidden whole, so the panel ends on
+    // a clean line above the shadow instead of on half a heading.
+    void hideCutRows(bool more) {
+        auto scroll = qobject_cast<QScrollArea *>(area);
+        auto content = scroll ? scroll->widget() : nullptr;
+        if (!content)
+            return;
+        const int edge = area->verticalScrollBar()->value() + area->viewport()->height();
+        QRegion visible(content->rect());
+        bool cut = false;
+        if (more)
+            for (auto w : content->findChildren<QWidget *>()) {
+                if (!w->isVisibleTo(content) || !(qobject_cast<QLabel *>(w) || qobject_cast<QAbstractButton *>(w) ||
+                                                  qobject_cast<QAbstractSpinBox *>(w) || qobject_cast<QComboBox *>(w) ||
+                                                  qobject_cast<QAbstractSlider *>(w) || qobject_cast<QLineEdit *>(w)))
+                    continue;
+                const QRect r(w->mapTo(content, QPoint()), w->size());
+                if (r.top() < edge && r.bottom() >= edge) {
+                    visible -= QRect(0, r.top() - SpaceXS, content->width(), r.height() + 2 * SpaceXS);
+                    cut = true;
+                }
+            }
+        if (cut)
+            content->setMask(visible);
+        else if (!content->mask().isEmpty())
+            content->clearMask();
     }
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);

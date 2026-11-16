@@ -143,13 +143,15 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
                                layerScope->currentIndex() == int(batch::LayerScope::CompositeOnly);
         nativeBox->setVisible(native);
         inPlace->setEnabled(!native);
-        backup->setEnabled(!native);
+        // Each output option's fields are live only while that option is chosen.
+        backup->setEnabled(!native && inPlace->isChecked());
         if (native)
             toDirectory->setChecked(true);
         toDirectory->setText(native ? "Write exported PNGs to a separate folder"
                                     : "Write results to a separate folder (recommended)");
-        for (QWidget *w : std::initializer_list<QWidget *>{toDirectory, directory, pattern, overwrite})
-            w->setEnabled(!native || exporting);
+        toDirectory->setEnabled(!native || exporting);
+        for (QWidget *w : std::initializer_list<QWidget *>{directory, pattern, overwrite})
+            w->setEnabled((!native || exporting) && toDirectory->isChecked());
         layerNames->setEnabled(layerScope->currentIndex() == int(batch::LayerScope::Selected));
         frameList->setEnabled(frameScope->currentIndex() == int(batch::FrameScope::Selected) ||
                               frameScope->currentIndex() == int(batch::FrameScope::PlaybackEntries));
@@ -229,7 +231,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     emptyState->setObjectName("batchStepsEmptyState");
     auto emptyStack = new QVBoxLayout(emptyState);
     emptyStack->setSpacing(ui::SpaceXL);
-    emptyStack->addStretch();
+    emptyStack->setContentsMargins(ui::Space3XL, ui::Space3XL, ui::Space3XL, ui::Space3XL);
     auto emptySteps = new QLabel("No operations yet. Add one, or choose a saved pipeline above; "
                                  "steps run top to bottom.");
     emptySteps->setObjectName("batchStepsEmpty");
@@ -362,12 +364,6 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     cancelButton->setObjectName("batchCancel");
     cancelButton->setEnabled(false);
     cancelButton->hide(); // shown only while a job runs
-    runRow->setSpacing(ui::SpaceS);
-    runRow->addWidget(cancelButton);
-    runRow->addStretch();
-    runRow->addWidget(dryRun);
-    runRow->addWidget(runButton);
-    ov->addLayout(runRow);
     summary = new QLabel("Run a dry run to review every target before writing.");
     summary->setObjectName("batchSummary");
     summary->setWordWrap(true);
@@ -406,11 +402,17 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     ov->addWidget(status);
     split->addWidget(outBox);
     split->setSizes({260, 360, 460});
+    // One footer holds every dialog-level action; the primary action sits rightmost.
     auto close = new QPushButton("Close");
-    auto bottom = new QHBoxLayout;
-    bottom->addStretch();
-    bottom->addWidget(close);
-    root->addLayout(bottom);
+    runRow->setSpacing(ui::SpaceS);
+    runRow->addWidget(cancelButton);
+    runRow->addStretch();
+    runRow->addWidget(close);
+    runRow->addSpacing(ui::SpaceL);
+    runRow->addWidget(dryRun);
+    runRow->addWidget(runButton);
+    root->addSpacing(ui::SpaceS);
+    root->addLayout(runRow);
     resize(1240, 760);
 
     connect(scope, &QComboBox::currentIndexChanged, this, [this] {
@@ -552,6 +554,8 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
         connect(edit, &QLineEdit::textChanged, this, &BatchDialog::invalidate);
     connect(overwrite, &QCheckBox::toggled, this, &BatchDialog::invalidate);
     connect(inPlace, &QRadioButton::toggled, this, &BatchDialog::invalidate);
+    connect(inPlace, &QRadioButton::toggled, this, [this, sync] { sync(); });
+    sync();
     connect(refreshPreview, &QPushButton::clicked, this, &BatchDialog::previewSamples);
     connect(dryRun, &QPushButton::clicked, this, &BatchDialog::runDryRun);
     connect(runButton, &QPushButton::clicked, this, &BatchDialog::start);

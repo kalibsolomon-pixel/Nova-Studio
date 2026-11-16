@@ -54,6 +54,7 @@ constexpr int SpaceXS = 2, SpaceS = 4, SpaceM = 6, SpaceL = 8, SpaceXL = 12, Spa
 constexpr int RadiusS = 4, RadiusM = 6, RadiusL = 8;
 constexpr int ControlHeight = 26; // buttons, combos, spin boxes, line edits
 constexpr int RowHeight = 26;     // tree, list and table rows
+constexpr int InsetRowHeight = 24; // rows of short lists inset in a panel (QListWidget[role="inset"])
 constexpr int IconSize = 18;      // command icons in toolbars and panels
 constexpr int ToolIconSize = 20;  // left tool strip
 // Type scale in points over the platform UI family (Segoe UI Variable Text on

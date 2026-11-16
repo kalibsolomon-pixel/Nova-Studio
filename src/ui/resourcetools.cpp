@@ -73,8 +73,11 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
         problems->hideColumn(column);
     problems->header()->setStretchLastSection(false);
     problems->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    // Enough height for a few findings before the dock gives the canvas its room.
+    problems->setMinimumHeight(problems->header()->sizeHint().height() + 4 * ui::RowHeight + 2);
     v->addWidget(problems, 1);
     detail = new QLabel;
+    detail->hide(); // appears with the first selected finding
     detail->setWordWrap(true);
     detail->setTextFormat(Qt::PlainText);
     detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -229,7 +232,7 @@ void ResourceTools::populate(int offset) {
                 populate(end);
         });
     else {
-        problems->setColumnWidth(0, 90);
+        problems->setColumnWidth(0, problems->fontMetrics().horizontalAdvance("Unsupported") + 48); // dot, word, padding
         problems->setColumnWidth(1, 260);
         problems->setColumnWidth(2, 150);
         problems->setColumnWidth(3, 350);
@@ -245,6 +248,7 @@ void ResourceTools::select() {
     detail->setText(d.file + " " + d.field + (d.line ? " · line " + QString::number(d.line) : "") +
                     "\n" + d.message + "\n" + d.suggestion +
                     (d.affected.isEmpty() ? "" : "\nAffected: " + d.affected.join(", ")));
+    detail->show();
     repair->setEnabled(!watcher && !d.replacement.isEmpty());
 }
 void ResourceTools::fix() {

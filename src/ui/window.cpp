@@ -597,6 +597,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     tree->setUniformRowHeights(true);
     tree->setIconSize({18, 18});
     tree->setIndentation(14); // deep packs keep room for file names
+    tree->setTextElideMode(Qt::ElideMiddle); // "animated…png.mcmeta" keeps its extension
     tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tree->setSelectionMode(QAbstractItemView::SingleSelection);
     grid = new QListView;

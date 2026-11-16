@@ -265,7 +265,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     faces->setAccessibleName("Model faces");
     faces->setProperty("role", "inset");
     // Six faces (a full block) show as whole rows; more faces scroll.
-    faces->setFixedHeight(6 * (ui::RowHeight - 4) + 6);
+    faces->setFixedHeight(6 * ui::InsetRowHeight + 8);
     v->addWidget(faces);
     faceInfo = new QLabel;
     faceInfo->setWordWrap(true);
