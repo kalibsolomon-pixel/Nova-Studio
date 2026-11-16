@@ -84,7 +84,7 @@ QString toolPlacementLabel(ToolPlacement p) {
     switch (p) {
     case ToolPlacement::LeftEdge: return "Left Edge (Default)";
     case ToolPlacement::RightEdge: return "Right Edge";
-    case ToolPlacement::TopEdge: return "Top, Below Tool Options";
+    case ToolPlacement::TopEdge: return "Top, Beside Tool Options";
     case ToolPlacement::AboveColours: return "Above Colours";
     case ToolPlacement::AboveAssets: return "Above Assets";
     case ToolPlacement::Floating: return "Floating";
@@ -245,11 +245,30 @@ void ToolStripPlacement::syncMenu() {
                      "Click, Enter or Space: choose a position");
 }
 void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
+    QPointer<QDockWidget> below = p == ToolPlacement::AboveColours ? colours
+                                  : p == ToolPlacement::AboveAssets ? assets
+                                                                    : nullptr;
+    // Reparenting can temporarily lay the strip out at a very narrow width.
+    // Remember the panel size before that transient layout takes any room.
+    const int panelHeight = below ? below->height() : 0;
+    QList<QDockWidget *> sidePanels;
+    QList<int> panelWidths;
+    for (auto panel : window->findChildren<QDockWidget *>()) {
+        const auto area = window->dockWidgetArea(panel);
+        if (panel != dock && !panel->isFloating() && panel->isVisible() &&
+            window->rect().intersects(panel->geometry()) &&
+            (area == Qt::LeftDockWidgetArea || area == Qt::RightDockWidgetArea)) {
+            sidePanels << panel;
+            panelWidths << panel->width();
+        }
+    }
     const bool hosted = box->parentWidget() == host;
     const bool edge = p == ToolPlacement::LeftEdge || p == ToolPlacement::RightEdge || p == ToolPlacement::TopEdge;
     const bool visible = !box->isHidden();
     if (!hosted && window->toolBarBreak(box))
         window->removeToolBarBreak(box);
+    box->setMinimumWidth(0);
+    box->setMaximumWidth(QWIDGETSIZE_MAX);
     if (edge) {
         if (hosted)
             host->layout()->removeWidget(box);
@@ -260,8 +279,12 @@ void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
                            : p == ToolPlacement::RightEdge ? Qt::RightToolBarArea
                                                            : Qt::TopToolBarArea,
                            box);
-        if (p == ToolPlacement::TopEdge)
-            window->insertToolBarBreak(box); // its own row below Tool Options
+        if (p == ToolPlacement::TopEdge) {
+            box->setWrapping(true);
+            box->setFixedWidth(box->singleRowWidth() + 2 * ui::ToolStripPaddingH + 1);
+            if (auto options = window->findChild<QToolBar *>("toolOptions"))
+                window->insertToolBar(options, box);
+        }
     } else {
         if (!hosted) {
             window->removeToolBar(box);
@@ -270,18 +293,32 @@ void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
         box->setOrientation(Qt::Horizontal);
         box->setWrapping(true); // rows instead of an overflow button in a narrow panel
         dock->setFloating(false);
-        QDockWidget *below = p == ToolPlacement::AboveColours ? colours.data()
-                             : p == ToolPlacement::AboveAssets ? assets.data()
-                                                               : nullptr;
         if (below) {
-            const auto area = window->dockWidgetArea(below);
-            window->addDockWidget(area == Qt::NoDockWidgetArea ? Qt::RightDockWidgetArea : area, dock);
-            dock->show(); // a hidden dock has no layout item to split
+            const auto oldArea = window->dockWidgetArea(below);
+            const auto area = oldArea == Qt::NoDockWidgetArea ? Qt::RightDockWidgetArea : oldArea;
+            const auto peers = window->tabifiedDockWidgets(below);
+            QList<QDockWidget *> shown;
+            for (auto peer : peers)
+                if (!peer->isHidden())
+                    shown << peer;
+            // Qt inserts into a tab group instead of splitting it. Temporarily
+            // detach the peers, then restore the same group below the strip.
+            // Starting at the target's existing slot keeps Colours at the top
+            // of its column instead of moving it underneath every other dock.
+            for (auto peer : peers)
+                // addDockWidget also removes the old tab placeholder. Merely
+                // hiding/removing it leaves that tab group in Qt's layout.
+                window->addDockWidget(area, peer);
+            window->addDockWidget(area, dock);
+            dock->show();
             below->setFloating(false);
             below->show();
-            // Splitting moves `below` directly under the tools; its former tab
-            // neighbours stay together where they were.
+            window->splitDockWidget(below, dock, Qt::Vertical);
             window->splitDockWidget(dock, below, Qt::Vertical);
+            for (auto peer : peers) {
+                window->tabifyDockWidget(below, peer);
+                peer->setVisible(shown.contains(peer));
+            }
             below->raise();
         } else {
             window->addDockWidget(Qt::RightDockWidgetArea, dock);
@@ -289,6 +326,7 @@ void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
             // One row when the screen allows it; the strip wraps if the user narrows it.
             const int row = box->singleRowWidth() + 2 * ui::ToolStripPaddingH + 4;
             dock->resize(std::max(200, row), 40); // grows to its minimum if it needs more rows
+            dock->show();
             dock->move(at.isNull() ? window->mapToGlobal(QPoint(80, 120)) : at);
         }
         dock->show();
@@ -296,6 +334,22 @@ void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
     }
     box->setVisible(visible);
     current = p;
+    // Reparenting a toolbar makes Qt redistribute the dock widths. Preserve the
+    // user's columns; moving the tools should not truncate asset names and tabs.
+    window->layout()->activate();
+    if (!sidePanels.isEmpty())
+        window->resizeDocks(sidePanels, panelWidths, Qt::Horizontal);
+    if (below)
+        window->resizeDocks({below}, {panelHeight}, Qt::Vertical);
+    if (p == ToolPlacement::Floating && at.isNull()) {
+        window->layout()->activate();
+        // The dock can still report its previous multi-row height until Qt
+        // processes the resize. Floating starts with exactly one tool row.
+        const int rowHeight = ui::ToolHitTarget + 2 * ui::ToolStripPaddingV + 1;
+        if (auto canvas = window->centralWidget())
+            dock->move(canvas->mapToGlobal(QPoint(ui::PanelPadding,
+                std::max(ui::PanelPadding, canvas->height() - rowHeight - ui::PanelPadding))));
+    }
     keepReachable();
     syncMenu();
     emit placed(p);

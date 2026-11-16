@@ -130,8 +130,16 @@ class ToolPlacementTests : public QObject {
             placed << r;
             QVERIFY2(!w->accessibleName().isEmpty() || !w->toolTip().isEmpty(), qPrintable(name));
         }
-        for (auto b : box->findChildren<QToolButton *>("qt_toolbar_ext_button"))
-            QVERIFY2(!b->isVisible(), "the toolbar overflow button is shown");
+        for (auto b : box->findChildren<QToolButton *>("qt_toolbar_ext_button")) {
+            // In flow mode Qt can retain an internal extension behind the
+            // explicit container. It must never receive pointer input.
+            QTRY_VERIFY2(!b->isVisible() || box->childAt(b->geometry().center()) != b,
+                         qPrintable(QString("exposed overflow button %1,%2 %3x%4 in strip %5x%6")
+                                                       .arg(b->x()).arg(b->y()).arg(b->width()).arg(b->height())
+                                                       .arg(box->width()).arg(box->height()) + " parent=" +
+                                                       b->parentWidget()->objectName() + " class=" +
+                                                       b->parentWidget()->metaObject()->className()));
+        }
     }
     void checkAboveColours(Window &window) {
         auto tools = Access::dock(window, "toolsDock");
@@ -143,7 +151,9 @@ class ToolPlacementTests : public QObject {
         // The main window lays docks out on the next event-loop turns.
         QTRY_VERIFY(inWindow(window, tools).bottom() < inWindow(window, colours).top() && inWindow(window, tools).top() >= 0);
         const auto t = inWindow(window, tools), c = inWindow(window, colours);
-        QVERIFY2(t.bottom() < c.top() && c.top() - t.bottom() <= 12,
+        // A preserved dock tab group adds its tab row above the active body.
+        const int tabRow = window.tabifiedDockWidgets(colours).isEmpty() ? 0 : ui::ToolHitTarget + ui::SpaceS;
+        QVERIFY2(t.bottom() < c.top() && c.top() - t.bottom() <= 12 + tabRow,
                  qPrintable(QString("tools %1,%2 %3x%4 colours %5,%6 %7x%8").arg(t.x()).arg(t.y()).arg(t.width())
                                 .arg(t.height()).arg(c.x()).arg(c.y()).arg(c.width()).arg(c.height())));
         QVERIFY(std::abs(t.left() - c.left()) <= 2);
@@ -255,15 +265,32 @@ class ToolPlacementTests : public QObject {
         QVERIFY(window);
         auto placement = Access::placement(*window);
         auto box = window->findChild<ToolBox *>("toolBox");
+        auto assetsPanel = Access::dock(*window, "assets");
+        auto inspectorPanel = Access::dock(*window, "inspector");
+        const int assetsWidth = assetsPanel->width(), inspectorWidth = inspectorPanel->width();
         window->findChild<QAction *>("toolPlacement-top")->trigger();
         QCOMPARE(window->toolBarArea(box), Qt::TopToolBarArea);
-        QVERIFY(window->toolBarBreak(box));
         QCOMPARE(box->orientation(), Qt::Horizontal);
         auto options = window->findChild<QToolBar *>("toolOptions");
-        QTRY_VERIFY(box->geometry().top() >= options->geometry().bottom()); // its own row below
+        QTRY_VERIFY(std::abs(box->y() - options->y()) <= 1);
+        QVERIFY(box->geometry().right() < options->geometry().left());
+        QTRY_VERIFY(assetsPanel->width() >= assetsWidth - 1);
+        QTRY_VERIFY(inspectorPanel->width() >= inspectorWidth - 1);
         capture(*window, "05-top");
+        auto coloursPanel = Access::dock(*window, "colors");
+        const auto tabPeers = window->tabifiedDockWidgets(coloursPanel);
+        if (!tabPeers.isEmpty())
+            tabPeers.first()->hide();
         window->findChild<QAction *>("toolPlacement-above-colours")->trigger();
         checkAboveColours(*window);
+        for (auto peer : tabPeers)
+            if (!peer->isHidden())
+                QVERIFY(window->tabifiedDockWidgets(coloursPanel).contains(peer));
+        if (!tabPeers.isEmpty()) {
+            QVERIFY(tabPeers.first()->isHidden());
+            tabPeers.first()->show();
+            QTRY_VERIFY(window->tabifiedDockWidgets(coloursPanel).contains(tabPeers.first()));
+        }
         checkEveryItemReachable(*window);
         window->findChild<QAction *>("toolPlacement-above-assets")->trigger();
         auto tools = Access::dock(*window, "toolsDock"), assets = Access::dock(*window, "assets");
@@ -353,6 +380,27 @@ class ToolPlacementTests : public QObject {
             QCOMPARE(Access::placement(*window)->placement(), ToolPlacement::LeftEdge);
             QVERIFY(window->close());
         }
+    }
+    void topKeepsTextureColumns_data() {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("compact") << QSize(800, 700);
+        QTest::newRow("normal") << QSize(1280, 800);
+        QTest::newRow("large") << QSize(1600, 1000);
+    }
+    void topKeepsTextureColumns() {
+        QFETCH(QSize, size);
+        auto window = open("texture-columns/" + QString(QTest::currentDataTag()) + "/studio.ini", size);
+        QVERIFY(window);
+        window->findChild<QAction *>("workspacePreset-texture")->trigger();
+        QTest::qWait(60);
+        auto assets = Access::dock(*window, "assets");
+        auto colours = Access::dock(*window, "colors");
+        const int left = assets->width(), right = colours->width();
+        window->findChild<QAction *>("toolPlacement-top")->trigger();
+        QTest::qWait(60);
+        QVERIFY2(assets->width() >= left - 1, qPrintable(QString("Assets: %1 -> %2").arg(left).arg(assets->width())));
+        QVERIFY2(colours->width() >= right - 1, qPrintable(QString("Colours: %1 -> %2").arg(right).arg(colours->width())));
+        checkEveryItemReachable(*window);
     }
     void invalidAndOffScreenSavedPositionsRecover() {
         // Unknown position and corrupt state: the default layout, tools on the left.

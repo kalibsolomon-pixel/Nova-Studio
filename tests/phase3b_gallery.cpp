@@ -335,10 +335,17 @@ class Phase3BGallery : public QObject {
             {"above-colours", "23-tools-above-colours"}, {"above-assets", "24-tools-above-assets"},
             {"floating", "25-tools-floating-context"}};
         for (const auto &[id, name] : placements) {
+            // Each position starts from the same workspace, so resizing and a
+            // previous placement cannot cumulatively shrink its side panels.
+            window.findChild<QAction *>("resetWorkspaceCommand")->trigger();
+            preset(window, "texture");
+            auto colours = window.findChild<QDockWidget *>("colors");
+            const int columnBefore = colours->width();
             auto action = window.findChild<QAction *>(QString("toolPlacement-") + id);
             QVERIFY(action);
             action->trigger();
             QTest::qWait(80);
+            QVERIFY2(colours->width() >= columnBefore - 1, "moving tools shrank the Colours column");
             auto box = window.findChild<QToolBar *>("toolBox");
             QVERIFY(box);
             if (box->parentWidget()->objectName() == "toolsDockHost") {
@@ -347,7 +354,21 @@ class Phase3BGallery : public QObject {
                     if (button->objectName().startsWith("toolGroup-"))
                         QVERIFY2(!button->visibleRegion().isEmpty(), qPrintable(button->objectName()));
             }
-            capture(window, name);
+            if (QString(id) == "floating") {
+                auto tools = window.findChild<QDockWidget *>("toolsDock");
+                QVERIFY(tools);
+                tools->raise();
+                QTest::qWait(140);
+                // QWidget::grab omits separate native tool windows. Composite
+                // their real native grabs at their actual window positions.
+                auto context = window.grab();
+                QPainter painter(&context);
+                painter.drawPixmap(tools->mapToGlobal(QPoint()) - window.mapToGlobal(QPoint()), tools->grab());
+                painter.end();
+                QVERIFY(context.save(galleryDir() + '/' + name + ".png"));
+            } else {
+                capture(window, name);
+            }
         }
         if (auto tools = window.findChild<QDockWidget *>("toolsDock"))
             capture(*tools, "26-tools-floating");

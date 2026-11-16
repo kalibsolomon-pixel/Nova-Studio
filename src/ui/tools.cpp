@@ -185,7 +185,7 @@ class ColorChip : public QWidget {
     std::function<void()> requested;
     ColorChip(ToolState *s, QWidget *parent) : QWidget(parent), state(s) {
         setObjectName("toolColorChip");
-        setFixedSize(34, 34);
+        setFixedSize(ui::ToolHitTarget, ui::ToolHitTarget);
         setCursor(Qt::PointingHandCursor);
         setToolTip("Foreground / background colour\nClick, Enter or Space: Colours panel · X swaps · D resets");
         setAccessibleName("Foreground and background colours");
@@ -217,8 +217,8 @@ class ColorChip : public QWidget {
             p.setPen(palette().color(QPalette::WindowText));
             p.drawRect(r.adjusted(0, 0, -1, -1));
         };
-        swatch(QRect(13, 13, 19, 19), state->background);
-        swatch(QRect(2, 2, 19, 19), state->foreground);
+        swatch(QRect(11, 11, 17, 17), state->background);
+        swatch(QRect(1, 1, 17, 17), state->foreground);
         if (hasFocus()) {
             p.setPen(QPen(ui::current().accent, 1));
             p.drawRect(rect().adjusted(0, 0, -1, -1));
@@ -229,10 +229,9 @@ class ColorChip : public QWidget {
             requested();
     }
 };
-// Lays the strip's widgets out left to right and starts a new row when the next one
-// does not fit; separators at the start of a row are dropped. Its minimum height is the
-// height of all rows for its current width, so the panel holding it grows by a row
-// rather than clipping. Child order is tab order.
+// Wide strips keep a single row. Narrow panels use a regular tool grid.
+// The host follows the actual content height, never clipping
+// tools; reparenting preserves their keyboard order and action semantics.
 // A widget's laid-out size: its size hint, or its fixed/minimum size when it has no hint
 // (the colour chip is a fixed-size widget without a layout).
 QSize itemSize(const QWidget *w) {
@@ -244,6 +243,47 @@ QSize itemSize(const QWidget *w) {
 class FlowStrip : public QWidget {
     int rows = 0, lastHeight = -1;
     int arrange(int width, bool apply) {
+        // Keep the grip beside two balanced rows of tools and colour wells.
+        // Normal side panels fit four columns without hiding any tool.
+        if (width < oneRowWidth()) {
+            QList<QWidget *> tools;
+            int cellWidth = ui::ToolHitTarget, cellHeight = ui::ToolHitTarget;
+            for (auto w : std::as_const(items)) {
+                if (suppressed.contains(w))
+                    continue;
+                if (rules.contains(w)) {
+                    if (apply)
+                        w->hide();
+                } else {
+                    tools << w;
+                    cellWidth = std::max(cellWidth, itemSize(w).width());
+                    cellHeight = std::max(cellHeight, itemSize(w).height());
+                }
+            }
+            const int gap = ui::ToolbarSpacing;
+            QWidget *grip = !tools.isEmpty() && tools.first()->objectName() == "toolPlacementGrip" ? tools.takeFirst() : nullptr;
+            const int gripWidth = grip ? itemSize(grip).width() + gap : 0;
+            const int columns = std::max(1, std::min(4, (width - gripWidth + gap) / (cellWidth + gap)));
+            rows = (tools.size() + columns - 1) / columns;
+            if (apply) {
+                const int gridWidth = gripWidth + columns * cellWidth + (columns - 1) * gap;
+                const int left = std::max(0, (width - gridWidth) / 2);
+                if (grip) {
+                    const auto s = itemSize(grip);
+                    grip->setGeometry(left, 0, s.width(), s.height());
+                    grip->show();
+                }
+                for (int i = 0; i < tools.size(); ++i) {
+                    auto w = tools[i];
+                    const auto s = qobject_cast<QToolButton *>(w) ? QSize(cellWidth, cellHeight) : itemSize(w);
+                    w->setGeometry(left + gripWidth + (i % columns) * (cellWidth + gap) + (cellWidth - s.width()) / 2,
+                                   (i / columns) * (cellHeight + gap) + (cellHeight - s.height()) / 2,
+                                   s.width(), s.height());
+                    w->show();
+                }
+            }
+            return rows * (cellHeight + gap) - gap;
+        }
         int y = 0;
         rows = 0;
         QList<QWidget *> row;
@@ -304,7 +344,8 @@ class FlowStrip : public QWidget {
         int widest = 0;
         for (auto w : items)
             widest = std::max(widest, itemSize(w).width());
-        return widest;
+        // Keep at least two compact cells reachable at unusually narrow widths.
+        return widest + ui::ToolHitTarget + ui::ToolbarSpacing;
     }
     bool hasHeightForWidth() const override { return true; }
     int heightForWidth(int width) const override { return const_cast<FlowStrip *>(this)->arrange(width, false); }
@@ -458,10 +499,12 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
     effectsButton->setAutoRaise(true);
     effectsButton->setAccessibleName("Effects");
     addWidget(effectsButton);
+    addSeparator();
     auto spacer = new QWidget(this);
-    spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    spacer->setFixedHeight(ui::SpaceS);
+    spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     spacerItem = addWidget(spacer);
-    // The spacer only pushes the chip to the foot of a vertical strip.
+    // Keep colour wells close to the tools in a vertical strip too.
     connect(this, &QToolBar::orientationChanged, this,
             [this](Qt::Orientation o) { spacerItem->setVisible(o == Qt::Vertical); });
     auto chip = new ColorChip(state, this);

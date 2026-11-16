@@ -56,7 +56,7 @@ The type scale uses the platform UI family (Segoe UI on Windows). Body text is 9
 Dock containers establish the `window` surface before transparent children inherit it;
 the main window's `backdrop` is reserved for gutters. Selected asset rows keep the same
 fill when focus moves elsewhere, and selection never recolours artwork thumbnails.
-In compact texture/UV workspaces below 900 logical pixels high, 3D Preview shares the
+In compact texture/UV workspaces below 1000 logical pixels high, 3D Preview shares the
 Layers tab group so colour controls retain useful vertical room. UV face labels use
 the themed `raised`, `borderStrong` and `text` tokens; overlapping labels give the
 selected face priority.
@@ -139,6 +139,14 @@ Dependent onion controls are disabled while adjacent-frame display is off; their
 retained. Settings-menu titles use the shared strong weight. Text fields share the same
 visible resting border as pickers. Embedded lists keep partial rows out of the parent
 scroll area's bottom edge.
+
+The editing toolbar supports left/right rails, a top row, positions above Colours
+and Assets, and a floating window. Narrow panel placements use a regular grid
+of up to four columns with the grip at the leading edge and colour wells in the grid; wide and floating strips
+retain a single row. The colour wells share the 30px tool target. Moving above
+a tabbed dock preserves its peers and their visibility, and preserves space for
+the editing panel below. Side-column widths survive movement to the top row, where tools sit beside their options.
+The grip's keyboard menu exposes all six positions.
 
 ## Checking a change
 

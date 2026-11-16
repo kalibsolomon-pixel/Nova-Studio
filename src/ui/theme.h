@@ -84,6 +84,7 @@ constexpr int PanelPadding = SpaceXL;        // dock titles, dialog sections, co
 constexpr int PanelPaddingV = 7;             // dock title rows
 constexpr int SettingsLabelWidth = 104, SettingsValueWidth = 80;
 constexpr int OptionsCompactWidth = 900;     // tighter option gaps below this viewport width
+constexpr int CompactEditorHeight = 1000;   // tab preview with Layers below this window height
 constexpr int ToolStripPaddingV = SpaceM, ToolStripPaddingH = SpaceS; // around the tool strip
 constexpr int ToolStripSeparatorMargin = SpaceM; // separator inset along the tool strip
 constexpr int GutterWidth = 4;               // backdrop gap between docked panels

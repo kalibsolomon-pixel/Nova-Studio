@@ -114,10 +114,10 @@ class ToolBox : public QToolBar {
     QAction *actionFor(Tool t) const { return actions.value(t); }
     QToolButton *effectsButton = nullptr;
     void refreshIcons(const QColor &ink);
-    // In a panel (above Colours or Assets, floating) the strip wraps onto further rows
+    // Horizontal placements share a flow layout; narrow panels use a tool grid
     // instead of hiding tools behind QToolBar's overflow button. The same buttons, actions,
     // shortcuts, tooltips and accessible names are kept, in the same order. Edge
-    // placements use the plain toolbar layout.
+    // rails use the plain toolbar layout.
     void setWrapping(bool wrap);
     bool wrapping() const { return flow != nullptr; }
     // Width of the strip on one row in wrapping mode (0 otherwise).

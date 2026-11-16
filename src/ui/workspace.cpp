@@ -475,8 +475,6 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
-    resizeDocks({assetsDock}, {std::clamp(w / 4, 240, 320)}, Qt::Horizontal); // room for file names
-    resizeDocks({inspectorDock}, {std::clamp(w / 5, 248, 340)}, Qt::Horizontal);
     if (name == "essentials") {
         resizeDocks({previewDock}, {std::clamp(h / 4, 150, 260)}, Qt::Vertical);
         // Layers lists are short: the inspector above gets the column's spare height.
@@ -487,7 +485,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         // group); taller ones stack it below so it stays visible while painting.
         // Animation always tabs it: the timeline already takes the bottom of the
         // window, and the canvas shows the playing frame.
-        if (h < 900 || name == "animation") {
+        if (h < ui::CompactEditorHeight || name == "animation") {
             splitDockWidget(layersDock, previewDock, Qt::Vertical);
         } else {
             removeDockWidget(previewDock);
@@ -505,7 +503,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
             preferences.timelineVisible = true;
         }
         resizeDocks({previewDock}, {std::clamp(h / 5, 140, 220)}, Qt::Vertical);
-        if (h >= 900 && name != "animation")
+        if (h >= ui::CompactEditorHeight && name != "animation")
             resizeDocks({layersDock}, {std::clamp(h / 6, 140, 180)}, Qt::Vertical);
     } else if (name == "model") {
         modelsDock->raise();
@@ -518,6 +516,11 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
     animationRefresh(); // the timeline follows the active document, as before
     if (name == "animation" && animationDock->isVisible())
         resizeDocks({animationDock}, {std::clamp(h / 4, 200, 240)}, Qt::Vertical);
+    // Size columns after moving/tabbing the preview. Intermediate dock moves
+    // otherwise redistribute them and undo the requested working widths.
+    resizeDocks({assetsDock, inspectorDock},
+                {std::clamp(w / 4, 240, 320), std::clamp(w / 4, 300, name == "model" || name == "uv" ? 380 : 340)},
+                Qt::Horizontal);
     keepOnScreen();
     setUpdatesEnabled(true);
     // Baseline after the deferred relayout, so settling sizes do not count as user changes.
