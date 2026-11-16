@@ -2,7 +2,22 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 24
+## Latest completed combined review: 25
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 8 | 7 | 8 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 5 | 5 | 5 | 4 | 6 |
+| opencode/inkling-2-small-free | 8 | 8 | 7 | 7 | 8 | 7 | 7 | 8 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled;
+Kimi K3.1 Pro returned no review. The next pass keeps Run batch as the Batch dialog's
+only primary action (Add operation becomes secondary), shows the Batch progress bar only
+while a job runs, turns the right-edge tool rail's hairline towards the canvas, and
+rewords the custom-layout status message.
+
+## Combined review: 24
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

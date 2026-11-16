@@ -252,7 +252,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     emptyStack->addWidget(emptySteps);
     auto addFirst = new QPushButton("Add operation…");
     addFirst->setObjectName("batchAddFirstStep");
-    ui::setPrimary(addFirst);
+    // Secondary: Run batch stays the dialog's single primary action.
     emptyStack->addWidget(addFirst, 0, Qt::AlignHCenter);
     emptyStack->addStretch();
     auto emptyLayout = new QVBoxLayout(steps->viewport());
@@ -385,6 +385,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     ov->addWidget(summary);
     progress = new QProgressBar;
     progress->setObjectName("batchProgress");
+    progress->hide(); // an idle, empty bar reads as a divider; it appears with a running job
     ov->addWidget(progress);
     results = new QTreeWidget;
     results->setObjectName("batchResults");
@@ -845,6 +846,7 @@ bool BatchDialog::startNative() {
     cancelButton->show();
     progress->setRange(0, int(nativePlan.items.size()));
     progress->setValue(0);
+    progress->show();
     auto shared = std::make_shared<batch::NativePlan>(nativePlan);
     auto pipe = pipeline;
     ops::Context ctx;
@@ -935,6 +937,7 @@ bool BatchDialog::start() {
     cancelButton->show();
     progress->setRange(0, int(currentPlan.items.size()));
     progress->setValue(0);
+    progress->show();
     auto shared = std::make_shared<batch::Plan>(currentPlan);
     auto pipe = pipeline;
     ops::Context ctx;

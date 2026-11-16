@@ -467,7 +467,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
                 presetBaseline = preferences.presetLayouts.value(name);
         });
         metrics.record("workspace_switch", timer);
-        statusBar()->showMessage("Workspace: " + presetName(name) + " (your layout)", 3000);
+        statusBar()->showMessage("Workspace: " + presetName(name) + " · custom arrangement", 3000);
         syncWelcomeLayout();
         return;
     }

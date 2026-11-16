@@ -365,6 +365,7 @@ void ToolStripPlacement::place(ToolPlacement p, QPoint at) {
     }
     box->setVisible(visible);
     box->setProperty("floatingStrip", p == ToolPlacement::Floating);
+    box->setProperty("rightEdge", p == ToolPlacement::RightEdge); // its hairline faces the canvas
     box->style()->unpolish(box);
     box->style()->polish(box);
     current = p;

@@ -266,6 +266,7 @@ QString styleSheet(const Tokens &t) {
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
         "QWidget#toolsDockHost QToolBar#toolBox{border:0;border-bottom:1px solid @border}"
+        "QToolBar#toolBox[rightEdge=\"true\"]{border-right:0;border-left:1px solid @border}"
         "QToolBar#toolBox[floatingStrip=\"true\"]{border:1px solid @borderHover;border-radius:@rM;background:@surface}"
         "QStatusBar{background:@window;border-top:1px solid @border;color:@muted}"
         "QStatusBar::item{border:0}"
