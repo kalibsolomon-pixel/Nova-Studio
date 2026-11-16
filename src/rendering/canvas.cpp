@@ -168,7 +168,7 @@ void Canvas::paintEvent(QPaintEvent *) {
     QElapsedTimer timer;
     timer.start();
     QPainter p(this);
-    p.fillRect(rect(), palette().color(QPalette::Base));
+    p.fillRect(rect(), ui::current().canvas);
     const QImage &image = displayed();
     QRectF target(origin(), QSizeF(document->image.size()) * zoom);
     auto clip = target.intersected(rect());
@@ -338,7 +338,6 @@ void Canvas::paintEvent(QPaintEvent *) {
         p.setPen(QPen(Qt::white, 1));
         p.drawLines(mapped);
     }
-    p.setPen(palette().color(QPalette::Text));
     QString status = QString("%1 × %2 RGBA  ·  %3%")
                          .arg(document->image.width())
                          .arg(document->image.height())
@@ -355,7 +354,23 @@ void Canvas::paintEvent(QPaintEvent *) {
         status += QString("  ·  selection %1×%2").arg(b.width()).arg(b.height());
     }
     if (document->animated()) status += playbackPreview.isNull() ? " · Editing frame" : " · Playback preview (read only)";
-    p.drawText(12, 20, status);
+    // The readout sits on its own translucent pill so it stays legible over any artwork.
+    {
+        const auto &t = ui::current();
+        const QFontMetrics fm(p.font());
+        const QRectF pill(ui::SpaceL, ui::SpaceL, fm.horizontalAdvance(status) + 2 * ui::SpaceL,
+                          fm.height() + 2 * ui::SpaceS);
+        QColor fill = t.window;
+        fill.setAlpha(230);
+        p.save();
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(t.border, 1));
+        p.setBrush(fill);
+        p.drawRoundedRect(pill.adjusted(0.5, 0.5, -0.5, -0.5), ui::RadiusM, ui::RadiusM);
+        p.setPen(t.muted);
+        p.drawText(pill, Qt::AlignCenter, status);
+        p.restore();
+    }
     metrics->record("canvas_paint_cpu", timer);
 }
 

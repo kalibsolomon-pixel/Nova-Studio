@@ -335,6 +335,7 @@ void Window::buildEditor(QMenu *view) {
     auto colorScroll = new QScrollArea;
     colorScroll->setWidgetResizable(true);
     colorScroll->setFrameShape(QFrame::NoFrame);
+    colorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // content follows the dock width
     colorScroll->setWidget(colorPanel);
     colorsDock->setWidget(colorScroll);
     addDockWidget(Qt::RightDockWidgetArea, colorsDock);

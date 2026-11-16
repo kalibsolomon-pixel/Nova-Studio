@@ -369,7 +369,7 @@ void Window::recordActivity(const QString &message) {
 }
 void Window::refreshThemeIcons() {
     if (toolBox)
-        toolBox->refreshIcons(ui::current().text);
+        toolBox->refreshIcons(ui::current().icon);
     for (auto a : findChildren<QAction *>())
         if (const auto icon = a->property("novaIcon"); icon.isValid())
             a->setIcon(ui::lineIcon(icon.toString()));

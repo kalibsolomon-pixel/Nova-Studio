@@ -441,7 +441,10 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
     addSeparator();
     effectsButton = new QToolButton(this);
     effectsButton->setObjectName("effectsButton");
-    effectsButton->setText("fx");
+    effectsButton->setText("Effects");
+    effectsButton->setProperty("novaIcon", "effects");
+    effectsButton->setIcon(ui::lineIcon("effects"));
+    effectsButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     effectsButton->setToolTip("Effects: adjustments, filters, shading and generators");
     effectsButton->setPopupMode(QToolButton::InstantPopup);
     effectsButton->setAutoRaise(true);
@@ -529,8 +532,8 @@ QWidget *row(std::initializer_list<QWidget *> widgets) {
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto w = new QWidget;
     auto l = new QHBoxLayout(w);
-    l->setContentsMargins(ui::SpaceS, ui::SpaceXS, ui::SpaceS, ui::SpaceXS);
-    l->setSpacing(ui::SpaceM);
+    l->setContentsMargins(ui::SpaceXS, ui::SpaceXS, ui::SpaceXS, ui::SpaceXS);
+    l->setSpacing(3); // labels add their own leading gap (theme stylesheet)
     for (auto x : widgets)
         l->addWidget(x ? x : groupGap());
     l->addStretch();
@@ -599,6 +602,9 @@ QWidget *ToolOptionsBar::paintPage() {
     auto shape = new QComboBox;
     shape->setObjectName("brushShape");
     shape->addItems(ops::brushShapeNames());
+    // Pickers size to a short label, not their longest item, so the row fits 1280 px.
+    shape->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    shape->setMinimumContentsLength(7);
     shape->setToolTip("Brush shape (Custom uses the stamp captured from a selection)");
     auto size = spin("Brush size ([ / ] to change)", 1, ops::Brush::MaxSize, 1, " px");
     size->setObjectName("brushSize");
@@ -616,6 +622,8 @@ QWidget *ToolOptionsBar::paintPage() {
     auto symmetry = new QComboBox;
     symmetry->setObjectName("symmetry");
     symmetry->addItems(ops::symmetryNames());
+    symmetry->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    symmetry->setMinimumContentsLength(8);
     symmetry->setToolTip("Symmetry painting (guides shown on the canvas)");
     auto radial = spin("Radial segments", 2, 32, 6);
     radial->setObjectName("radialCount");
@@ -629,7 +637,7 @@ QWidget *ToolOptionsBar::paintPage() {
     lockAlpha->setToolTip("Paint only over existing pixels, preserving their transparency");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");
-    auto presets = new QPushButton("Presets ▾");
+    auto presets = new QPushButton("Presets");
     presets->setObjectName("brushPresets");
     presets->setToolTip("Save or apply brush presets");
     auto menu = new QMenu(presets);
@@ -674,9 +682,11 @@ QWidget *ToolOptionsBar::selectPage() {
     ml->setSpacing(2);
     auto group = new QActionGroup(modes);
     const QStringList names = {"Replace", "Add (Shift)", "Subtract (Alt)", "Intersect (Shift+Alt)"};
-    const QStringList glyphs = {"▣", "＋", "－", "∩"};
+    const QStringList icons = {"select-replace", "select-add", "select-subtract", "select-intersect"};
     for (int i = 0; i < 4; ++i) {
-        auto a = new QAction(glyphs[i], group);
+        auto a = new QAction(names[i].section(" (", 0, 0), group);
+        a->setProperty("novaIcon", icons[i]);
+        a->setIcon(ui::lineIcon(icons[i]));
         a->setCheckable(true);
         a->setToolTip("Selection mode: " + names[i]);
         a->setObjectName("selectMode" + QString::number(i));

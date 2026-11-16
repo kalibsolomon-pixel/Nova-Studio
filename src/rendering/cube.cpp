@@ -116,10 +116,7 @@ void Cube::setNotice(const QString &text) {
         noticeLabel->setWordWrap(false); // placeNotice() wraps within the line budget
         noticeLabel->setTextFormat(Qt::PlainText);
         noticeLabel->setAttribute(Qt::WA_TransparentForMouseEvents); // orbiting still works under it
-        const auto &t = ui::current();
-        noticeLabel->setStyleSheet(QString("QLabel#previewNotice{background:rgb(39,42,54);color:rgb(222,225,235);"
-                                           "border:1px solid %1;border-left:3px solid %1;padding:%2px %3px}")
-                                       .arg(t.warning.name()).arg(ui::SpaceS).arg(ui::SpaceL));
+        noticeLabel->setProperty("role", "notice"); // tinted warning banner from the theme
     }
     noticeLabel->setAccessibleName(text);
     noticeLabel->setVisible(!text.isEmpty());
@@ -386,14 +383,16 @@ void Cube::initializeGL() {
 void Cube::paintGL() {
     QElapsedTimer timer;
     timer.start();
-    glClearColor(19.f / 255, 22.f / 255, 30.f / 255, 1);
+    // Models read against the same surround as textures.
+    const QColor clear = ui::current().canvas;
+    glClearColor(clear.redF(), clear.greenF(), clear.blueF(), 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if ((!document && !modelMesh) || !program || !program->isLinked() || !buffer.isCreated()) {
         QPainter p(this);
-        p.setPen(palette().color(QPalette::Text));
+        p.setPen(ui::current().muted);
         p.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignCenter | Qt::TextWordWrap,
                    document ? "3D preview unavailable. Your texture remains editable."
-                            : "Open a texture or Minecraft model");
+                            : "Open a texture or model to preview it in 3D");
         return;
     }
     if (geometryDirty)

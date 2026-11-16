@@ -3,6 +3,7 @@
 #include "branding.h"
 #include "build_identity.h"
 #include "diagnostics.h"
+#include "theme.h"
 #include "window.h"
 #include <QApplication>
 #include <QSurfaceFormat>
@@ -41,14 +42,14 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     // Select the application style before constructing the workspace. Changing it
     // afterwards repolishes every existing widget during the startup path.
-    app.setStyle("Fusion");
+    app.setStyle(nova::ui::createStyle());
     app.setProperty("applicationInitMs", started.nsecsElapsed() / 1e6);
     app.setApplicationName("Nova Studio");
     app.setWindowIcon(nova::applicationIcon());
     app.setApplicationVersion(nova::AppVersion);
     app.setOrganizationName("Nova Studio");
     QFont font = app.font();
-    font.setPointSize(9);
+    font.setPointSizeF(nova::ui::TypeBody);
     app.setFont(font);
     auto args = app.arguments();
     auto arg = [&](QString key, QString fallback = QString()) {

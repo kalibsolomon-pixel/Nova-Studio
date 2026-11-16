@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "panels.h"
+#include "theme.h"
 #include <QColorDialog>
 #include <QComboBox>
 #include <QFileDialog>
@@ -49,9 +50,9 @@ class SwatchGrid : public QWidget {
         const int cols = columns();
         for (int i = 0; i < int(colors.size()); ++i) {
             const QRect r((i % cols) * cell, (i / cols) * cell, cell - 1, cell - 1);
-            p.fillRect(r, QColor(60, 60, 60));
-            p.fillRect(r.adjusted(0, 0, -r.width() / 2, -r.height() / 2), QColor(90, 90, 90));
-            p.fillRect(r.adjusted(r.width() / 2, r.height() / 2, 0, 0), QColor(90, 90, 90));
+            p.fillRect(r, ui::current().checkerDark);
+            p.fillRect(r.adjusted(0, 0, -r.width() / 2, -r.height() / 2), ui::current().checkerLight);
+            p.fillRect(r.adjusted(r.width() / 2, r.height() / 2, 0, 0), ui::current().checkerLight);
             p.fillRect(r, QColor::fromRgba(colors[size_t(i)]));
         }
     }
@@ -87,9 +88,9 @@ namespace {
 QIcon swatchIcon(QRgb c, int size = 30) {
     QPixmap pm(size, size);
     QPainter p(&pm);
-    p.fillRect(pm.rect(), QColor(70, 70, 70));
-    p.fillRect(QRect(0, 0, size / 2, size / 2), QColor(110, 110, 110));
-    p.fillRect(QRect(size / 2, size / 2, size / 2, size / 2), QColor(110, 110, 110));
+    p.fillRect(pm.rect(), ui::current().checkerDark);
+    p.fillRect(QRect(0, 0, size / 2, size / 2), ui::current().checkerLight);
+    p.fillRect(QRect(size / 2, size / 2, size / 2, size / 2), ui::current().checkerLight);
     p.fillRect(pm.rect(), QColor::fromRgba(c));
     p.setPen(Qt::black);
     p.drawRect(pm.rect().adjusted(0, 0, -1, -1));
@@ -508,7 +509,7 @@ void HistoryPanel::refresh() {
     }
     if (document) {
         for (int i = 0; i < list->count(); ++i)
-            list->item(i)->setForeground(i > document->historyCursor() ? QColor(130, 130, 140)
+            list->item(i)->setForeground(i > document->historyCursor() ? ui::current().disabled
                                                                        : palette().color(QPalette::Text));
         list->setCurrentRow(document->historyCursor());
     }

@@ -205,34 +205,75 @@ QList<SearchIndex::Result> SearchIndex::query(const QString &text, int limit) co
 }
 
 namespace {
-// Name on the left; category and shortcut right-aligned in the muted colour.
+// Name on the left; the category labels the first row of each run of one category,
+// and the shortcut sits in a fixed right column as keycaps. Selection is an inset
+// rounded highlight.
+enum SearchRole { RightText = Qt::UserRole + 1, Unavailable, Category, Shortcut };
 class SearchDelegate : public QStyledItemDelegate {
   public:
     using QStyledItemDelegate::QStyledItemDelegate;
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         QStyleOptionViewItem opt = option;
         initStyleOption(&opt, index);
-        const auto right = index.data(Qt::UserRole + 1).toString();
-        const bool unavailable = index.data(Qt::UserRole + 2).toBool();
+        const auto &t = ui::current();
+        const bool unavailable = index.data(Unavailable).toBool();
         const bool selected = opt.state & QStyle::State_Selected;
-        const auto muted = selected ? opt.palette.color(QPalette::HighlightedText) : opt.palette.color(QPalette::PlaceholderText);
-        const int rightWidth = right.isEmpty() ? 0 : opt.fontMetrics.horizontalAdvance(right) + 2 * ui::SpaceXL;
-        const auto title = opt.text;
-        opt.text.clear();
-        opt.widget->style()->drawControl(QStyle::CE_ItemViewItem, &opt, p, opt.widget);
+        const bool hovered = opt.state & QStyle::State_MouseOver;
+        const auto category = index.data(Category).toString();
+        const auto previous = index.row() > 0 ? index.siblingAtRow(index.row() - 1).data(Category).toString() : QString();
+        const bool showCategory = !category.isEmpty() && (category != previous || selected);
+        const auto shortcut = index.data(Shortcut).toString();
         p->save();
-        const auto textRect = opt.rect.adjusted(ui::SpaceL, 0, -rightWidth, 0);
-        p->setPen(unavailable ? muted : selected ? opt.palette.color(QPalette::HighlightedText) : opt.palette.color(QPalette::Text));
-        p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, opt.fontMetrics.elidedText(title, Qt::ElideRight, textRect.width()));
-        if (!right.isEmpty()) {
-            p->setPen(muted);
-            p->drawText(opt.rect.adjusted(0, 0, -ui::SpaceXL, 0), Qt::AlignRight | Qt::AlignVCenter, right);
+        p->setRenderHint(QPainter::Antialiasing);
+        const QRectF row = QRectF(opt.rect).adjusted(ui::SpaceXS, 1, -ui::SpaceXS, -1);
+        if (selected || hovered) {
+            p->setPen(Qt::NoPen);
+            p->setBrush(selected ? t.selection : t.raised);
+            p->drawRoundedRect(row, ui::RadiusM, ui::RadiusM);
         }
+        const QColor ink = unavailable ? t.disabled : selected ? t.selectionText : t.text;
+        const QColor quiet = selected ? t.selectionText : t.muted;
+        // Keycaps, right to left.
+        QFont capFont = opt.font;
+        capFont.setPointSizeF(ui::TypeCaption);
+        const QFontMetrics capMetrics(capFont);
+        qreal right = row.right() - ui::SpaceL;
+        if (!shortcut.isEmpty()) {
+            p->setFont(capFont);
+            const auto first = shortcut.split(", ").first(); // the primary binding
+            const auto keys = first.split('+');
+            for (int i = keys.size() - 1; i >= 0; --i) {
+                const auto key = keys[i];
+                const qreal w = std::max<qreal>(capMetrics.horizontalAdvance(key) + 10, 20);
+                const QRectF cap(right - w, row.center().y() - 10, w, 20);
+                p->setPen(QPen(selected ? quiet : t.borderStrong, 1));
+                p->setBrush(selected ? QColor(0, 0, 0, 0) : t.surface);
+                p->drawRoundedRect(cap.adjusted(0.5, 0.5, -0.5, -0.5), ui::RadiusS, ui::RadiusS);
+                p->setPen(quiet);
+                p->drawText(cap, Qt::AlignCenter, key);
+                right = cap.left() - 3;
+            }
+            right -= ui::SpaceM;
+        }
+        if (showCategory || unavailable) {
+            p->setFont(capFont);
+            p->setPen(quiet);
+            const auto label = unavailable ? (category.isEmpty() ? QString("Unavailable") : "Unavailable · " + category)
+                                           : category;
+            const qreal w = capMetrics.horizontalAdvance(label);
+            p->drawText(QRectF(right - w, row.top(), w, row.height()), Qt::AlignVCenter | Qt::AlignRight, label);
+            right -= w + ui::SpaceL;
+        }
+        p->setFont(opt.font);
+        p->setPen(ink);
+        const QRectF textRect(row.left() + ui::SpaceL + 2, row.top(), right - row.left() - ui::SpaceL - 2, row.height());
+        p->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
+                    opt.fontMetrics.elidedText(opt.text, Qt::ElideRight, int(textRect.width())));
         p->restore();
     }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         auto size = QStyledItemDelegate::sizeHint(option, index);
-        return {size.width(), std::max(size.height(), option.fontMetrics.height() + 2 * ui::SpaceM)};
+        return {size.width(), std::max(size.height(), option.fontMetrics.height() + 2 * ui::SpaceL + 2)};
     }
 };
 } // namespace
@@ -242,8 +283,11 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     setObjectName("commandPalette");
     setWindowTitle("Search");
     auto layout = new QVBoxLayout(this);
-    layout->setSpacing(ui::SpaceM);
+    layout->setContentsMargins(ui::SpaceXL, ui::SpaceXL, ui::SpaceXL, ui::SpaceL);
+    layout->setSpacing(ui::SpaceL);
     query = new QLineEdit;
+    query->addAction(ui::lineIcon("search"), QLineEdit::LeadingPosition);
+    query->setMinimumHeight(34);
     query->setObjectName("commandQuery");
     query->setPlaceholderText("Search commands, tools, settings, workspaces and assets");
     query->setAccessibleName("Search Nova Studio");
@@ -254,6 +298,8 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     list->setUniformItemSizes(true);
     list->setItemDelegate(new SearchDelegate(list));
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list->setMouseTracking(true); // hover highlight
+    list->setAttribute(Qt::WA_Hover);
     detail = new QLabel;
     detail->setObjectName("searchDetail");
     detail->setTextFormat(Qt::PlainText);
@@ -297,8 +343,14 @@ void SearchDialog::filter() {
             accessible = result.asset + ", asset";
         }
         item->setText(title);
-        item->setData(Qt::UserRole + 1, right);
-        item->setData(Qt::UserRole + 2, unavailable);
+        item->setData(RightText, right);
+        item->setData(Unavailable, unavailable);
+        if (result.entry >= 0) {
+            item->setData(Category, index.entries[result.entry].category);
+            item->setData(Shortcut, index.entries[result.entry].shortcut);
+        } else {
+            item->setData(Category, right);
+        }
         item->setData(Qt::AccessibleTextRole, accessible);
         list->addItem(item);
     }

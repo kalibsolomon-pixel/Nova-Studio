@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "timeline.h"
 #include "metrics.h"
+#include "theme.h"
 #include <QtWidgets>
 #include <algorithm>
 #include <array>
@@ -18,7 +19,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const {
     if (role == Qt::ToolTipRole) return QString("Entry %1 → %2\n%3 ticks = %4 ms%5\nDrag to reorder playback references")
         .arg(index.row() + 1).arg(frame->second).arg(ticks).arg(qint64(ticks) * 50).arg(entry.ticks ? "" : " (default)");
     if (role == Qt::UserRole) return entry.frame;
-    if (role == Qt::BackgroundRole && entry.frame == document->activeFrame()) return QBrush(QColor(90, 70, 150, 95));
+    if (role == Qt::BackgroundRole && entry.frame == document->activeFrame()) return QBrush(ui::current().accentMuted);
     if (role == Qt::DecorationRole) {
         QElapsedTimer timer;
         timer.start();
@@ -26,7 +27,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const {
         const QString key = QString::number(image.cacheKey()) + ':' + QString::number(thumbnailSize);
         if (auto cached = thumbnails.object(key)) return *cached;
         QPixmap pixmap(thumbnailSize, thumbnailSize);
-        pixmap.fill(QColor(48, 48, 52));
+        pixmap.fill(ui::current().checkerDark);
         QPainter painter(&pixmap);
         const auto size = image.size().scaled(thumbnailSize, thumbnailSize, Qt::KeepAspectRatio);
         const QRect target((thumbnailSize - size.width()) / 2, (thumbnailSize - size.height()) / 2, size.width(), size.height());
@@ -100,18 +101,28 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
         layout->addWidget(scroll);
     };
     auto controls = new QHBoxLayout;
-    auto button = [&](const QString &text, const QString &name, std::function<void()> callback) {
+    // Transport controls are icon buttons; frame commands pair an icon with their label.
+    auto button = [&](const QString &text, const QString &name, std::function<void()> callback,
+                      const QString &icon = {}, bool iconOnly = false) {
         auto b = new QToolButton; b->setText(text); b->setObjectName(name); b->setToolTip(text);
+        b->setAccessibleName(text);
+        if (!icon.isEmpty()) {
+            b->setProperty("novaIcon", icon);
+            b->setIcon(ui::lineIcon(icon));
+            b->setIconSize({ui::IconSize, ui::IconSize});
+            b->setToolButtonStyle(iconOnly ? Qt::ToolButtonIconOnly : Qt::ToolButtonTextBesideIcon);
+        }
         controls->addWidget(b); connect(b, &QToolButton::clicked, this, callback); return b;
     };
-    button("|◀", "animationFirst", [this] { navigate(0, true); });
-    button("◀", "animationPrevious", [this] { navigate(-1); });
+    button("First frame", "animationFirst", [this] { navigate(0, true); }, "first", true);
+    button("Previous frame", "animationPrevious", [this] { navigate(-1); }, "previous", true);
     auto play = button("Play", "animationPlay", [this] {
         if (playback.playing()) playback.pause(); else { emit beforeContextChange(); playback.play(); }
-    });
-    button("Stop", "animationStop", [this] { playback.stop(); });
-    button("▶", "animationNext", [this] { navigate(1); });
-    button("▶|", "animationLast", [this] { navigate(-1, true); });
+    }, "play", true);
+    button("Stop", "animationStop", [this] { playback.stop(); }, "stop", true);
+    button("Next frame", "animationNext", [this] { navigate(1); }, "next", true);
+    button("Last frame", "animationLast", [this] { navigate(-1, true); }, "last", true);
+    controls->addSpacing(ui::SpaceL);
     auto loop = new QCheckBox("Loop"); loop->setChecked(true); controls->addWidget(loop);
     loop->setObjectName("animationLoop");
     connect(loop, &QCheckBox::toggled, &playback, &PlaybackController::setLoop);
@@ -120,9 +131,9 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     speed->setToolTip("Preview speed only; exported ticks are unchanged"); controls->addWidget(speed);
     connect(speed, &QComboBox::currentIndexChanged, this, [this](int i) { playback.setSpeed(std::array{.25, .5, 1., 2., 4.}[size_t(i)]); });
     controls->addSpacing(6);
-    button("+ Frame", "addFrame", [this] { frameCommand(FrameCommand::Add); });
-    button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); });
-    button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); });
+    button("Frame", "addFrame", [this] { frameCommand(FrameCommand::Add); }, "add");
+    button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); }, "duplicate");
+    button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); }, "delete");
     controls->addStretch();
     button("Properties…", "animationProperties", [this] { emit propertiesRequested(); });
     scrollRow(controls);
@@ -184,7 +195,10 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     });
     connect(&playback, &PlaybackController::displayed, this, [this](const QImage &, int entry) { model->setCursor(entry); view->scrollTo(model->index(entry)); });
     connect(&playback, &PlaybackController::stopped, this, [this] { model->setCursor(-1); });
-    connect(&playback, &PlaybackController::statusChanged, this, [this, play] { play->setText(playback.playing() ? "Pause" : "Play"); });
+    connect(&playback, &PlaybackController::statusChanged, this, [this, play] { play->setText(playback.playing() ? "Pause" : "Play");
+        play->setToolTip(play->text());
+        play->setProperty("novaIcon", playback.playing() ? "pause" : "play");
+        play->setIcon(ui::lineIcon(play->property("novaIcon").toString())); });
 }
 void TimelinePanel::setDocument(std::shared_ptr<Document> doc) {
     if (document == doc && (!doc || syncedSerial == doc->changeSerial())) return;

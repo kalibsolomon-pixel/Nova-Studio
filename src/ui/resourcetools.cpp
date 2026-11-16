@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "resourcetools.h"
+#include "theme.h"
 #include <QJsonDocument>
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -7,8 +8,10 @@ namespace nova {
 ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     setObjectName("resourceTools");
     auto v = new QVBoxLayout(this);
-    v->setContentsMargins(6, 6, 6, 6);
+    v->setContentsMargins(ui::SpaceL, ui::SpaceL, ui::SpaceL, ui::SpaceL);
+    v->setSpacing(ui::SpaceM);
     auto row = new QHBoxLayout;
+    row->setSpacing(ui::SpaceS);
     v->addLayout(row);
     scope = new QComboBox;
     scope->setObjectName("validationScope");
@@ -17,11 +20,14 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     row->addWidget(scope);
     run = new QPushButton("Validate");
     run->setObjectName("runValidation");
+    ui::setPrimary(run);
     row->addWidget(run);
     cancelButton = new QPushButton("Cancel");
     cancelButton->setEnabled(false);
     row->addWidget(cancelButton);
+    row->addStretch();
     status = new QLabel("Validate supported Minecraft resource fields and dependencies.");
+    status->setProperty("role", "hint");
     status->setWordWrap(true);
     v->addWidget(status);
     progress = new QProgressBar;
@@ -47,10 +53,12 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
     v->addWidget(detail);
     auto actions = new QHBoxLayout;
+    actions->setSpacing(ui::SpaceS);
     v->addLayout(actions);
     auto open = new QPushButton("Open related asset");
     open->setObjectName("openProblemAsset");
     actions->addWidget(open);
+    actions->addStretch();
     repair = new QPushButton("Preview repair…");
     repair->setObjectName("previewRepair");
     actions->addWidget(repair);
@@ -182,6 +190,14 @@ void ResourceTools::populate(int offset) {
                                  d.field + (d.line ? " line " + QString::number(d.line) : ""),
                                  d.message, d.suggestion});
         item->setData(0, Qt::UserRole, i);
+        // Severity reads by colour and by its word, never colour alone.
+        const auto &t = ui::current();
+        if (d.severity == mc::Severity::Error)
+            item->setForeground(0, t.danger);
+        else if (d.severity == mc::Severity::Warning)
+            item->setForeground(0, t.warning);
+        else if (d.severity == mc::Severity::Unsupported)
+            item->setForeground(0, t.muted);
         item->setToolTip(3, d.message);
         item->setToolTip(4, d.suggestion);
         problems->addTopLevelItem(item);

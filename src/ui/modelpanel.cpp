@@ -772,6 +772,12 @@ void ModelPanel::rebuild() {
             cube->setModel({});
             showFallback("Generic cube: not a Minecraft model. Choose a model to preview it.",
                          "The texture is drawn on all six faces of a plain cube.");
+        } else if (!document) {
+            // Nothing open: a quiet empty state rather than a warning about a missing model.
+            cube->setModel({});
+            cube->setNotice({});
+            diagnostics->setText("Open a texture to preview it in 3D.");
+            diagnostics->setToolTip({});
         } else {
             // Texture only: one flat, double-sided square. Never a cube that could be
             // mistaken for the texture's real model.

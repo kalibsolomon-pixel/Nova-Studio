@@ -82,47 +82,64 @@ class EditorTabs : public QTabWidget {
         auto body = new QWidget;
         welcome->setWidget(body);
         auto layout = new QVBoxLayout(body);
-        layout->setContentsMargins(4, 4, 4, 4);
-        layout->addStretch();
+        layout->setContentsMargins(ui::Space3XL, ui::Space3XL, ui::Space3XL, ui::Space3XL);
+        layout->setSpacing(0);
+        layout->addStretch(3);
         logo = new QLabel;
         logo->setObjectName("welcomeLogo");
-        logo->setPixmap(logoIcon().pixmap(QSize(80, 80), devicePixelRatioF()));
+        logo->setPixmap(logoIcon().pixmap(QSize(72, 72), devicePixelRatioF()));
         logo->setAlignment(Qt::AlignCenter);
         logo->setAccessibleName("Nova Studio logo");
         layout->addWidget(logo);
+        layout->addSpacing(ui::Space2XL);
         auto title = new QLabel("Nova Studio");
+        title->setObjectName("welcomeTitle");
+        title->setProperty("role", "display");
         title->setAlignment(Qt::AlignCenter);
         title->setWordWrap(true);
-        auto font = title->font();
-        font.setPointSize(18);
-        title->setFont(font);
         layout->addWidget(title);
-        auto caption = new QLabel("Minecraft Java resource packs");
+        layout->addSpacing(ui::SpaceS);
+        auto caption = new QLabel("Create and edit Minecraft Java Edition resource packs");
+        caption->setProperty("role", "hint");
         caption->setAlignment(Qt::AlignCenter);
         caption->setWordWrap(true);
         layout->addWidget(caption);
+        layout->addSpacing(ui::Space3XL);
         Q_UNUSED(folder);
+        auto actions = new QHBoxLayout;
+        actions->setSpacing(ui::SpaceL);
+        actions->addStretch();
         for (auto action : {create, open}) {
-            auto row = new QHBoxLayout;
-            row->addStretch();
             auto button = new QPushButton(action == create ? "Create pack…" : "Open pack…");
             button->setToolTip(action->text());
             button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            button->setMinimumWidth(136);
             button->setObjectName(action == create ? "welcomeCreate" : "welcomeOpen");
-            row->addWidget(button);
-            row->addStretch();
-            layout->addLayout(row);
+            if (action == create)
+                ui::setPrimary(button);
+            actions->addWidget(button);
             connect(button, &QPushButton::clicked, action, &QAction::trigger);
         }
+        actions->addStretch();
+        layout->addLayout(actions);
+        layout->addSpacing(ui::SpaceL);
         auto row = new QHBoxLayout;
         row->addStretch();
         auto button = new QPushButton("Recent Projects");
         button->setMenu(recent);
         button->setObjectName("welcomeRecent");
+        button->setProperty("role", "icon");
         row->addWidget(button);
         row->addStretch();
         layout->addLayout(row);
-        layout->addStretch();
+        layout->addSpacing(ui::Space2XL);
+        auto keys = new QLabel("Ctrl+N  New pack     Ctrl+Shift+O  Open pack     Ctrl+K  Search");
+        keys->setObjectName("welcomeShortcuts");
+        keys->setProperty("role", "hint");
+        keys->setAlignment(Qt::AlignCenter);
+        keys->setWordWrap(true);
+        layout->addWidget(keys);
+        layout->addStretch(4);
         connect(this, &QTabWidget::currentChanged, this,
                 [this] { welcome->setVisible(count() == 0); });
     }
@@ -731,6 +748,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     auto inspectorScroll = new QScrollArea;
     inspectorScroll->setWidgetResizable(true);
     inspectorScroll->setFrameShape(QFrame::NoFrame);
+    inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // content wraps to the dock
     inspectorScroll->setWidget(inspector);
     inspectorDock->setWidget(inspectorScroll);
     addDockWidget(Qt::RightDockWidgetArea, inspectorDock);
@@ -1101,12 +1119,7 @@ void Window::removeDocumentTab(int index) {
 
 Canvas *Window::current() const { return dynamic_cast<Canvas *>(tabs->currentWidget()); }
 void Window::applyTheme() {
-    if (qApp->style()->objectName().compare("fusion", Qt::CaseInsensitive) != 0)
-        qApp->setStyle("Fusion");
-    const auto tokens = ui::tokens(dark, preferences.accent);
-    ui::setCurrent(tokens);
-    qApp->setPalette(ui::palette(tokens));
-    qApp->setStyleSheet(ui::styleSheet(tokens));
+    ui::apply(ui::tokens(dark, preferences.accent));
     if (themeAction && themeAction->isChecked() != dark) {
         QSignalBlocker block(themeAction);
         themeAction->setChecked(dark);

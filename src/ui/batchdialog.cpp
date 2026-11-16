@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batchdialog.h"
+#include "theme.h"
 #include "core.h"
 #include "index.h"
 #include "opdialog.h"
@@ -199,7 +200,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     presetBox = new QComboBox;
     presetBox->setObjectName("batchPresets");
     auto presetMenu = new QToolButton;
-    presetMenu->setText("Pipeline ▾");
+    presetMenu->setText("Pipeline");
     presetMenu->setPopupMode(QToolButton::InstantPopup);
     auto pm = new QMenu(presetMenu);
     presetMenu->setMenu(pm);
@@ -212,7 +213,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     steps->setToolTip("Steps run top to bottom; untick to disable a step");
     pv->addWidget(steps, 1);
     // Empty state: say how to start instead of showing a blank list.
-    auto emptySteps = new QLabel("No operations yet. Use Add ▾ below or choose a saved pipeline; "
+    auto emptySteps = new QLabel("No operations yet. Use Add operation below or choose a saved pipeline; "
                                  "steps run top to bottom.");
     emptySteps->setObjectName("batchStepsEmpty");
     emptySteps->setProperty("role", "hint");
@@ -223,7 +224,10 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     emptyLayout->addWidget(emptySteps);
     auto stepRow = new QHBoxLayout;
     auto addButton = new QToolButton;
-    addButton->setText("Add ▾");
+    addButton->setText("Add operation");
+    addButton->setProperty("novaIcon", "add");
+    addButton->setIcon(ui::lineIcon("add"));
+    addButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     addButton->setObjectName("batchAddStep");
     addButton->setPopupMode(QToolButton::InstantPopup);
     auto addMenu = new QMenu(addButton);
@@ -243,9 +247,18 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
                 });
     }
     addButton->setMenu(addMenu);
-    auto dup = new QPushButton("Duplicate"), rem = new QPushButton("Remove"), up = new QPushButton("↑"),
-         down = new QPushButton("↓");
+    auto dup = new QPushButton("Duplicate"), rem = new QPushButton("Remove"), up = new QPushButton,
+         down = new QPushButton;
+    // Reorder buttons are icon buttons with names for assistive technology.
+    for (auto [b, icon, name] : {std::tuple{up, "up", "Move step up"}, std::tuple{down, "down", "Move step down"}}) {
+        b->setProperty("novaIcon", icon);
+        b->setIcon(ui::lineIcon(icon));
+        b->setToolTip(name);
+        b->setAccessibleName(name);
+    }
+    stepRow->setSpacing(ui::SpaceS);
     stepRow->addWidget(addButton);
+    stepRow->addStretch();
     for (auto b : {dup, rem, up, down})
         stepRow->addWidget(b);
     pv->addLayout(stepRow);
@@ -265,7 +278,10 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     samples->setContentsMargins(0, 0, 0, 0);
     auto refreshPreview = new QPushButton("Preview samples");
     refreshPreview->setObjectName("batchPreview");
-    ov->addWidget(refreshPreview);
+    auto previewRow = new QHBoxLayout;
+    previewRow->addWidget(refreshPreview);
+    previewRow->addStretch();
+    ov->addLayout(previewRow);
     ov->addWidget(sampleWidget);
     toDirectory = new QRadioButton("Write results to a separate folder (recommended)");
     toDirectory->setChecked(true);
@@ -298,17 +314,21 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     dryRun->setObjectName("batchDryRun");
     runButton = new QPushButton("Run batch");
     runButton->setObjectName("batchRun");
+    ui::setPrimary(runButton);
     runButton->setEnabled(false);
     cancelButton = new QPushButton("Cancel job");
     cancelButton->setObjectName("batchCancel");
     cancelButton->setEnabled(false);
+    runRow->setSpacing(ui::SpaceS);
+    runRow->addWidget(cancelButton);
+    runRow->addStretch();
     runRow->addWidget(dryRun);
     runRow->addWidget(runButton);
-    runRow->addWidget(cancelButton);
     ov->addLayout(runRow);
     summary = new QLabel("Run a dry run to review every target before writing.");
     summary->setObjectName("batchSummary");
     summary->setWordWrap(true);
+    summary->setProperty("role", "hint");
     ov->addWidget(summary);
     progress = new QProgressBar;
     progress->setObjectName("batchProgress");
