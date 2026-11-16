@@ -26,6 +26,7 @@ Cube::Cube(Metrics *m, QWidget *p) : QOpenGLWidget(p), metrics(m) {
             R"json({"elements":[{"from":[0,0,0],"to":[16,16,16],"faces":{"north":{"texture":"nova:active"},"south":{"texture":"nova:active"},"west":{"texture":"nova:active"},"east":{"texture":"nova:active"},"up":{"texture":"nova:active"},"down":{"texture":"nova:active"}}}]})json")
             .object();
     genericMesh = mc::mesh(model);
+    updateEmptyState(); // nothing is open yet
 }
 Cube::~Cube() {
     cleanup();
@@ -63,6 +64,7 @@ void Cube::setDocument(std::shared_ptr<Document> doc) {
     document = std::move(doc);
     playbackPreview = {};
     fullUpload = true;
+    updateEmptyState();
     if (!document && texture && context() && context()->isValid()) {
         makeCurrent();
         glDeleteTextures(1, &texture);
@@ -97,7 +99,18 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
         materialImages.insert(QString{}, fallback);
     alphaCache.clear();
     selectedFace = -1;
+    updateEmptyState();
     update();
+}
+void Cube::updateEmptyState() {
+    const bool empty = !document && !modelMesh;
+    if (!emptyLabel) {
+        emptyLabel = ui::emptyState("Open a texture or model to preview it in 3D", this);
+        emptyLabel->setObjectName("previewEmpty");
+        emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
+    emptyLabel->setGeometry(rect());
+    emptyLabel->setVisible(empty);
 }
 // The notice is a child label over the GL view rather than QPainter output in paintGL:
 // painter output there reached only grabFramebuffer(), never the on-screen widget.
@@ -183,6 +196,7 @@ void Cube::changeEvent(QEvent *event) {
 void Cube::resizeEvent(QResizeEvent *event) {
     QOpenGLWidget::resizeEvent(event);
     placeNotice();
+    updateEmptyState();
 }
 void Cube::setMaterialImage(const QString &asset, const QImage &image) {
     if (image.isNull() || materialImages.value(asset).cacheKey() == image.cacheKey())

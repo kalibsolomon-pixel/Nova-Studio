@@ -124,7 +124,9 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     button("Stop", "animationStop", [this] { playback.stop(); }, "stop", true);
     button("Next frame", "animationNext", [this] { navigate(1); }, "next", true);
     button("Last frame", "animationLast", [this] { navigate(-1, true); }, "last", true);
-    controls->addSpacing(ui::SpaceL);
+    controls->addSpacing(ui::SpaceS); // a hairline separates transport, playback and frame groups
+    { auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); controls->addWidget(rule); }
+    controls->addSpacing(ui::SpaceS);
     auto loop = new QCheckBox("Loop"); loop->setChecked(true); controls->addWidget(loop);
     loop->setObjectName("animationLoop");
     connect(loop, &QCheckBox::toggled, &playback, &PlaybackController::setLoop);
@@ -132,7 +134,9 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     speed->setObjectName("animationSpeed");
     speed->setToolTip("Preview speed only; exported ticks are unchanged"); controls->addWidget(speed);
     connect(speed, &QComboBox::currentIndexChanged, this, [this](int i) { playback.setSpeed(std::array{.25, .5, 1., 2., 4.}[size_t(i)]); });
-    controls->addSpacing(6);
+    controls->addSpacing(ui::SpaceS); // a hairline separates transport, playback and frame groups
+    { auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); controls->addWidget(rule); }
+    controls->addSpacing(ui::SpaceS);
     button("Frame", "addFrame", [this] { frameCommand(FrameCommand::Add); }, "add");
     button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); }, "duplicate");
     button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); }, "delete");

@@ -172,7 +172,7 @@ QString styleSheet(const Tokens &t) {
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
         "QSplitter::handle{background:@border}"
         "QFrame[role=\"rule\"]{background:@border;max-height:1px;min-height:1px;border:0}"
-        "QFrame[role=\"vrule\"]{background:@border;border:0}"
+        "QFrame[role=\"vrule\"]{background:@borderStrong;border:0}"
         "QFrame[role=\"card\"]{background:@surface;border:1px solid @border;border-radius:@rL}"
         "QFrame[role=\"notice\"]{background:@warningSurface;border:1px solid @warning;border-radius:@rM}"
         "QAbstractScrollArea{border:0}"
@@ -334,7 +334,7 @@ QString styleSheet(const Tokens &t) {
         {"@warning", t.warning},
         {"@danger", t.danger},
         {"@sliderHandle", sliderHandle},
-        {"@scrollThumb", t.dark ? t.borderStrong : mix(t.borderStrong, t.window, 0.15)},
+        {"@scrollThumb", t.dark ? mix(t.borderStrong, t.muted, 0.25) : mix(t.borderStrong, t.window, 0.15)},
         {"@scrollHover", mix(t.borderStrong, t.muted, 0.5)}};
     for (const auto &[key, color] : values)
         s.replace(key, color.alpha() == 255 ? hex(color) : rgba(color));
