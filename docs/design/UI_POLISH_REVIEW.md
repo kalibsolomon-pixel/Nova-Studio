@@ -2,7 +2,25 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 23
+## Latest completed combined review: 24
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 7 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 6 | 5 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 6 | 6 | 7 | 7 | 6 | 7 |
+
+**Acceptance remains unmet.** From this round the council uses only OpenCode and Kimi
+reviewers, at the user's request. LongCat exceeded the five-minute limit and was
+cancelled; Kimi K3 returned no review. Several findings conflict with the captures
+(an "invisible" command palette, misaligned brush-settings sliders, a top tool row inside
+the document-tab band) and are recorded without being treated as defects. Suggestions
+to remove toolbar placements conflict with the requirement to keep all six. The next
+pass names the active tool at the start of every options row (it steps aside before the
+row would scroll) and gives the floating tool strip a rounded, stronger frame.
+
+## Combined review: 23
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

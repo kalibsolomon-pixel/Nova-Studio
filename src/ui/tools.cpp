@@ -587,9 +587,28 @@ class OptionsRow : public QScrollArea {
         return {QScrollArea::sizeHint().width(), (widget() ? widget()->sizeHint().height() : 28) + bar};
     }
     QSize minimumSizeHint() const override { return {80, sizeHint().height()}; }
+    // The leading tool name is a courtesy: it steps aside before the row would need to scroll.
+    void fitToolName(int width) {
+        auto name = widget() ? widget()->findChild<QLabel *>("toolOptionsName") : nullptr;
+        if (!name)
+            return;
+        const bool shown = name->isVisibleTo(widget());
+        const int extra = shown ? 0 : name->sizeHint().width() + 2 * ui::SpaceM + 2 * ui::GroupGap + 1;
+        const bool fits = widget()->sizeHint().width() + extra <= width;
+        if (shown != fits) {
+            name->setVisible(fits);
+            // The gap after the name goes with it.
+            const auto layout = widget()->layout();
+            const int at = layout->indexOf(name);
+            if (at >= 0 && at + 1 < layout->count() && layout->itemAt(at + 1)->widget())
+                layout->itemAt(at + 1)->widget()->setVisible(fits);
+            widget()->adjustSize();
+        }
+    }
     void resizeEvent(QResizeEvent *e) override {
         if (widget() && widget()->layout())
             widget()->layout()->setSpacing(e->size().width() < ui::OptionsCompactWidth ? ui::SpaceS : ui::SpaceM);
+        fitToolName(e->size().width());
         const bool before = horizontalScrollBar()->isVisible();
         QScrollArea::resizeEvent(e);
         placeFade();
@@ -603,6 +622,7 @@ class OptionsRow : public QScrollArea {
     // the height after the page reaches the screen, when the scrollbar state is real.
     void showEvent(QShowEvent *e) override {
         QScrollArea::showEvent(e);
+        fitToolName(width());
         QTimer::singleShot(0, this, [this] { settleHeight(); });
     }
 };
@@ -692,6 +712,14 @@ void ToolOptionsBar::showFor(Tool t) {
     // Hidden pages may need scrollbars, but must not make the active page taller.
     pages->setFixedHeight(pages->currentWidget()->sizeHint().height());
 }
+namespace {
+// Every options row opens with the active tool's name, so the row always says what it edits.
+QLabel *toolName() {
+    auto name = new QLabel;
+    name->setObjectName("toolOptionsName");
+    return name;
+}
+} // namespace
 QWidget *ToolOptionsBar::paintPage() {
     auto name = new QLabel;
     name->setObjectName("paintToolName");
@@ -834,7 +862,7 @@ QWidget *ToolOptionsBar::selectPage() {
     alpha->setObjectName("includeAlpha");
     auto snap = spin("Snap rectangle/ellipse selections to a grid of N pixels", 1, 64, 1, " px");
     snap->setObjectName("selectSnap");
-    auto w = row({label("Mode"), modes, nullptr, label("Tolerance"), tolerance, metric, composite, alpha, nullptr,
+    auto w = row({toolName(), nullptr, label("Mode"), modes, nullptr, label("Tolerance"), tolerance, metric, composite, alpha, nullptr,
                   label("Grid"), snap});
     connect(snap, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->snap = v; state->touch(); } });
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
@@ -882,7 +910,7 @@ QWidget *ToolOptionsBar::shapePage() {
     numeric->setObjectName("shapeParameters");
     connect(numeric,&QPushButton::clicked,state,&ToolState::shapeSettingsRequested);
     snap->setObjectName("shapeSnap");
-    auto w = row({kind, filled, smooth, nullptr, label("Thickness"), thickness, label("Radius"), radius, label("Sides"), sides,
+    auto w = row({toolName(), nullptr, kind, filled, smooth, nullptr, label("Thickness"), thickness, label("Radius"), radius, label("Sides"), sides,
                   label("Inner"), inner, nullptr, label("Rotate"), rotation, flipH, flipV, centre, nullptr, label("Opacity"),
                   opacity, label("Grid"), snap, nullptr, numeric});
     connect(snap, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->snap = v; state->touch(); } });
@@ -950,7 +978,7 @@ QWidget *ToolOptionsBar::fillPage() {
     composite->setToolTip("Match colours on the visible image; only the selected layer changes");
     auto opacity = spin("Opacity", 0, 255, 255);
     opacity->setObjectName("fillOpacity");
-    auto w = row({modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
+    auto w = row({toolName(), nullptr, modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
     connect(metric, &QComboBox::currentIndexChanged, this, [this](int i) { if (!updating) { state->metric = ops::Distance(i); state->touch(); } });
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
@@ -964,7 +992,7 @@ QWidget *ToolOptionsBar::gradientPage() {
     auto steps = spin("Discrete steps (0 = smooth)", 0, 64, 0);
     auto dither = new QCheckBox("Ordered dither");
     auto opacity = spin("Opacity", 0, 255, 255);
-    auto w = row({label("Foreground → background"), type, label("Steps"), steps, dither, label("Opacity"), opacity});
+    auto w = row({toolName(), nullptr, label("Foreground → background"), type, label("Steps"), steps, dither, label("Opacity"), opacity});
     connect(type, &QComboBox::currentTextChanged, this, [this](const QString &v) { if (!updating) { state->gradientType = v; state->touch(); } });
     connect(steps, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->gradientSteps = v; state->touch(); } });
     connect(dither, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->gradientDither = v; state->touch(); } });
@@ -999,7 +1027,7 @@ QWidget *ToolOptionsBar::transformPage() {
     flipV->setObjectName("transformFlipV");
     auto hidden = new QCheckBox("Include hidden");
     hidden->setObjectName("transformHidden");
-    auto w = row({label("Selected layers"), hidden, nullptr, label("Scale"), sx, sy, label("Rotate"), angle,
+    auto w = row({toolName(), nullptr, label("Selected layers"), hidden, nullptr, label("Scale"), sx, sy, label("Rotate"), angle,
                   resampling, flipH, flipV, nullptr, apply, cancel, reset, hint});
     connect(flipH, &QCheckBox::toggled, this, [this](bool value) {
         if (!updating) {
@@ -1031,7 +1059,7 @@ QWidget *ToolOptionsBar::transformPage() {
 QWidget *ToolOptionsBar::pickPage() {
     auto composite = new QCheckBox("Sample all layers");
     composite->setObjectName("pickComposite");
-    auto w = row({label("Click: foreground · Shift-click / right-click: background"), composite});
+    auto w = row({toolName(), nullptr, label("Click: foreground · Shift-click / right-click: background"), composite});
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
     return w;
 }
@@ -1049,6 +1077,8 @@ void ToolOptionsBar::reload() {
     };
     if (auto n = page->findChild<QLabel *>("paintToolName"))
         n->setText("<b>" + toolInfo(state->tool).name + "</b>");
+    if (auto n = page->findChild<QLabel *>("toolOptionsName"))
+        n->setText("<b>" + toolInfo(state->tool).name + "</b>"); // same weight as the paint row
     if (auto c = page->findChild<QComboBox *>("brushShape"))
         c->setCurrentIndex(int(b.shape));
     set("brushSize", b.size);
