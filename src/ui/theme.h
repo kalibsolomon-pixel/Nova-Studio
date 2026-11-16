@@ -12,6 +12,7 @@
 #include <QPalette>
 #include <QString>
 
+class QAbstractScrollArea;
 class QLabel;
 class QStyle;
 class QToolButton;
@@ -113,6 +114,9 @@ QLabel *hint(const QString &text, QWidget *parent = nullptr);
 QLabel *emptyState(const QString &text, QWidget *parent = nullptr);
 // Marks a push button as the dialog's or view's main action (accent fill).
 void setPrimary(QWidget *button);
+// Fades the bottom edge of a scroll area into the panel while more content lies below,
+// so a panel taller than its dock reads as scrollable rather than cut off.
+void addScrollFade(QAbstractScrollArea *area);
 QToolButton *iconButton(const QString &icon, const QString &tooltip, const QString &objectName = {},
                         QWidget *parent = nullptr);
 // Runs callback on the next event-loop turn after target receives one of types

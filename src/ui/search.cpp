@@ -235,7 +235,7 @@ class SearchDelegate : public QStyledItemDelegate {
         const bool hovered = opt.state & QStyle::State_MouseOver;
         const auto category = index.data(Category).toString();
         const auto previous = index.row() > 0 ? index.siblingAtRow(index.row() - 1).data(Category).toString() : QString();
-        const bool showCategory = !category.isEmpty() && (category != previous || selected);
+        const bool showCategory = !category.isEmpty() && category != previous;
         const auto shortcut = index.data(Shortcut).toString();
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
@@ -329,7 +329,13 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     detail->setMinimumHeight(detail->fontMetrics().lineSpacing() * 2);
     layout->addWidget(query);
     layout->addWidget(list, 1);
-    layout->addWidget(detail);
+    auto footer = new QHBoxLayout;
+    footer->addWidget(detail, 1);
+    auto keys = ui::hint("↑↓ move   Enter run   Esc close");
+    keys->setWordWrap(false);
+    keys->setObjectName("searchKeys");
+    footer->addWidget(keys, 0, Qt::AlignTop);
+    layout->addLayout(footer);
     connect(query, &QLineEdit::textChanged, this, [this] { filter(); });
     connect(query, &QLineEdit::returnPressed, this, [this] { activateCurrent(); });
     connect(list, &QListWidget::itemActivated, this, [this] { activateCurrent(); });

@@ -612,7 +612,12 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     noPack->setObjectName("assetsEmptyState");
     noPack->setAttribute(Qt::WA_TransparentForMouseEvents);
     (new QVBoxLayout(tree->viewport()))->addWidget(noPack);
-    const auto updateNoPack = [this, noPack] { noPack->setVisible(project.isEmpty() && proxy->rowCount() == 0); };
+    const auto updateNoPack = [this, noPack] {
+        noPack->setVisible(project.isEmpty() && proxy->rowCount() == 0);
+        // The folder row (parent button and breadcrumb) only means something inside a pack.
+        if (auto up = findChild<QWidget *>("assetParent"))
+            up->setVisible(!project.isEmpty());
+    };
     connect(proxy, &QAbstractItemModel::modelReset, noPack, updateNoPack);
     connect(proxy, &QAbstractItemModel::rowsInserted, noPack, updateNoPack);
     connect(proxy, &QAbstractItemModel::rowsRemoved, noPack, updateNoPack);
@@ -793,6 +798,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     inspectorScroll->setFrameShape(QFrame::NoFrame);
     inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // content wraps to the dock
     inspectorScroll->setWidget(inspector);
+    ui::addScrollFade(inspectorScroll);
     inspectorDock->setWidget(inspectorScroll);
     addDockWidget(Qt::RightDockWidgetArea, inspectorDock);
     layersDock = new QDockWidget("Layers", this);
@@ -855,6 +861,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     auto modelScroll = new QScrollArea;
     modelScroll->setWidgetResizable(true); modelScroll->setFrameShape(QFrame::NoFrame);
     modelScroll->setWidget(modelPanel); modelsDock->setWidget(modelScroll);
+    ui::addScrollFade(modelScroll);
     addDockWidget(Qt::RightDockWidgetArea, modelsDock);
     tabifyDockWidget(inspectorDock, modelsDock); inspectorDock->raise();
     buildResourceTools(panelsMenu);

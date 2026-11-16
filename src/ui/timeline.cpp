@@ -141,8 +141,8 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     model = new TimelineModel(this);
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);
     view->setViewMode(QListView::IconMode); view->setFlow(QListView::LeftToRight); view->setWrapping(false);
-    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({102, 98});
-    view->setIconSize({56, 56}); view->setMinimumHeight(105); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({102, 114});
+    view->setIconSize({72, 72}); view->setMinimumHeight(121); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     view->setDragDropMode(QAbstractItemView::InternalMove); view->setDefaultDropAction(Qt::MoveAction);
     view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel); view->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(view, 1);
@@ -169,7 +169,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     timingRow->addSpacing(ui::SpaceL);
     interpolate = new QCheckBox("Interpolate"); interpolate->setObjectName("animationInterpolate"); timingRow->addWidget(interpolate);
     timingRow->addStretch();
-    auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(56); zoom->setMaximumWidth(100);
+    auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(72); zoom->setMaximumWidth(100);
     zoom->setObjectName("timelineZoom");
     zoom->setToolTip("Timeline thumbnail size");
     auto zoomIcon = new QLabel; zoomIcon->setPixmap(ui::lineIcon("zoom-in").pixmap(ui::IconSize, ui::IconSize));

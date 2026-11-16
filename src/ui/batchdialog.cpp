@@ -55,7 +55,18 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     setWindowTitle("Batch Processor");
     pipeline.name = "Untitled pipeline";
     auto root = new QVBoxLayout(this);
+    root->setContentsMargins(ui::Space2XL, ui::Space2XL, ui::Space2XL, ui::SpaceXL);
+    root->setSpacing(ui::SpaceL);
+    // A titled header states what the dialog does before its three steps.
+    auto title = new QLabel("Batch processing");
+    title->setProperty("role", "title");
+    root->addWidget(title);
+    auto subtitle = ui::hint("Choose the textures, build an operation stack, then preview and run it. "
+                             "A dry run writes nothing.");
+    root->addWidget(subtitle);
+    root->addSpacing(ui::SpaceS);
     auto split = new QSplitter;
+    split->setHandleWidth(ui::SpaceXL);
     root->addWidget(split, 1);
     // ---------------------------------------------------------------- targets
     auto targetsBox = new QGroupBox("1 · Targets");

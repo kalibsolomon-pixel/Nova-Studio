@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "theme.h"
 #include <QAbstractItemView>
+#include <QAbstractScrollArea>
+#include <QScrollBar>
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QDebug>
@@ -906,6 +908,19 @@ QStyle *createStyle() {
     return style;
 }
 
+namespace {
+// The platform assigns its own (smaller) fonts to menus, item views and docks, and
+// re-applies them when the style or palette changes; pin them to the body font each
+// time so every surface shares one size. Existing widgets receive the change.
+void pinClassFonts() {
+    QFont body = QApplication::font();
+    body.setPointSizeF(TypeBody);
+    for (const char *cls : {"QMenuBar", "QMenu", "QAbstractItemView", "QHeaderView", "QTabBar", "QDockWidget",
+                            "QGroupBox", "QMessageBox", "QComboBoxListView"})
+        if (QApplication::font(cls) != body)
+            QApplication::setFont(body, cls);
+}
+} // namespace
 void prepareApplication() {
     // Created once at startup by main(); tests and hosts that construct the
     // workspace under plain Fusion get it here, before the palette is set.
@@ -918,12 +933,9 @@ void prepareApplication() {
     if (!fontApplied || font.pointSizeF() != TypeBody) {
         font.setPointSizeF(TypeBody);
         QApplication::setFont(font);
-        // The platform also assigns its own menu and item-view fonts; pin them to the
-        // body font so menus, lists and panels share one size.
-        for (const char *cls : {"QMenuBar", "QMenu", "QAbstractItemView", "QTabBar", "QDockWidget", "QGroupBox"})
-            QApplication::setFont(font, cls);
         fontApplied = true;
     }
+    pinClassFonts();
 }
 
 void apply(const Tokens &t) {
@@ -931,6 +943,13 @@ void apply(const Tokens &t) {
     prepareApplication();
     qApp->setPalette(palette(t));
     qApp->setStyleSheet(styleSheet(t));
+    pinClassFonts();
+    // Widgets that resolved a platform class font before the pin keep it cached; make
+    // every widget re-resolve so all panels show the body size.
+    for (auto widget : QApplication::allWidgets()) {
+        QEvent change(QEvent::ApplicationFontChange);
+        QApplication::sendEvent(widget, &change);
+    }
 }
 
 QIcon lineIcon(const QString &name, const QColor &ink, const QColor &disabledInk) {
@@ -978,6 +997,37 @@ QLabel *emptyState(const QString &text, QWidget *parent) {
     label->setWordWrap(true);
     return label;
 }
+namespace {
+class ScrollFade : public QWidget {
+    QAbstractScrollArea *area;
+
+  public:
+    explicit ScrollFade(QAbstractScrollArea *a) : QWidget(a), area(a) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        const auto update = [this] { place(); };
+        connect(area->verticalScrollBar(), &QScrollBar::valueChanged, this, update);
+        connect(area->verticalScrollBar(), &QScrollBar::rangeChanged, this, update);
+        afterEvents(area, {QEvent::Resize, QEvent::Show, QEvent::LayoutRequest}, update);
+    }
+    void place() {
+        const auto bar = area->verticalScrollBar();
+        const auto viewport = area->viewport()->geometry();
+        setGeometry(viewport.left(), viewport.bottom() - 31, viewport.width(), 32);
+        setVisible(bar->maximum() > 0 && bar->value() < bar->maximum());
+        raise();
+    }
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        QColor clear = current().window;
+        clear.setAlpha(0);
+        QLinearGradient fade(0, 0, 0, height());
+        fade.setColorAt(0, clear);
+        fade.setColorAt(1, current().window);
+        p.fillRect(rect(), fade);
+    }
+};
+} // namespace
+void addScrollFade(QAbstractScrollArea *area) { new ScrollFade(area); }
 void setPrimary(QWidget *button) {
     button->setProperty("role", "primary");
     button->style()->unpolish(button);

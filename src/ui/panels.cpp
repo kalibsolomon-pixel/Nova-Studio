@@ -136,6 +136,8 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     grid2->setVerticalSpacing(2);
     model = new QComboBox;
     model->addItems({"HSV", "HSL"});
+    model->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    model->setMinimumContentsLength(4);
     model->setToolTip("Hue/saturation model for the sliders (encoded sRGB)");
     grid2->addWidget(model, 0, 0, 1, 3);
     const char *names[3] = {"H", "S", "V"};
@@ -145,6 +147,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
         l->setProperty("role", "hint");
         slider[i] = new QSlider(Qt::Horizontal);
         channel[i] = new QSpinBox;
+        channel[i]->setButtonSymbols(QAbstractSpinBox::NoButtons); // compact value field; wheel and keys step
         slider[i]->setRange(0, i == 0 ? 359 : 100);
         channel[i]->setRange(0, i == 0 ? 359 : 100);
         grid2->addWidget(l, i + 1, 0);
@@ -176,6 +179,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     for (int i = 0; i < 3; ++i) {
         rgb[i] = new QSpinBox;
         rgb[i]->setRange(0, 255);
+        rgb[i]->setButtonSymbols(QAbstractSpinBox::NoButtons);
         rgb[i]->setObjectName(QString("rgb%1").arg(rgbNames[i]));
         rgbRow->addWidget(channelLabel(rgbNames[i]), i / 2, (i % 2) * 2);
         rgbRow->addWidget(rgb[i], i / 2, (i % 2) * 2 + 1);
@@ -186,6 +190,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     }
     alpha = new QSpinBox;
     alpha->setRange(0, 255);
+    alpha->setButtonSymbols(QAbstractSpinBox::NoButtons);
     alpha->setObjectName("rgbA");
     rgbRow->addWidget(channelLabel("A"), 1, 2);
     rgbRow->addWidget(alpha, 1, 3);
@@ -205,6 +210,9 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     auto pRow = new QHBoxLayout;
     paletteBox = new QComboBox;
     paletteBox->setObjectName("paletteSelector");
+    // Long palette names elide instead of widening the panel past its dock.
+    paletteBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    paletteBox->setMinimumContentsLength(8);
     paletteBox->setToolTip("Active palette (also used by palette lock and Map to Palette)");
     auto menuButton = new QToolButton;
     menuButton->setProperty("novaIcon", "menu");

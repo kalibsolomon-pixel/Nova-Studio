@@ -337,6 +337,7 @@ void Window::buildEditor(QMenu *view) {
     colorScroll->setFrameShape(QFrame::NoFrame);
     colorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // content follows the dock width
     colorScroll->setWidget(colorPanel);
+    ui::addScrollFade(colorScroll);
     colorsDock->setWidget(colorScroll);
     addDockWidget(Qt::RightDockWidgetArea, colorsDock);
     historyPanel = new HistoryPanel(&session);
