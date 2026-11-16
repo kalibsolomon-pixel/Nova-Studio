@@ -195,7 +195,7 @@ class ToolGroupButton : public QToolButton {
         p.setPen(Qt::NoPen);
         p.setBrush(!isEnabled() ? t.disabled : isChecked() ? t.accent : t.muted);
         const QPointF corner = QRectF(rect()).bottomRight() - QPointF(ui::SpaceXS + 1, ui::SpaceXS + 1);
-        const qreal size = 5;
+        const qreal size = 6;
         p.drawPolygon(QPolygonF{corner, corner - QPointF(size, 0), corner - QPointF(0, size)});
     }
     void contextMenuEvent(QContextMenuEvent *e) override {

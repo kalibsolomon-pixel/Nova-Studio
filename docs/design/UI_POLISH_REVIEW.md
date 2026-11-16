@@ -2,7 +2,26 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 29
+## Latest completed combined review: 30
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 7 | 6 | 6 | 6 | 7 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 7 | 7 | 7 | 7 | 8 | 8 |
+| opencode/longcat-2.5-free | 8 | 7 | 8 | 7 | 7 | 8 | 8 | 8 |
+| opencode/minimax-m3.1-flash-free | 7 | 6 | 6 | 7 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 8 | 7 | 7 | 7 | 6 | 7 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** Two reviewers reach 8 overall. Recurring findings: light-theme
+dock boundaries are too faint, the rail's group triangles are hard to see, and the
+"unsaved documents" status text is muted although it needs attention. The next pass
+darkens the light `border`/`borderStrong` hairlines to `#cfd2d9`/`#b8bcc5`, enlarges the corner
+triangle to 6px, and gives the unsaved status the `warning` role (the Inspector's amber).
+An attempt to shorten Layers in the Model workspace did not survive the workspace's later
+column sizing and was withdrawn.
+
+## Combined review: 29
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -229,9 +248,11 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 27 | fixed left tool rail, matching status text | GLM free: 6; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 8; Terra: 7 |
 | 28 | corner-triangle rail, slider popovers, indented Batch output | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
 | 29 | whole palette in view, brighter section titles and disabled text | GLM free: 6; GLM z.ai: 8; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 30 | framed artboard, accent-faded disabled checks | GLM free: 7; GLM z.ai: 8; LongCat: 8; MiniMax: 6; Inkling: 7; Terra: 7 |
 
 ## Verification
 
+- Darker light hairlines, 6px rail triangles and the amber unsaved status: the complete regression run (MCP excluded) passed 66/66 suites in 325.74 seconds.
 - Faded-accent disabled checks and the framed artboard: the complete regression run (MCP excluded) passed 66/66 suites in 323.84 seconds.
 - Hex and slider model on one row, brighter section titles and disabled text, frameless Presets: the complete regression run (MCP excluded) passed 66/66 suites in 324.41 seconds.
 - Corner-triangle rail, slider popovers and indented Batch output: the complete regression run (MCP excluded) passed 66/66 suites in 326.98 seconds.

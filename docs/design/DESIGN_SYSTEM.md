@@ -32,7 +32,7 @@ two tokens.
 | `surface` | `#1e1f25` | `#ececef` | Cards and grouped sections; hover on document tabs |
 | `raised` | `#272830` | `#e5e6ea` | Hover fills, menus, tooltips, popups |
 | `control` | `#24252c` | `#ffffff` | Push-button and picker fill |
-| `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#d6d8de` / `#bfc2ca` | Hairlines / control outlines |
+| `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#cfd2d9` / `#b8bcc5` | Hairlines / control outlines |
 | `text` / `muted` | `#e3e4e8` / `#a4a7b2` | `#1b1d22` / `#5b5f6b` | Primary / secondary text |
 | `disabled` / `placeholder` | `#7a7d89` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
 | `icon` | `#c4c6ce` | `#3d414b` | Default icon ink, one step softer than text |

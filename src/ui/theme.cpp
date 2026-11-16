@@ -182,8 +182,9 @@ Tokens tokens(bool dark, const QString &accent) {
         t.surface = QColor("#ececef");
         t.raised = QColor("#e5e6ea");
         t.control = QColor("#ffffff");
-        t.border = QColor("#d6d8de");
-        t.borderStrong = QColor("#bfc2ca");
+        // Hairlines a step darker than the panels' own greys keep docks apart on light screens.
+        t.border = QColor("#cfd2d9");
+        t.borderStrong = QColor("#b8bcc5");
         t.text = QColor("#1b1d22");
         t.muted = QColor("#5b5f6b");
         t.disabled = QColor("#878a93"); // 3.1:1 on panels: legible yet clearly inactive
