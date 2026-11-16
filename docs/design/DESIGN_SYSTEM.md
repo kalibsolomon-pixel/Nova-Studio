@@ -162,7 +162,8 @@ could move, restore with the rail on the left and the rest of their arrangement 
 The rail chooses the tool; the Tool Options row above the canvas edits it. The colour
 wells share the 30px tool target. A button that groups tool variants (and Effects) is the
 same square as every other rail button, marked by a small triangle in its bottom-right
-corner (`muted`, or `accent` when checked) rather than a separate arrow segment. Press and
+corner (`muted`, or `accent` when checked) rather than a separate arrow segment. The active
+tool uses the `selection` fill with an `accent` edge, like a selected row. Press and
 hold, right-click, Alt+Down or the menu key opens its menu; every variant also has its own
 shortcut and an Edit › Tool menu entry. Rules separate Effects and the colour wells.
 

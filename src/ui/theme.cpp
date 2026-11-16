@@ -265,6 +265,8 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#toolOptions QLabel#paintToolName,QToolBar#toolOptions QLabel#toolOptionsName{color:@text;font-weight:600;padding-left:2px;padding-right:6px}"
         "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:@stripPadV @stripPadH}"
         "QToolBar#toolBox QToolButton{padding:@toolPad}"
+        // The active tool reads like a selected row: the selection fill with an accent edge.
+        "QToolBar#toolBox QToolButton:checked{background:@selection;border-color:@accent}"
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
         "QStatusBar{background:@window;border-top:1px solid @border;color:@muted}"
