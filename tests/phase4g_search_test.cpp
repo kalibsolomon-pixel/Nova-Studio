@@ -225,6 +225,45 @@ class Phase4gSearchTest : public QObject {
         QTRY_VERIFY(window->activeCanvas());
         QVERIFY(window->activeCanvas()->document->path.endsWith("ruby_ore.png"));
     }
+    void footerNeverCutsResultText() {
+        search("", [](QDialog *, QLineEdit *edit, QListWidget *list) {
+            const int rowHeight = list->sizeHintForRow(1);
+            list->setFixedHeight(list->sizeHintForRow(0) + 3 * rowHeight + rowHeight / 2 + 2 * list->frameWidth());
+            QApplication::processEvents();
+            int partial = -1;
+            for (int i = 0; i < list->count(); ++i) {
+                const auto r = list->visualItemRect(list->item(i));
+                if (r.top() < list->viewport()->height() && r.bottom() >= list->viewport()->height()) {
+                    partial = i;
+                    break;
+                }
+            }
+            QVERIFY(partial > 0);
+            QImage untouched(list->viewport()->size(), QImage::Format_ARGB32_Premultiplied);
+            untouched.fill(Qt::magenta);
+            auto painted = untouched;
+            const auto index = list->model()->index(partial, 0);
+            QStyleOptionViewItem option;
+            option.initFrom(list);
+            option.rect = list->visualItemRect(list->item(partial));
+            {
+                QPainter painter(&painted);
+                list->itemDelegate()->paint(&painter, option, index);
+            }
+            QCOMPARE(painted, untouched); // no half-painted label at the footer
+            for (int i = 0; i < partial; ++i)
+                QTest::keyClick(edit, Qt::Key_Down);
+            QCOMPARE(list->currentRow(), partial);
+            QTRY_VERIFY(list->viewport()->rect().contains(list->visualItemRect(list->currentItem())));
+            option.rect = list->visualItemRect(list->currentItem());
+            option.state |= QStyle::State_Selected;
+            {
+                QPainter painter(&painted);
+                list->itemDelegate()->paint(&painter, option, index);
+            }
+            QVERIFY(painted != untouched); // keyboard scrolling reveals the complete result
+        });
+    }
     void settingsResultsFocusTheControl() {
         QString focused;
         onModal("preferencesDialog", [&](QDialog *dialog) {

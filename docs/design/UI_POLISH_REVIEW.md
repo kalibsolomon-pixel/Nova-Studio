@@ -2,17 +2,16 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed whole-application round: 14
+## Latest completed combined review: 21
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| opencode/glm-5.3-flash-free | 7 | 7 | 6 | 6 | 7 | 7 | 7 | 7 |
-| opencode/longcat-2.5-free | 7 | 7 | 6 | 7 | 6 | 6 | 6 | 6 |
-| t3-hub/k3.1-pro,thinking | 7 | 7 | 7 | 6 | 6 | 6 | 8 | 7 |
+| opencode/glm-5.3-flash-free | 8 | 8 | 7 | 7 | 8 | 8 | 8 | 8 |
+| opencode/longcat-2.5-free | 7 | 8 | 7 | 7 | 7 | 7 | 7 | 7 |
 
-**Acceptance remains unmet.** Overall ratings are 6–7/10. GLM-5.3 on z.ai could not view images and is not scored.
+**Acceptance remains unmet.** Overall ratings are 7–8/10. GLM and LongCat reviewed all seventeen screenshots, covering the whole application and every toolbar placement, within five minutes. Kimi reached the cap and was cancelled without a score. This round includes padded frame cards, complete command rows, slider/value pairs, stronger unchecked indicators, regular icon outlines and flatter Batch sections. Both reviews still question toolbar layout costs; those costs are evaluated without removing supported placements. LongCat also identified a reproducible change in dock-tab order when placing tools above Colours; the follow-up preserves the user's order. Secondary text and light field borders already use stronger tokens than the reviews' estimated colours. Decorative filler, automatic tool hiding and empty shortcut badges were not applied.
 
-## Toolbar placement reviews: rounds 15–17
+## Toolbar placement reviews: rounds 15–19
 
 The council reviewed left, right, top, above Colours, above Assets, and floating
 placements independently of the whole-application ratings.
@@ -43,6 +42,21 @@ swatch and different row counts); these remain recorded without being treated
 as verified defects. The next pass reduces the panel strip to two rows and uses
 content-specific image filenames to remove stale-path ambiguity.
 
+Round 18 used content-addressed image copies. GLM free rated it 6/10; LongCat
+free and Kimi rated it 7/10. All three identified top-row overflow. That combined
+row is being replaced with a dedicated row; the compact two-row panel grid,
+stable columns and lower-margin floating default are retained. Effects now uses
+the same inline arrow zone as grouped tools, with more inset around the strip.
+
+Round 19 reviewed the restored separate top row, inline Effects arrow, aligned
+4×2 panel grid and complete colour-panel palette row. GLM free rated it 8/10;
+LongCat free and Kimi rated it 7/10. All completed within five minutes. The
+right rail occupies its own column and the floating default clears the artwork
+in the captures; claims that these overlap content were checked and could not
+be reproduced. The grid already has four tool cells per row plus a leading
+grip column. The next pass reduces the visual size of the colour wells and
+addresses the whole application's command-palette and animation-card edges.
+
 Round 14 included consistent dock-body surfaces, more vertical room for colour controls, uniform asset selection fills and non-overlapping UV labels. The next review also covers every supported editing-toolbar placement: left, right, top, above Colours, above Assets and floating. Batch headings now sit inside their sections; Welcome loses its inset gutter; option spacing and popup label columns use consistent geometry. Paint colours and artwork were not changed to satisfy UI-colour suggestions.
 
 ## Round history
@@ -67,6 +81,10 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 15 | six toolbar placements only | GLM free: 6; Kimi: 7; LongCat: five-minute limit |
 | 16 | six toolbar placements, grid/tab-group fixes | GLM free: 7; LongCat free: 7; Kimi: five-minute limit |
 | 17 | six toolbar placements, balanced grid and stable columns | GLM free: 6; LongCat free: 6; Kimi: five-minute limit |
+| 18 | six toolbar placements, two-row grid and combined top row | GLM free: 6; LongCat free: 7; Kimi: 7 |
+| 19 | six toolbar placements, separate top row and aligned panel grid | GLM free: 8; LongCat free: 7; Kimi: 7 |
+| 20 | whole application, complete command rows and padded frame tiles | GLM free: 7; LongCat free: 8; Kimi: 7 |
+| 21 | whole application and all six toolbar placements, sliders and stronger indicators/icons | GLM free: 8; LongCat free: 7; Kimi: five-minute limit |
 
 ## Verification
 
@@ -78,6 +96,10 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 - Token contrast calculations: dark secondary text on window 7.24:1; light secondary 5.80:1; light selected-row text 10.31:1. These do not establish whole-app accessibility compliance.
 - A later complete regression run passed 67/67 suites in 435.44 seconds. The subsequent two-row panel grid, combined top row and floating default passed focused placement checks; the combined top row also passed compact, normal and large window checks at 150% and 200%. The final native gallery passed 4/4 checks.
 - Performance was not measured.
+- Following round 19, the search suite passed with a regression check for complete result rows and keyboard scrolling.
+- Latest complete regression attempt: 66/67 suites passed in 445.43 seconds. Fabric runtime's Unicode boundary fixture failed because the default TEMP path was too long. The unchanged suite passed all 26 checks in 16.39 seconds with process-local TEMP/TMP set to the existing `build/t`; production runtime code was not changed.
+- Subsequent slider/value synchronization, keyboard editing, disabled onion controls, regular icon outlines and wider spin-button zones passed six focused suites in 36.24 seconds. The final gallery verifies the additional slider-track contrast changes.
+- A new complete regression run passed 67/67 suites in 440.38 seconds using process-local `TEMP`/`TMP` at the existing `build/t`. This includes the final slider-track styling. The later dock-tab-order correction passed all three placement/scaling suites in 16.74 seconds, including hidden-peer and custom-order checks. The gallery also asserts tab order across every toolbar position and passed 4/4 checks.
 
 ## Screenshot evidence
 
@@ -102,9 +124,8 @@ a loaded document. The host and flow viewport follow the actual rows;
 this prevents tools on a second row from being clipped. Placement checks passed at
 normal, 150% and 200% scaling. Toolbar-only scores do not replace the whole-application acceptance requirement.
 
-The current top placement shares a row with Tool Options; its options retain horizontal
-scrolling when space is limited. Panel placements use two rows of four tools beside
-the grip at normal widths. Floating defaults to the lower canvas margin after
-layout settles. Round 18 is reviewing content-addressed copies of all seven captures.
+The top placement retains a dedicated row below Tool Options. Panel placements
+use two rows of four tools beside the grip at normal widths. Floating defaults
+to the lower canvas margin after layout settles.
 
 Evidence remains under `build/ui-polish`: baseline, latest captures, scores and review JSON. This record is provisional until the next council completes.

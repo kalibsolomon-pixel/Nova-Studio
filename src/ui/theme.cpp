@@ -10,6 +10,9 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QAbstractSpinBox>
+#include <QSpinBox>
+#include <QSlider>
+#include <QHBoxLayout>
 #include <QApplication>
 #include <QDebug>
 #include <QDockWidget>
@@ -31,6 +34,28 @@
 #include <QVBoxLayout>
 
 namespace nova::ui {
+QWidget *sliderField(QSpinBox *value, const QString &label) {
+    auto field = new QWidget;
+    auto row = new QHBoxLayout(field);
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(SpaceL);
+    auto slider = new QSlider(Qt::Horizontal);
+    slider->setObjectName(value->objectName() + "Slider");
+    slider->setAccessibleName(label);
+    slider->setToolTip(value->toolTip().isEmpty() ? label : value->toolTip());
+    slider->setRange(value->minimum(), value->maximum());
+    slider->setSingleStep(value->singleStep());
+    slider->setValue(value->value());
+    slider->setMinimumWidth(96);
+    value->setAccessibleName(label);
+    value->setFixedWidth(SettingsValueWidth);
+    row->addWidget(slider, 1);
+    row->addWidget(value);
+    field->setFocusProxy(value);
+    QObject::connect(slider, &QSlider::valueChanged, value, &QSpinBox::setValue);
+    QObject::connect(value, &QSpinBox::valueChanged, slider, &QSlider::setValue);
+    return field;
+}
 void settingsMenu(QToolButton *button, QWidget *content) {
     if (auto form = qobject_cast<QFormLayout *>(content->layout())) {
         form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -241,6 +266,7 @@ QString styleSheet(const Tokens &t) {
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
         "QWidget#toolsDockHost QToolBar#toolBox{border:0;border-bottom:1px solid @border}"
+        "QToolBar#toolBox[floatingStrip=\"true\"]{border:1px solid @borderStrong}"
         "QStatusBar{background:@window;border-top:1px solid @border;color:@muted}"
         "QStatusBar::item{border:0}"
         "QStatusBar QLabel{color:@muted}"
@@ -259,10 +285,6 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"settingsTitle\"],QToolBar#toolOptions QLabel[role=\"settingsTitle\"]{font-weight:600;color:@text}"
         // Layer rows match tree rows so the eye toggle and name have room.
         "QListWidget#layerList::item{min-height:@rowHeight}"
-        // Timeline frames: the selected tile carries an accent outline, not only a tint.
-        "QListView#frameTimeline::item{border:2px solid transparent;border-radius:@rM}"
-        "QListView#frameTimeline::item:selected{border-color:@accent;background:@selection;color:@selectionText}"
-        "QListView#frameTimeline::item:hover:!selected{background:@raised}"
         // Search floats over the workspace: a hairline frame defines its edge in captures too.
         "QDialog#commandPalette{border:1px solid @borderStrong}"
         // Wide gutters between cards stay empty space; they show only while dragged over.
@@ -320,9 +342,9 @@ QString styleSheet(const Tokens &t) {
         "QToolButton[popupMode=\"2\"]{padding-right:18px}"
         "QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-origin:padding;subcontrol-position:center right;"
         "right:4px;width:10px;height:10px}"
-        "QToolBar#toolBox QToolButton[popupMode=\"2\"]{padding:@toolPad}"
-        "QToolBar#toolBox QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-position:bottom right;right:0;"
-        "width:8px;height:8px}"
+        "QToolBar#toolBox QToolButton[popupMode=\"2\"]{padding:@toolPad;padding-right:@arrowReserve}"
+        "QToolBar#toolBox QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-origin:padding;"
+        "subcontrol-position:center right;right:2px;width:10px;height:10px}"
         "QToolButton[role=\"disclosure\"]{border:0;padding:4px 2px;font-weight:600;color:@muted}"
         "QToolButton[role=\"disclosure\"]:hover{color:@text;background:transparent}"
         "QToolButton[role=\"disclosure\"]:checked{background:transparent;color:@text}"
@@ -339,13 +361,15 @@ QString styleSheet(const Tokens &t) {
         "QCheckBox[role=\"toggle\"]::indicator{width:0;height:0}"
         "QCheckBox[role=\"toggle\"]:hover{background:@raised}"
         "QCheckBox[role=\"toggle\"]:checked{background:@accentMuted;border-color:@accent}"
-        "QSlider::groove:horizontal{height:4px;border-radius:2px;background:@raised}"
+        "QSlider::groove:horizontal{height:4px;border-radius:2px;background:@sliderTrack}"
         "QSlider::sub-page:horizontal{height:4px;border-radius:2px;background:@accent}"
-        "QSlider::add-page:horizontal{height:4px;border-radius:2px;background:@raised}"
+        "QSlider::add-page:horizontal{height:4px;border-radius:2px;background:@sliderTrack}"
         "QSlider::handle:horizontal{width:14px;height:14px;margin:-5px 0;border-radius:7px;"
         "background:@sliderHandle;border:1px solid @borderStrong}"
         "QSlider::handle:horizontal:hover{border-color:@accent}"
         "QSlider::sub-page:horizontal:disabled{background:@borderStrong}"
+        "QSlider::groove:horizontal:disabled,QSlider::add-page:horizontal:disabled{background:@borderStrong}"
+        "QSlider::handle:horizontal:disabled{background:@disabled;border-color:@borderStrong}"
         "QProgressBar{min-height:6px;max-height:6px;border:0;border-radius:3px;background:@raised;"
         "text-align:center;color:transparent}"
         "QProgressBar::chunk{border-radius:3px;background:@accent}"
@@ -441,6 +465,7 @@ QString styleSheet(const Tokens &t) {
         {"@danger", t.danger},
         {"@info", t.info},
         {"@sliderHandle", sliderHandle},
+        {"@sliderTrack", mix(t.borderStrong, t.muted, 0.55)},
         {"@scrollThumb", t.dark ? mix(t.borderStrong, t.muted, 0.25) : mix(t.borderStrong, t.window, 0.15)},
         {"@scrollHover", mix(t.borderStrong, t.muted, 0.5)}};
     for (const auto &[key, color] : values)
@@ -624,9 +649,8 @@ class MaterialIconEngine : public QIconEngine {
         QFont font(materialFontFamily());
         const int pixels = qMax(1, qMin(rect.width(), rect.height()));
         font.setPixelSize(pixels);
-        // A light stroke (wght 300) at the optical size of the drawn icon keeps dense
-        // toolbars calm and matches the 1.5 px chevrons NovaStyle draws.
-        font.setVariableAxis(QFont::Tag("wght"), 300);
+        // Regular outlines stay legible in compact panel actions and at 100% scale.
+        font.setVariableAxis(QFont::Tag("wght"), 400);
         font.setVariableAxis(QFont::Tag("opsz"), std::clamp(pixels, 20, 48));
         painter->setFont(font);
         const QString text(glyph);
@@ -971,7 +995,7 @@ class NovaStyle : public QProxyStyle {
     }
 
   private:
-    static constexpr int FieldPadding = 7, SpinButtonWidth = 15, ComboArrowWidth = 20;
+    static constexpr int FieldPadding = 7, SpinButtonWidth = Space3XL, ComboArrowWidth = 20;
     // The one field shape: a recessed well whose border brightens on hover and takes
     // the accent on focus. Pickers (non-editable combo boxes) lift to the control fill.
     static void drawField(QPainter *p, const QRect &rect, State state, bool picker) {
@@ -1000,7 +1024,7 @@ class NovaStyle : public QProxyStyle {
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         QColor fill = on ? (enabled ? t.accent : t.borderStrong) : (enabled ? t.base : t.window);
-        QColor edge = on ? fill : hover ? t.accent : (enabled ? mix(t.borderStrong, t.muted, 0.3) : t.border);
+        QColor edge = on ? fill : hover ? t.accent : (enabled ? mix(t.borderStrong, t.muted, 0.55) : t.border);
         p->setPen(QPen(edge, 1));
         p->setBrush(fill);
         if (radio)

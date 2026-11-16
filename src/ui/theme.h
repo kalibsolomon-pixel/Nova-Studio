@@ -15,6 +15,7 @@
 class QAbstractScrollArea;
 class QLabel;
 class QLineEdit;
+class QSpinBox;
 class QStyle;
 class QToolButton;
 class QWidget;
@@ -85,7 +86,7 @@ constexpr int PanelPaddingV = 7;             // dock title rows
 constexpr int SettingsLabelWidth = 104, SettingsValueWidth = 80;
 constexpr int OptionsCompactWidth = 900;     // tighter option gaps below this viewport width
 constexpr int CompactEditorHeight = 1000;   // tab preview with Layers below this window height
-constexpr int ToolStripPaddingV = SpaceM, ToolStripPaddingH = SpaceS; // around the tool strip
+constexpr int ToolStripPaddingV = SpaceM, ToolStripPaddingH = SpaceL; // around the tool strip
 constexpr int ToolStripSeparatorMargin = SpaceM; // separator inset along the tool strip
 constexpr int GutterWidth = 4;               // backdrop gap between docked panels
 constexpr int ScrollBarWidth = 10;           // overlay-style scroll bars, no arrow buttons
@@ -130,6 +131,8 @@ QToolButton *iconButton(const QString &icon, const QString &tooltip, const QStri
 // Native menu hosting a compact settings form. Keeps normal Escape, arrow-key and
 // focus behavior while secondary settings stay out of the editor's working rows.
 void settingsMenu(QToolButton *button, QWidget *content);
+// Continuous settings keep a native slider beside an exact, keyboard-editable value.
+QWidget *sliderField(QSpinBox *value, const QString &label);
 // Full editable path, elided by segment when unfocused, with a full-path tooltip.
 QLineEdit *pathField(const QString &text = {}, QWidget *parent = nullptr);
 // Runs callback on the next event-loop turn after target receives one of types

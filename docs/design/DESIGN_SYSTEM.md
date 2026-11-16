@@ -110,6 +110,7 @@ the separate floating window.
 | Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
 | Secondary settings | `ui::settingsMenu(button, content)`: a native menu hosting a form with `PanelPadding`, `SpaceXL` between columns and `SpaceL` between rows. Keep routine controls on the working row; label the settings button by its task. |
 | Path field | `ui::pathField(text)`: a native line edit that preserves the first and final path segments when unfocused. Editing and `text()` retain the entire path; the tooltip shows it in full. |
+| Continuous numeric setting | `ui::sliderField(spinBox, label)`: a native slider paired with the exact editable value; both stay synchronized and carry the same accessible name. |
 | Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. A row the edge would cut in half is hidden whole, so a panel never ends on half a heading. |
 | Card gutter | `QSplitter[role="gutter"]` for wide handles between cards: empty space that tints `accentMuted` on hover |
 | Empty list with a first action | Put the action (a primary button) inside the empty state, and hide the list's edit bar until the list has rows (see the batch operation stack). |
@@ -133,19 +134,27 @@ Selected asset and layer rows use a two-pixel accent edge alongside their select
 Document tabs show the filename and unsaved dot. PNG export freshness is described in the
 Inspector and the tab tooltip rather than another abbreviation in the tab label.
 Animation frame selection outlines the tile without recolouring the artwork thumbnail.
+Frame tiles keep eight pixels of content padding, separate timing and source-name
+lines, and a visible keyboard-focus outline. Their geometry follows the actual
+font metrics and thumbnail size. Search result rows that would cross the footer
+are painted only after scrolling brings the complete row into view.
 Brush height, hardness, spacing and smoothing use the secondary-settings menu; onion
 skin settings use the same component. Their document and tool-state semantics are unchanged.
 Dependent onion controls are disabled while adjacent-frame display is off; their values are
 retained. Settings-menu titles use the shared strong weight. Text fields share the same
 visible resting border as pickers. Embedded lists keep partial rows out of the parent
 scroll area's bottom edge.
+Unchecked indicators have a stronger outline (calculated 3.28:1 on the dark popup,
+3.09:1 on the light panel). Spin-button zones are 24 pixels wide. Material glyphs
+use regular outline weight for clearer compact actions. Batch sections use whitespace
+and headings; list wells and fields retain their own boundaries.
 
 The editing toolbar supports left/right rails, a top row, positions above Colours
 and Assets, and a floating window. Narrow panel placements use a regular grid
 of up to four columns with the grip at the leading edge and colour wells in the grid; wide and floating strips
 retain a single row. The colour wells share the 30px tool target. Moving above
-a tabbed dock preserves its peers and their visibility, and preserves space for
-the editing panel below. Side-column widths survive movement to the top row, where tools sit beside their options.
+a tabbed dock preserves its peers, their visual order and visibility, and preserves space for
+the editing panel below. Side-column widths survive movement to the top row below Tool Options.
 The grip's keyboard menu exposes all six positions.
 
 ## Checking a change

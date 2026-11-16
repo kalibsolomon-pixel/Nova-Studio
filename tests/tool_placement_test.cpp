@@ -270,10 +270,10 @@ class ToolPlacementTests : public QObject {
         const int assetsWidth = assetsPanel->width(), inspectorWidth = inspectorPanel->width();
         window->findChild<QAction *>("toolPlacement-top")->trigger();
         QCOMPARE(window->toolBarArea(box), Qt::TopToolBarArea);
+        QVERIFY(window->toolBarBreak(box));
         QCOMPARE(box->orientation(), Qt::Horizontal);
         auto options = window->findChild<QToolBar *>("toolOptions");
-        QTRY_VERIFY(std::abs(box->y() - options->y()) <= 1);
-        QVERIFY(box->geometry().right() < options->geometry().left());
+        QTRY_VERIFY(box->geometry().top() >= options->geometry().bottom());
         QTRY_VERIFY(assetsPanel->width() >= assetsWidth - 1);
         QTRY_VERIFY(inspectorPanel->width() >= inspectorWidth - 1);
         capture(*window, "05-top");
@@ -326,6 +326,41 @@ class ToolPlacementTests : public QObject {
         QTRY_VERIFY(!tools->isVisible());
         box->toggleViewAction()->trigger();
         QTRY_VERIFY(tools->isVisible());
+    }
+    void dockingAboveColoursKeepsCustomTabOrder() {
+        auto window = open("tab-order/studio.ini");
+        QVERIFY(window);
+        auto colours = Access::dock(*window, "colors");
+        auto inspector = Access::dock(*window, "inspector");
+        auto models = Access::dock(*window, "modelsUv");
+        QVERIFY(colours && inspector && models);
+        window->tabifyDockWidget(inspector, colours);
+        window->tabifyDockWidget(inspector, models);
+        inspector->show(); colours->show(); models->show();
+        QApplication::processEvents();
+        const auto group = [&]() -> QTabBar * {
+            for (auto tabs : window->findChildren<QTabBar *>())
+                for (int i = 0; i < tabs->count(); ++i)
+                    if (tabs->isVisible() && tabs->tabText(i) == colours->windowTitle())
+                        return tabs;
+            return nullptr;
+        };
+        const auto titles = [&]() {
+            QStringList result;
+            if (auto tabs = group())
+                for (int i = 0; i < tabs->count(); ++i)
+                    result << tabs->tabText(i);
+            return result;
+        };
+        QVERIFY(group());
+        group()->moveTab(group()->count() - 1, 0);
+        const auto original = titles();
+        QVERIFY(original.size() >= 3);
+        for (auto position : {ToolPlacement::AboveColours, ToolPlacement::LeftEdge,
+                              ToolPlacement::AboveColours, ToolPlacement::AboveAssets}) {
+            Access::placement(*window)->place(position);
+            QTRY_COMPARE(titles(), original);
+        }
     }
     void persistsPerWorkspaceAcrossRestart() {
         {

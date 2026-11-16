@@ -74,7 +74,7 @@ class ToolStripPlacement : public QObject {
     ToolGrip *grip = nullptr;
     ToolPlacement placement() const { return current; }
     // Moves the strip. Floating uses `at` (global top-left; default: near the window's
-    // top-left) and is kept inside a screen's available area.
+    // lower canvas margin) and is kept inside a screen's available area.
     void place(ToolPlacement placement, QPoint at = {});
     // Snap targets for the current window arrangement, most specific first.
     QVector<Target> targets() const;

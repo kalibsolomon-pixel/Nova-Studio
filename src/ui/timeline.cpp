@@ -10,12 +10,49 @@ namespace {
 class FrameDelegate final : public QStyledItemDelegate {
   public:
     using QStyledItemDelegate::QStyledItemDelegate;
-  protected:
-    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
-        QStyledItemDelegate::initStyleOption(option, index);
-        // Selection marks the tile, never the artwork's colours.
+    static QSize cardSize(int thumbnail, const QFont &font) {
+        return {std::max(120, thumbnail + 4 * ui::SpaceL),
+                thumbnail + 4 * ui::SpaceL + 2 * QFontMetrics(font).lineSpacing() + ui::SpaceS};
+    }
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override {
+        return cardSize(option.decorationSize.height(), option.font);
+    }
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto &t = ui::current();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        const auto background = qvariant_cast<QBrush>(index.data(Qt::BackgroundRole));
+        const QRect card = option.rect.adjusted(ui::SpaceS, ui::SpaceS, -ui::SpaceS, -ui::SpaceS);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        p->setPen(QPen(selected ? t.accent : Qt::transparent, selected ? 2 : 1));
+        p->setBrush(selected ? QBrush(t.accentMuted) : hovered ? QBrush(t.raised) : background);
+        p->drawRoundedRect(QRectF(card).adjusted(1, 1, -1, -1), ui::RadiusM, ui::RadiusM);
+        // The outline stays outside the content padding; selection never tints artwork.
         const auto thumbnail = qvariant_cast<QPixmap>(index.data(Qt::DecorationRole));
-        option->icon.addPixmap(thumbnail, QIcon::Selected);
+        const auto size = thumbnail.size().scaled(option.decorationSize, Qt::KeepAspectRatio);
+        const QRect image(card.center().x() - size.width() / 2, card.top() + ui::SpaceL, size.width(), size.height());
+        p->setRenderHint(QPainter::SmoothPixmapTransform, false);
+        p->drawPixmap(image, thumbnail);
+        const auto lines = index.data(Qt::DisplayRole).toString().split('\n');
+        const int line = QFontMetrics(option.font).lineSpacing();
+        const QRect metadata(card.left() + ui::SpaceL, image.bottom() + 1 + ui::SpaceL,
+                             card.width() - 2 * ui::SpaceL, line);
+        auto caption = option.font;
+        caption.setPointSizeF(ui::TypeCaption);
+        p->setFont(caption);
+        p->setPen(selected ? t.selectionText : t.muted);
+        p->drawText(metadata, Qt::AlignCenter, lines.value(0));
+        p->setFont(option.font);
+        p->setPen(t.text);
+        p->drawText(metadata.translated(0, line + ui::SpaceS), Qt::AlignCenter,
+                    QFontMetrics(option.font).elidedText(lines.value(1), Qt::ElideRight, metadata.width()));
+        if (option.state & QStyle::State_HasFocus) {
+            p->setBrush(Qt::NoBrush);
+            p->setPen(QPen(t.accent, 1, Qt::DotLine));
+            p->drawRoundedRect(QRectF(card).adjusted(3, 3, -3, -3), ui::RadiusS, ui::RadiusS);
+        }
+        p->restore();
     }
 };
 }
@@ -162,9 +199,11 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);
     view->setItemDelegate(new FrameDelegate(view));
     view->setViewMode(QListView::IconMode); view->setFlow(QListView::LeftToRight); view->setWrapping(false);
-    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({120, 132});
+    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true);
+    view->setGridSize(FrameDelegate::cardSize(72, view->font()));
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // one row of frames scrolls sideways
-    view->setIconSize({72, 72}); view->setMinimumHeight(144); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    view->setIconSize({72, 72}); view->setMinimumHeight(view->gridSize().height() + ui::ScrollBarWidth);
+    view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     view->setDragDropMode(QAbstractItemView::InternalMove); view->setDefaultDropAction(Qt::MoveAction);
     view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel); view->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(view, 1);
@@ -212,8 +251,8 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     timingRow->addWidget(zoom); scrollRow(timingRow);
     connect(zoom, &QSlider::valueChanged, this, [this](int size) {
         model->setThumbnailSize(size); view->setIconSize({size, size});
-        view->setGridSize({std::max(120, size + 20), size + 60});
-        view->setMinimumHeight(size + 72);
+        view->setGridSize(FrameDelegate::cardSize(size, view->font()));
+        view->setMinimumHeight(view->gridSize().height() + ui::ScrollBarWidth);
     });
     auto onionSettings = new QToolButton;
     onionSettings->setText("Onion skin"); onionSettings->setObjectName("onionSettings");
@@ -225,10 +264,17 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     auto onion = new QCheckBox("Show adjacent frames"); onion->setObjectName("onionEnabled"); onionForm->addRow(onion);
     auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setObjectName("onionPrevious"); onionForm->addRow("Previous frames", previous);
     auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setObjectName("onionNext"); onionForm->addRow("Next frames", next);
-    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity"); onionForm->addRow("Opacity", opacity);
+    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity");
+    auto opacityField = ui::sliderField(opacity, "Onion skin opacity");
+    onionForm->addRow("Opacity", opacityField);
+    for (int row : {1, 2}) {
+        auto field = onionForm->itemAt(row, QFormLayout::FieldRole);
+        field->widget()->setFixedWidth(ui::SettingsValueWidth);
+        field->setAlignment(Qt::AlignRight);
+    }
     auto tint = new QCheckBox("Tint adjacent frames"); tint->setChecked(true); onionForm->addRow(tint);
     const auto syncOnionControls = [=](bool enabled) {
-        for (QWidget *control : std::initializer_list<QWidget *>{previous, next, opacity, tint}) {
+        for (QWidget *control : std::initializer_list<QWidget *>{previous, next, opacityField, tint}) {
             control->setEnabled(enabled);
             if (auto label = onionForm->labelForField(control))
                 label->setEnabled(enabled);

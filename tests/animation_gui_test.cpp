@@ -132,9 +132,17 @@ class AnimationGuiTest : public QObject {
         QCOMPARE(doc->animationState().entries[2].frame, third);
         auto onionEnabled = window.findChild<QCheckBox *>("onionEnabled");
         auto onionOpacity = window.findChild<QSpinBox *>("onionOpacity");
+        auto opacitySlider = window.findChild<QSlider *>("onionOpacitySlider");
+        QVERIFY(opacitySlider);
         QVERIFY(!onionOpacity->isEnabled());
+        QVERIFY(!opacitySlider->isEnabled());
         onionEnabled->setChecked(true);
         QVERIFY(onionOpacity->isEnabled());
+        QVERIFY(opacitySlider->isEnabled());
+        opacitySlider->setValue(40);
+        QCOMPARE(onionOpacity->value(), 40);
+        onionOpacity->setValue(25);
+        QCOMPARE(opacitySlider->value(), 25);
         const auto before = doc->image;
         capture(window, "03-onion-skin"); QCOMPARE(doc->image, before);
         auto source = window.findChild<QComboBox *>("sourceFrameSelector"); source->setCurrentIndex(1);

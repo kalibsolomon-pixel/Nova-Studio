@@ -510,8 +510,10 @@ void ColorPanel::rebuildRecent() {
         connect(b, &QToolButton::clicked, this, [this, c] { state->setForeground(c); });
         layout->addWidget(b);
     }
-    if (state->recent.isEmpty()) // say so rather than leave a blank gap
-        layout->addWidget(ui::hint("Colours you paint with appear here."));
+    if (state->recent.isEmpty()) { // use the full row before wrapping the hint
+        layout->addWidget(ui::hint("Paint colours appear here."));
+        return;
+    }
     static_cast<QHBoxLayout *>(layout)->addStretch();
 }
 void ColorPanel::pull() {

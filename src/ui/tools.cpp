@@ -217,8 +217,8 @@ class ColorChip : public QWidget {
             p.setPen(palette().color(QPalette::WindowText));
             p.drawRect(r.adjusted(0, 0, -1, -1));
         };
-        swatch(QRect(11, 11, 17, 17), state->background);
-        swatch(QRect(1, 1, 17, 17), state->foreground);
+        swatch(QRect(11, 11, 14, 14), state->background);
+        swatch(QRect(4, 4, 14, 14), state->foreground);
         if (hasFocus()) {
             p.setPen(QPen(ui::current().accent, 1));
             p.drawRect(rect().adjusted(0, 0, -1, -1));
@@ -266,8 +266,7 @@ class FlowStrip : public QWidget {
             const int columns = std::max(1, std::min(4, (width - gripWidth + gap) / (cellWidth + gap)));
             rows = (tools.size() + columns - 1) / columns;
             if (apply) {
-                const int gridWidth = gripWidth + columns * cellWidth + (columns - 1) * gap;
-                const int left = std::max(0, (width - gridWidth) / 2);
+                const int left = 0;
                 if (grip) {
                     const auto s = itemSize(grip);
                     grip->setGeometry(left, 0, s.width(), s.height());
@@ -773,9 +772,11 @@ QWidget *ToolOptionsBar::paintPage() {
     form->setHorizontalSpacing(ui::SpaceXL);
     form->setVerticalSpacing(ui::SpaceL);
     form->addRow("Height", height);
-    form->addRow("Hardness", hardness);
-    form->addRow("Spacing", spacing);
-    form->addRow("Smoothing", smoothing);
+    form->addRow("Hardness", ui::sliderField(hardness, "Hardness"));
+    form->addRow("Spacing", ui::sliderField(spacing, "Spacing"));
+    form->addRow("Smoothing", ui::sliderField(smoothing, "Smoothing"));
+    height->setFixedWidth(ui::SettingsValueWidth);
+    form->itemAt(0, QFormLayout::FieldRole)->setAlignment(Qt::AlignRight);
     ui::settingsMenu(settings, formBody);
     auto w = row({name, nullptr, shape, label("Size"), size, label("Opacity"), opacity,
                   settings, nullptr, symmetry, radial, nullptr, palette, stampColors, lockAlpha,

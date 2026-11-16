@@ -72,7 +72,6 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     // ---------------------------------------------------------------- targets
     const auto section = [](const QString &text) {
         auto panel = new QFrame;
-        panel->setProperty("role", "card");
         auto layout = new QVBoxLayout(panel);
         layout->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
         layout->setSpacing(ui::SpaceL);

@@ -82,9 +82,22 @@ class Phase4i3ToolOptionsTests : public QObject {
         QCOMPARE(window.tools().brush(nova::Tool::Brush).height, 1);
         QTest::keyClick(height, Qt::Key_Tab);
         QVERIFY(settings->menu()->isAncestorOf(QApplication::focusWidget()));
+        auto hardness = window.findChild<QSpinBox *>("brushHardness");
+        auto slider = window.findChild<QSlider *>("brushHardnessSlider");
+        QVERIFY(hardness && slider);
+        slider->setFocus();
+        QTest::keyClick(slider, Qt::Key_Left);
+        QCOMPARE(hardness->value(), 99);
+        QCOMPARE(window.tools().brush(nova::Tool::Brush).hardness, 99);
+        hardness->setValue(67);
+        QCOMPARE(slider->value(), 67);
         QTest::keyClick(settings->menu(), Qt::Key_Escape);
         QTRY_VERIFY(!settings->menu()->isVisible());
         QCOMPARE(window.tools().brush(nova::Tool::Brush).height, 1);
+        window.tools().setTool(nova::Tool::Pencil);
+        QCOMPARE(slider->value(), window.tools().brush(nova::Tool::Pencil).hardness);
+        window.tools().setTool(nova::Tool::Brush);
+        QCOMPARE(slider->value(), 67);
     }
     void pagesNeedingAScrollbarShowTheirControlsFully() {
         qApp->setProperty("settingsFile", temporary.filePath("studio.ini"));

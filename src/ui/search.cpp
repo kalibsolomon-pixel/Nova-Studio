@@ -209,11 +209,14 @@ namespace {
 // and the shortcut sits in a fixed right column as keycaps. Selection is an inset
 // rounded highlight.
 enum SearchRole { RightText = Qt::UserRole + 1, Unavailable, Category, Shortcut };
-// Fades the list's last partial row into the dialog, so results continue rather than being cut.
+// Keep complete result rows above the footer; scrolling still brings each result into view.
 class SearchDelegate : public QStyledItemDelegate {
   public:
     using QStyledItemDelegate::QStyledItemDelegate;
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto list = qobject_cast<const QListWidget *>(parent());
+        if (list && option.rect.bottom() >= list->viewport()->height())
+            return;
         QStyleOptionViewItem opt = option;
         initStyleOption(&opt, index);
         const auto &t = ui::current();

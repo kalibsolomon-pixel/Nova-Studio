@@ -341,10 +341,25 @@ class Phase3BGallery : public QObject {
             preset(window, "texture");
             auto colours = window.findChild<QDockWidget *>("colors");
             const int columnBefore = colours->width();
+            const auto colourTabOrder = [&] {
+                QStringList labels;
+                for (auto tabs : window.findChildren<QTabBar *>()) {
+                    if (!tabs->isVisible())
+                        continue;
+                    labels.clear();
+                    for (int i = 0; i < tabs->count(); ++i)
+                        labels << tabs->tabText(i);
+                    if (labels.contains(colours->windowTitle()))
+                        return labels;
+                }
+                return QStringList();
+            };
+            const auto tabsBefore = colourTabOrder();
             auto action = window.findChild<QAction *>(QString("toolPlacement-") + id);
             QVERIFY(action);
             action->trigger();
             QTest::qWait(80);
+            QCOMPARE(colourTabOrder(), tabsBefore);
             QVERIFY2(colours->width() >= columnBefore - 1, "moving tools shrank the Colours column");
             auto box = window.findChild<QToolBar *>("toolBox");
             QVERIFY(box);
