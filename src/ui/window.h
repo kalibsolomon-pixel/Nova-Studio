@@ -262,6 +262,8 @@ class Window : public QMainWindow {
     Index workspaceIndex(QSet<QString> *provisional = nullptr) const;
     void showTextureDocument(const std::shared_ptr<Document> &doc);
     void refresh();
+    QByteArray welcomeEditorLayout;
+    void syncWelcomeLayout(bool forceEditor = false);
     void applyTheme();
     void refreshDockTitles();
     void buildSupportMenu();

@@ -81,12 +81,15 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     scopeValue->setObjectName("batchScopeValue");
     scopeValue->setAccessibleName("Scope value");
     scopeValue->setEditable(true);
+    scopeValue->setLineEdit(ui::pathField());
     count = new QLabel;
     count->setObjectName("batchTargetCount");
     targets = new QListWidget;
     targets->setObjectName("batchTargets");
     targets->setAccessibleName("Batch targets");
     targets->setUniformItemSizes(true);
+    targets->setTextElideMode(Qt::ElideMiddle);
+    targets->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     sourceMode = new QComboBox;
     sourceMode->setObjectName("batchSourceMode");
     sourceMode->setAccessibleName("Batch source");
@@ -147,8 +150,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
         backup->setEnabled(!native && inPlace->isChecked());
         if (native)
             toDirectory->setChecked(true);
-        toDirectory->setText(native ? "Write exported PNGs to a separate folder"
-                                    : "Write results to a separate folder (recommended)");
+        toDirectory->setText(native ? "Separate folder for exported PNGs" : "Separate output folder");
         toDirectory->setEnabled(!native || exporting);
         for (QWidget *w : std::initializer_list<QWidget *>{directory, pattern, overwrite})
             w->setEnabled((!native || exporting) && toDirectory->isChecked());
@@ -214,7 +216,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     presetBox = new QComboBox;
     presetBox->setObjectName("batchPresets");
     auto presetMenu = new QToolButton;
-    presetMenu->setText("Pipeline");
+    presetMenu->setText("Manage");
     presetMenu->setPopupMode(QToolButton::InstantPopup);
     auto pm = new QMenu(presetMenu);
     presetMenu->setMenu(pm);
@@ -321,25 +323,27 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     previewRow->addStretch();
     ov->addLayout(previewRow);
     ov->addWidget(sampleWidget);
-    toDirectory = new QRadioButton("Write results to a separate folder (recommended)");
+    toDirectory = new QRadioButton("Separate output folder");
+    toDirectory->setToolTip("Recommended: write results into a separate folder and leave originals unchanged");
     toDirectory->setChecked(true);
-    inPlace = new QRadioButton("Update originals (keeps backups, asks for confirmation)");
+    inPlace = new QRadioButton("Update originals with backups");
+    inPlace->setToolTip("Update original files after confirmation; keep a backup of each changed file");
     inPlace->setObjectName("batchInPlace");
-    directory = new QLineEdit(QFileInfo(context.root).absolutePath() + "/" + QFileInfo(context.root).fileName() +
+    directory = ui::pathField(QFileInfo(context.root).absolutePath() + "/" + QFileInfo(context.root).fileName() +
                               "-batch-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmm"));
     directory->setObjectName("batchDirectory");
-    auto browse = new QPushButton("…");
+    auto browse = new QPushButton;
+    browse->setIcon(ui::lineIcon("folder"));
+    browse->setProperty("role", "icon");
+    browse->setFixedSize(ui::ControlHeight, ui::ControlHeight);
+    browse->setToolTip("Choose output folder");
+    browse->setAccessibleName("Choose output folder");
     pattern = new QLineEdit("{path}");
     pattern->setObjectName("batchPattern");
     pattern->setToolTip("Tokens: {path} relative path, {dir} folder, {name} file name, {index} 0001…");
-    overwrite = new QCheckBox("Overwrite existing outputs (still conflict-checked)");
-    backup = new QLineEdit(directory->text() + "-originals");
-    // Long paths read from their start; the full value is always in the tooltip.
-    for (auto field : {directory, backup}) {
-        field->setCursorPosition(0);
-        field->setToolTip(field->text());
-        connect(field, &QLineEdit::textChanged, field, [field](const QString &text) { field->setToolTip(text); });
-    }
+    overwrite = new QCheckBox("Replace existing output files");
+    overwrite->setToolTip("Existing output files may be replaced; path conflicts are still checked");
+    backup = ui::pathField(directory->text() + "-originals");
     backup->setObjectName("batchBackup");
     auto grid = new QGridLayout;
     grid->addWidget(toDirectory, 0, 0, 1, 3);
@@ -384,7 +388,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     results->header()->setStretchLastSection(false);
     results->header()->setSectionResizeMode(2, QHeaderView::Stretch);
     // Until a dry run fills it, the results table says what will appear there.
-    auto noResults = ui::emptyState("Dry-run results appear here: each target, its status and output.", nullptr, "results");
+    auto noResults = ui::emptyState("Target status and output will appear here.");
     noResults->setObjectName("batchResultsEmpty");
     noResults->setAttribute(Qt::WA_TransparentForMouseEvents);
     (new QVBoxLayout(results->viewport()))->addWidget(noResults);
@@ -413,7 +417,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     runRow->addWidget(runButton);
     root->addSpacing(ui::SpaceS);
     root->addLayout(runRow);
-    resize(1240, 760);
+    resize(1120, 600);
 
     connect(scope, &QComboBox::currentIndexChanged, this, [this] {
         updating = true;
@@ -599,15 +603,18 @@ void BatchDialog::setPipeline(const batch::Pipeline &p) {
 void BatchDialog::resolve() {
     resolved = batch::resolveTargets(context.files, batch::Scope(scope->currentIndex()), scopeValue->currentText());
     targets->clear();
-    for (const auto &f : resolved.mid(0, 2000))
-        targets->addItem(f);
+    for (const auto &f : resolved.mid(0, 2000)) {
+        auto item = new QListWidgetItem(f, targets);
+        item->setToolTip(f);
+    }
     int natives = 0;
     if (nativeMode())
         for (const auto &f : resolved)
             if (!f.isEmpty() && QFileInfo::exists(nativeDocumentPath(context.root, context.root + '/' + f)))
                 ++natives;
-    count->setText(QString("%1 PNG texture(s)%2%3")
+    count->setText(QString("%1 PNG %2%3%4")
                        .arg(resolved.size())
+                       .arg(resolved.size() == 1 ? "texture" : "textures")
                        .arg(nativeMode() ? QString(" · %1 with native documents").arg(natives) : QString())
                        .arg(resolved.size() > 2000 ? " (first 2000 listed)" : ""));
     invalidate();

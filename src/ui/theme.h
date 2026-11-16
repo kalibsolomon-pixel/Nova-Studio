@@ -14,6 +14,7 @@
 
 class QAbstractScrollArea;
 class QLabel;
+class QLineEdit;
 class QStyle;
 class QToolButton;
 class QWidget;
@@ -54,16 +55,16 @@ constexpr int SpaceXS = 2, SpaceS = 4, SpaceM = 6, SpaceL = 8, SpaceXL = 12, Spa
 // Shape: controls and list rows use RadiusS, cards and popups RadiusM, large
 // surfaces (welcome actions, dialogs' grouped sections) RadiusL.
 constexpr int RadiusS = 4, RadiusM = 6, RadiusL = 8;
-constexpr int ControlHeight = 26; // buttons, combos, spin boxes, line edits
-constexpr int RowHeight = 26;     // tree, list and table rows
-constexpr int InsetRowHeight = 24; // rows of short lists inset in a panel (QListWidget[role="inset"])
+constexpr int ControlHeight = 28; // buttons, combos, spin boxes, line edits
+constexpr int RowHeight = 28;     // tree, list and table rows
+constexpr int InsetRowHeight = 26; // rows of short lists inset in a panel (QListWidget[role="inset"])
 constexpr int IconSize = 18;      // command icons in toolbars and panels
 constexpr int ToolIconSize = 20;  // left tool strip
-// Type scale in points over the platform UI family (Segoe UI Variable Text on
-// Windows 11, Segoe UI before it). Body is the application font; the others are
+// Type scale in points over the platform UI family (explicit Segoe UI on
+// Windows). Body is the application font; the others are
 // applied through font(Type) or stylesheet roles.
 enum class Type { Caption, Body, Strong, Title, Heading, Display };
-constexpr double TypeCaption = 8.0, TypeBody = 9.0, TypeTitle = 10.0, TypeHeading = 13.0, TypeDisplay = 20.0;
+constexpr double TypeCaption = 9.0, TypeBody = 9.75, TypeTitle = 10.5, TypeHeading = 13.0, TypeDisplay = 20.0;
 QFont font(Type type);
 // Toolbar, button and panel metrics. styleSheet() and the toolbar/panel layouts read
 // these instead of per-widget pixel values (documented in docs/design/DESIGN_SYSTEM.md).
@@ -123,6 +124,11 @@ void setPrimary(QWidget *button);
 void addScrollFade(QAbstractScrollArea *area);
 QToolButton *iconButton(const QString &icon, const QString &tooltip, const QString &objectName = {},
                         QWidget *parent = nullptr);
+// Native menu hosting a compact settings form. Keeps normal Escape, arrow-key and
+// focus behavior while secondary settings stay out of the editor's working rows.
+void settingsMenu(QToolButton *button, QWidget *content);
+// Full editable path, elided by segment when unfocused, with a full-path tooltip.
+QLineEdit *pathField(const QString &text = {}, QWidget *parent = nullptr);
 // Runs callback on the next event-loop turn after target receives one of types
 // (used to follow canvas zoom without adding signals to the renderer).
 void afterEvents(QObject *target, std::initializer_list<QEvent::Type> types, std::function<void()> callback);

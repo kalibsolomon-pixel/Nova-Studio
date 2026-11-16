@@ -53,7 +53,9 @@ class ToolPlacementTests : public QObject {
         qApp->setProperty("settingsFile", temporary.filePath(settings));
         QElapsedTimer timer;
         timer.start();
-        auto window = std::make_unique<Window>(QString(), QString(), timer);
+        const auto pack = temporary.filePath("pack");
+        QDir().mkpath(pack);
+        auto window = std::make_unique<Window>(pack, QString(), timer);
         window->resize(size);
         window->show();
         if (!QTest::qWaitForWindowExposed(window.get()))

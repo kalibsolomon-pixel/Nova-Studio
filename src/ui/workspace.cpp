@@ -308,10 +308,9 @@ void Window::buildAppBar() {
     openButton->setToolTip("Open Resource Pack… (Ctrl+Shift+O)");
     pl->addWidget(openButton);
     pl->addWidget(pathText, 1);
-    auto go = new QToolButton;
-    go->setDefaultAction(findChild<QAction *>("openTypedProject"));
-    go->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    go->setAutoRaise(true);
+    auto go = new QPushButton("Go");
+    go->setToolTip("Open the resource pack at this path");
+    connect(go, &QPushButton::clicked, findChild<QAction *>("openTypedProject"), &QAction::trigger);
     pl->addWidget(go);
     appBar->addWidget(projectBox);
     auto spacer = new QWidget;
@@ -383,7 +382,28 @@ void Window::refreshThemeIcons() {
 
 // ------------------------------------------------------------------ presets
 QByteArray Window::currentLayout() {
+    if (!welcomeEditorLayout.isEmpty())
+        return welcomeEditorLayout;
     return packLayout(toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge, saveState(1));
+}
+void Window::syncWelcomeLayout(bool forceEditor) {
+    if (defaultLayout.isEmpty() || !tabs || !toolOptions || !toolBox)
+        return; // construction has not finished
+    const bool welcome = !forceEditor && project.isEmpty() && tabs->count() == 0;
+    if (welcome == !welcomeEditorLayout.isEmpty())
+        return;
+    QScopedValueRollback<bool> arranging(animationSyncing, true);
+    if (welcome) {
+        welcomeEditorLayout = currentLayout();
+        for (auto dock : findChildren<QDockWidget *>())
+            dock->hide();
+        toolOptions->hide();
+        toolBox->hide();
+        appBar->hide();
+    } else {
+        const auto editorLayout = std::exchange(welcomeEditorLayout, {});
+        applyLayout(editorLayout);
+    }
 }
 // Restores a packed layout: the tool strip goes to its saved position first, so the
 // saved state then finds it in the right container (main-window toolbar or tools dock).
@@ -413,6 +433,7 @@ void Window::rememberPresetLayout() {
         preferences.presetLayouts.insert(preset, now);
 }
 void Window::applyPreset(const QString &requested, bool useSaved) {
+    syncWelcomeLayout(true);
     QElapsedTimer timer;
     timer.start();
     const auto name = presetName(requested).isEmpty() ? QString("essentials") : requested;
@@ -447,6 +468,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         });
         metrics.record("workspace_switch", timer);
         statusBar()->showMessage("Workspace: " + presetName(name) + " (your layout)", 3000);
+        syncWelcomeLayout();
         return;
     }
     if (toolPlacement)
@@ -465,7 +487,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         // group); taller ones stack it below so it stays visible while painting.
         // Animation always tabs it: the timeline already takes the bottom of the
         // window, and the canvas shows the playing frame.
-        if (h < 720 || name == "animation") {
+        if (h < 900 || name == "animation") {
             splitDockWidget(layersDock, previewDock, Qt::Vertical);
         } else {
             removeDockWidget(previewDock);
@@ -483,8 +505,8 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
             preferences.timelineVisible = true;
         }
         resizeDocks({previewDock}, {std::clamp(h / 5, 140, 220)}, Qt::Vertical);
-        if (h >= 720 && name != "animation")
-            resizeDocks({layersDock}, {std::clamp(h / 5, 150, 200)}, Qt::Vertical);
+        if (h >= 900 && name != "animation")
+            resizeDocks({layersDock}, {std::clamp(h / 6, 140, 180)}, Qt::Vertical);
     } else if (name == "model") {
         modelsDock->raise();
         resizeDocks({inspectorDock}, {std::clamp(w / 4, 300, 380)}, Qt::Horizontal);
@@ -495,7 +517,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         problemsDock->show();
     animationRefresh(); // the timeline follows the active document, as before
     if (name == "animation" && animationDock->isVisible())
-        resizeDocks({animationDock}, {std::clamp(h / 3, 200, 300)}, Qt::Vertical);
+        resizeDocks({animationDock}, {std::clamp(h / 4, 200, 240)}, Qt::Vertical);
     keepOnScreen();
     setUpdatesEnabled(true);
     // Baseline after the deferred relayout, so settling sizes do not count as user changes.
@@ -506,6 +528,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
     });
     metrics.record("workspace_switch", timer);
     statusBar()->showMessage("Workspace: " + presetName(name), 3000);
+    syncWelcomeLayout();
 }
 
 // ------------------------------------------------------------------ zoom

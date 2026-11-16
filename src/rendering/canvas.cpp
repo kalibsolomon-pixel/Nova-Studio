@@ -9,6 +9,7 @@
 #include <QPainterPath>
 #include <QSet>
 #include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 namespace nova {
 namespace {
@@ -221,14 +222,31 @@ void Canvas::paintEvent(QPaintEvent *) {
                       QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y())})
                     p.drawRect(QRectF(point - QPointF(4, 4), QSizeF(8, 8)));
             }
-            if (selected || (zoom >= 12 && r.width() > 70)) {
-                // Face names sit on a dark chip so they read over any texture colour.
-                const auto metrics = p.fontMetrics();
-                const QRectF chip(r.left() + 3, r.top() + 3, metrics.horizontalAdvance(region.label) + 8, metrics.height() + 2);
-                p.setPen(Qt::NoPen); p.setBrush(QColor(0, 0, 0, 170)); p.drawRoundedRect(chip, 3, 3);
-                p.setPen(selected ? QColor(255,210,80) : QColor(170,240,250)); p.drawText(chip, Qt::AlignCenter, region.label);
-            }
         }
+        // Faces can share the same UV rectangle. Give the active face priority and
+        // omit colliding labels instead of painting several names over one another.
+        QList<QRectF> labels;
+        for (bool active : {true, false})
+            for (const auto &region : uvRegions) {
+                const bool selected = uvFace == region.face;
+                const QRectF r(widgetPosition(region.bounds.topLeft()), widgetPosition(region.bounds.bottomRight()));
+                if (selected != active || !(selected || (zoom >= 12 && r.width() > 70)))
+                    continue;
+                const auto labelMetrics = p.fontMetrics();
+                const QRectF chip(r.left() + ui::SpaceL, r.top() + ui::SpaceL,
+                                  labelMetrics.horizontalAdvance(region.label) + 2 * ui::SpaceL,
+                                  labelMetrics.height() + 2 * ui::SpaceS);
+                if (std::any_of(labels.cbegin(), labels.cend(), [&](const QRectF &other) {
+                        return other.adjusted(-ui::SpaceS, -ui::SpaceS, ui::SpaceS, ui::SpaceS).intersects(chip);
+                    }))
+                    continue;
+                labels.append(chip);
+                p.setPen(QPen(theme.borderStrong, 1));
+                p.setBrush(theme.raised);
+                p.drawRoundedRect(chip, ui::RadiusS, ui::RadiusS);
+                p.setPen(theme.text);
+                p.drawText(chip, Qt::AlignCenter, region.label);
+            }
         p.restore();
     }
     const QColor accent = palette().color(QPalette::Highlight).lighter(170);

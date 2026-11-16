@@ -25,7 +25,7 @@ two tokens.
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
-| `backdrop` | `#0e0f12` | `#dedfe3` | Gutters between docked panels, main-window background |
+| `backdrop` | `#0e0f12` | `#c9cbd2` | Gutters between docked panels, main-window background |
 | `base` | `#131418` | `#ffffff` | Field wells, lists, trees, tables |
 | `canvas` | `#131418` | `#d5d7dc` | Surround of the texture canvas and the 3D viewport |
 | `window` | `#191a1f` | `#f4f4f6` | Panel and chrome fill (menu bar, toolbars, dock titles, status bar) |
@@ -34,13 +34,13 @@ two tokens.
 | `control` | `#24252c` | `#ffffff` | Push-button and picker fill |
 | `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#d6d8de` / `#bfc2ca` | Hairlines / control outlines |
 | `text` / `muted` | `#e3e4e8` / `#a4a7b2` | `#1b1d22` / `#5b5f6b` | Primary / secondary text |
-| `disabled` / `placeholder` | `#6c6f7a` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
+| `disabled` / `placeholder` | `#737683` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
 | `icon` | `#c4c6ce` | `#3d414b` | Default icon ink, one step softer than text |
 | `accent` | `#7b6cf0` (blue `#4a8af4`) | `#6550e0` (blue `#2563d9`) | Focus, primary actions, checked state, active tab |
 | `accentHover` / `accentMuted` | | | Primary hover / checked toggles, inactive selection |
 | `accentFill` | `#6a5ae0` (blue `#2d6ad0`) | = `accent` | Primary-button fill: the accent deepened until white labels meet AA (4.5:1) |
 | `onAccent` | white | white | Text and marks on accent fills |
-| `selection` / `selectionText` | `#383461` / white | `#dad3fb` / `#1b1d22` | Selected rows and text selection |
+| `selection` / `selectionText` | `#383461` / white | `#cec4f5` / `#1b1d22` | Selected rows and text selection |
 | `warning`, `danger`, `success`, `info` | | | Status text; pair with a word or icon |
 | `warningSurface`, `dangerSurface`, `infoSurface` | | | Tinted backgrounds for inline notices |
 | `checkerDark` / `checkerLight` / `pixelGrid` | | | Canvas transparency and grid. `checkerboard_theme_test` guards their contrast against `canvas`. |
@@ -50,14 +50,23 @@ Widgets that paint custom content read `ui::current()`. They never hard-code a c
 
 ## Type scale
 
-The type scale uses the platform UI family (Segoe UI on Windows). Body text is 9 pt.
+The type scale uses the platform UI family (Segoe UI on Windows). Body text is 9.75 pt
+(13 logical pixels), and captions are 9 pt (12 logical pixels).
+
+Dock containers establish the `window` surface before transparent children inherit it;
+the main window's `backdrop` is reserved for gutters. Selected asset rows keep the same
+fill when focus moves elsewhere, and selection never recolours artwork thumbnails.
+In compact texture/UV workspaces below 900 logical pixels high, 3D Preview shares the
+Layers tab group so colour controls retain useful vertical room. UV face labels use
+the themed `raised`, `borderStrong` and `text` tokens; overlapping labels give the
+selected face priority.
 
 | `ui::Type` | Size | Weight | Use |
 | --- | --- | --- | --- |
-| `Caption` | 8 pt | Semibold, tracked | Section titles (`ui::sectionTitle`), keycaps, metadata |
-| `Body` | 9 pt | Regular | Everything else |
-| `Strong` | 9 pt | Semibold | Dock titles, the active tool name, group titles |
-| `Title` | 10 pt | Semibold | Dialog headings (`QLabel[role="title"]`) |
+| `Caption` | 9 pt | Semibold, tracked | Section titles (`ui::sectionTitle`), keycaps, metadata |
+| `Body` | 9.75 pt | Regular | Everything else |
+| `Strong` | 9.75 pt | Semibold | Dock titles, the active tool name, group titles |
+| `Title` | 10.5 pt | Semibold | Dialog headings (`QLabel[role="title"]`) |
 | `Heading` | 13 pt | Semibold | Large empty states |
 | `Display` | 20 pt | Semibold | The welcome screen (`QLabel[role="display"]`) |
 
@@ -69,8 +78,8 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
   Panel content uses `PanelPadding` (12). Related controls are 4 apart and groups are 8 or more apart.
 - **Radii:** `RadiusS 4` (controls, rows, keycaps), `RadiusM 6` (cards, notices, popups' rows),
   `RadiusL 8` (large cards).
-- **Heights:** `ControlHeight 26` for buttons, fields and pickers. `RowHeight 26` for tree, list
-  and table rows. `InsetRowHeight 24` for short lists inset in a panel (`QListWidget[role="inset"]`).
+- **Heights:** `ControlHeight 28` for buttons, fields and pickers. `RowHeight 28` for tree, list
+  and table rows. `InsetRowHeight 26` for short lists inset in a panel (`QListWidget[role="inset"]`).
 - **Icons:** `IconSize 18` for commands and `ToolIconSize 20` for the tool strip, drawn from
   Material Symbols Outlined (`ui::lineIcon`). `GutterWidth 4` and `ScrollBarWidth 10`.
 
@@ -91,6 +100,8 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |
 | Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text. Re-read the tokens on `QEvent::PaletteChange` so a theme switch re-tones existing rows. |
 | Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
+| Secondary settings | `ui::settingsMenu(button, content)`: a native menu hosting a form with `PanelPadding`, `SpaceXL` between columns and `SpaceL` between rows. Keep routine controls on the working row; label the settings button by its task. |
+| Path field | `ui::pathField(text)`: a native line edit that preserves the first and final path segments when unfocused. Editing and `text()` retain the entire path; the tooltip shows it in full. |
 | Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. A row the edge would cut in half is hidden whole, so a panel never ends on half a heading. |
 | Card gutter | `QSplitter[role="gutter"]` for wide handles between cards: empty space that tints `accentMuted` on hover |
 | Empty list with a first action | Put the action (a primary button) inside the empty state, and hide the list's edit bar until the list has rows (see the batch operation stack). |
@@ -100,6 +111,26 @@ geometry, arrows, branch chevrons, check marks, dock and folder icons, and metri
 
 Never call `setStyleSheet` on an individual widget for colours. If a component needs a new
 look, add a role to `styleSheet()` and document it here.
+
+## Editor states
+
+With no pack and no document, the welcome screen offers Create, Open and Recent packs.
+Editing docks and toolbars, including the path/workspace command bar, are hidden.
+The menu bar and keyboard commands remain available. Their packed layout is retained separately and
+restored when a pack or document opens; saving preferences during welcome saves that
+editor layout rather than the temporary welcome arrangement. Workspace presets still
+select the layout that will be restored.
+
+Selected asset and layer rows use a two-pixel accent edge alongside their selection fill.
+Document tabs show the filename and unsaved dot. PNG export freshness is described in the
+Inspector and the tab tooltip rather than another abbreviation in the tab label.
+Animation frame selection outlines the tile without recolouring the artwork thumbnail.
+Brush height, hardness, spacing and smoothing use the secondary-settings menu; onion
+skin settings use the same component. Their document and tool-state semantics are unchanged.
+Dependent onion controls are disabled while adjacent-frame display is off; their values are
+retained. Settings-menu titles use the shared strong weight. Text fields share the same
+visible resting border as pickers. Embedded lists keep partial rows out of the parent
+scroll area's bottom edge.
 
 ## Checking a change
 

@@ -291,7 +291,7 @@ class SearchDelegate : public QStyledItemDelegate {
     }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         auto size = QStyledItemDelegate::sizeHint(option, index);
-        return {size.width(), std::max(size.height(), option.fontMetrics.height() + 2 * ui::SpaceL + 2) +
+        return {size.width(), option.fontMetrics.height() + 2 * ui::SpaceL + 2 +
                                   headerHeight(index, option.fontMetrics)};
     }
 
@@ -342,10 +342,20 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     layout->addWidget(list, 1);
     auto footer = new QHBoxLayout;
     footer->addWidget(detail, 1);
-    auto keys = ui::hint("↑↓ move   Enter run   Esc close");
-    keys->setWordWrap(false);
+    auto keys = new QWidget;
     keys->setObjectName("searchKeys");
-    footer->addWidget(keys, 0, Qt::AlignTop);
+    auto hints = new QHBoxLayout(keys);
+    hints->setContentsMargins(0, 0, 0, 0);
+    hints->setSpacing(ui::SpaceL);
+    for (const auto &pair : {std::pair{"↑↓", "move"}, {"Enter", "run"}, {"Esc", "close"}}) {
+        auto cap = new QLabel(pair.first);
+        cap->setProperty("role", "keycap");
+        cap->setFont(ui::font(ui::Type::Caption));
+        hints->addWidget(cap);
+        hints->addWidget(ui::hint(pair.second));
+        hints->addSpacing(ui::SpaceL);
+    }
+    footer->addWidget(keys, 0, Qt::AlignVCenter);
     layout->addLayout(footer);
     connect(query, &QLineEdit::textChanged, this, [this] { filter(); });
     connect(query, &QLineEdit::returnPressed, this, [this] { activateCurrent(); });

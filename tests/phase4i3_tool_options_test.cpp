@@ -29,7 +29,7 @@ int requiredHeight(const QScrollArea *row) {
     return content + bar;
 }
 // A fixed logical window size, narrower than every page these tests expect to scroll (the narrowest,
-// pencil, is about 1240 px wide) and small enough for any test display, so whether a scrollbar is
+// shape, is wider than 1000 px) and small enough for any test display, so whether a scrollbar is
 // needed does not depend on a monitor clamping the window.
 const QSize narrowWindow(1000, 700);
 // The production bar builds every page lazily: the first during the first
@@ -63,11 +63,35 @@ class Phase4i3ToolOptionsTests : public QObject {
     }
 
   private slots:
+    void brushSettingsPreserveKeyboardEditing() {
+        qApp->setProperty("settingsFile", temporary.filePath("brush-settings.ini"));
+        QElapsedTimer started; started.start();
+        nova::Window window({}, {}, started);
+        window.findChild<nova::ToolOptionsBar *>("toolOptions")->show();
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        window.tools().setTool(nova::Tool::Brush);
+        QTRY_VERIFY(window.findChild<QToolButton *>("brushSettings"));
+        auto settings = window.findChild<QToolButton *>("brushSettings");
+        settings->menu()->popup(settings->mapToGlobal(QPoint(0, settings->height())));
+        QTRY_VERIFY(settings->menu()->isVisible());
+        auto height = window.findChild<QSpinBox *>("brushHeight");
+        height->setFocus();
+        QTRY_VERIFY(height->hasFocus());
+        QTest::keyClick(height, Qt::Key_Up);
+        QCOMPARE(window.tools().brush(nova::Tool::Brush).height, 1);
+        QTest::keyClick(height, Qt::Key_Tab);
+        QVERIFY(settings->menu()->isAncestorOf(QApplication::focusWidget()));
+        QTest::keyClick(settings->menu(), Qt::Key_Escape);
+        QTRY_VERIFY(!settings->menu()->isVisible());
+        QCOMPARE(window.tools().brush(nova::Tool::Brush).height, 1);
+    }
     void pagesNeedingAScrollbarShowTheirControlsFully() {
         qApp->setProperty("settingsFile", temporary.filePath("studio.ini"));
         QElapsedTimer started;
         started.start();
         nova::Window window({}, {}, started);
+        window.findChild<nova::ToolOptionsBar *>("toolOptions")->show();
         window.resize(narrowWindow);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
@@ -76,7 +100,7 @@ class Phase4i3ToolOptionsTests : public QObject {
         // Pencil was never clipped (it is the start-up page); shape and transform
         // were the clipped pages. The second round re-shows already-built pages.
         for (int round = 0; round < 2; ++round)
-            for (auto tool : {nova::Tool::Pencil, nova::Tool::Shape, nova::Tool::Transform}) {
+            for (auto tool : {nova::Tool::Shape, nova::Tool::Transform}) {
                 window.tools().setTool(tool);
                 QTest::qWait(250);
                 assertRowShowsControlsFully(window, nova::toolInfo(tool).id.toLatin1().constData());
@@ -88,6 +112,7 @@ class Phase4i3ToolOptionsTests : public QObject {
         QElapsedTimer started;
         started.start();
         nova::Window window({}, {}, started);
+        window.findChild<nova::ToolOptionsBar *>("toolOptions")->show();
         window.resize(narrowWindow);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
@@ -107,6 +132,7 @@ class Phase4i3ToolOptionsTests : public QObject {
         QElapsedTimer started;
         started.start();
         nova::Window window({}, {}, started);
+        window.findChild<nova::ToolOptionsBar *>("toolOptions")->show();
         window.resize(1280, 800);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));

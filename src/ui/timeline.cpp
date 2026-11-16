@@ -6,6 +6,19 @@
 #include <algorithm>
 #include <array>
 namespace nova {
+namespace {
+class FrameDelegate final : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+  protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        // Selection marks the tile, never the artwork's colours.
+        const auto thumbnail = qvariant_cast<QPixmap>(index.data(Qt::DecorationRole));
+        option->icon.addPixmap(thumbnail, QIcon::Selected);
+    }
+};
+}
 int TimelineModel::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : int(entries.size()); }
 QUuid TimelineModel::frameAt(int row) const { return row >= 0 && row < int(entries.size()) ? entries[size_t(row)].frame : QUuid{}; }
 QVariant TimelineModel::data(const QModelIndex &index, int role) const {
@@ -98,9 +111,10 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     auto scrollRow = [this, layout](QHBoxLayout *row) {
         auto content = new QWidget; content->setLayout(row); row->setContentsMargins(0, 0, 0, 0);
         auto scroll = new QScrollArea; scroll->setFrameShape(QFrame::NoFrame); scroll->setWidget(content);
-        scroll->setWidgetResizable(false); scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setWidgetResizable(true); scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded); scroll->setMinimumWidth(0);
-        content->adjustSize(); scroll->setFixedHeight(content->sizeHint().height() + ui::ScrollBarWidth);
+        content->adjustSize(); content->setMinimumWidth(content->sizeHint().width());
+        scroll->setFixedHeight(content->sizeHint().height() + ui::ScrollBarWidth);
         layout->addWidget(scroll);
     };
     auto controls = new QHBoxLayout;
@@ -146,10 +160,11 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     scrollRow(controls);
     model = new TimelineModel(this);
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);
+    view->setItemDelegate(new FrameDelegate(view));
     view->setViewMode(QListView::IconMode); view->setFlow(QListView::LeftToRight); view->setWrapping(false);
-    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({102, 114});
+    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({120, 132});
     view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // one row of frames scrolls sideways
-    view->setIconSize({72, 72}); view->setMinimumHeight(121); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    view->setIconSize({72, 72}); view->setMinimumHeight(144); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     view->setDragDropMode(QAbstractItemView::InternalMove); view->setDefaultDropAction(Qt::MoveAction);
     view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel); view->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(view, 1);
@@ -184,7 +199,8 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
         unit(spin->value());
     }
     timingRow->addWidget(fieldLabel("Default duration")); timingRow->addWidget(defaultTime);
-    timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint"); timingRow->addWidget(timing);
+    timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint");
+    timingRow->insertWidget(timingRow->indexOf(duration) + 1, timing);
     divider(timingRow);
     interpolate = new QCheckBox("Interpolate"); interpolate->setObjectName("animationInterpolate"); timingRow->addWidget(interpolate);
     timingRow->addStretch();
@@ -195,23 +211,50 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     zoomIcon->setToolTip(zoom->toolTip()); timingRow->addWidget(zoomIcon);
     timingRow->addWidget(zoom); scrollRow(timingRow);
     connect(zoom, &QSlider::valueChanged, this, [this](int size) {
-        model->setThumbnailSize(size); view->setIconSize({size, size}); view->setGridSize({std::max(102, size + 16), size + 42});
+        model->setThumbnailSize(size); view->setIconSize({size, size});
+        view->setGridSize({std::max(120, size + 20), size + 60});
+        view->setMinimumHeight(size + 72);
     });
-    auto onionRow = new QHBoxLayout;
-    onionRow->setSpacing(ui::SpaceS);
-    auto onion = new QCheckBox("Onion skin"); onion->setObjectName("onionEnabled"); onionRow->addWidget(onion);
-    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setPrefix("Previous "); previous->setObjectName("onionPrevious"); onionRow->addWidget(previous);
-    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setPrefix("Next "); next->setObjectName("onionNext"); onionRow->addWidget(next);
-    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity"); onionRow->addWidget(opacity);
-    auto tint = new QCheckBox("Tint"); tint->setChecked(true); onionRow->addWidget(tint);
+    auto onionSettings = new QToolButton;
+    onionSettings->setText("Onion skin"); onionSettings->setObjectName("onionSettings");
+    onionSettings->setToolTip("Onion skin: show adjacent frames while drawing");
+    auto onionBody = new QWidget;
+    auto onionForm = new QFormLayout(onionBody);
+    onionForm->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+    onionForm->setHorizontalSpacing(ui::SpaceXL); onionForm->setVerticalSpacing(ui::SpaceL);
+    auto onion = new QCheckBox("Show adjacent frames"); onion->setObjectName("onionEnabled"); onionForm->addRow(onion);
+    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setObjectName("onionPrevious"); onionForm->addRow("Previous frames", previous);
+    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setObjectName("onionNext"); onionForm->addRow("Next frames", next);
+    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity"); onionForm->addRow("Opacity", opacity);
+    auto tint = new QCheckBox("Tint adjacent frames"); tint->setChecked(true); onionForm->addRow(tint);
+    const auto syncOnionControls = [=](bool enabled) {
+        for (QWidget *control : std::initializer_list<QWidget *>{previous, next, opacity, tint}) {
+            control->setEnabled(enabled);
+            if (auto label = onionForm->labelForField(control))
+                label->setEnabled(enabled);
+        }
+    };
+    connect(onion, &QCheckBox::toggled, this, syncOnionControls);
+    syncOnionControls(onion->isChecked());
+    ui::settingsMenu(onionSettings, onionBody);
     previous->setToolTip("Onion skin: earlier frames shown"); next->setToolTip("Onion skin: later frames shown");
     opacity->setToolTip("Onion skin opacity");
     tint->setObjectName("onionTint");
     auto updateOnion = [=, this] { emit onionChanged(onion->isChecked(), previous->value(), next->value(), opacity->value(), tint->isChecked()); };
     connect(onion, &QCheckBox::toggled, this, updateOnion); connect(previous, &QSpinBox::valueChanged, this, updateOnion);
     connect(next, &QSpinBox::valueChanged, this, updateOnion); connect(opacity, &QSpinBox::valueChanged, this, updateOnion); connect(tint, &QCheckBox::toggled, this, updateOnion);
-    onionRow->addStretch(); auto scope = new QPushButton("Process frames…"); scope->setObjectName("processAnimationFrames"); onionRow->addWidget(scope);
-    connect(scope, &QPushButton::clicked, this, [this] { emit scopeOperationRequested(); }); scrollRow(onionRow);
+    controls->insertWidget(controls->count() - 2, onionSettings);
+    auto frameRule = new QFrame; frameRule->setProperty("role", "vrule");
+    frameRule->setFixedSize(1, ui::IconSize);
+    controls->insertSpacing(controls->indexOf(onionSettings), ui::SpaceS);
+    controls->insertWidget(controls->indexOf(onionSettings), frameRule);
+    controls->insertSpacing(controls->indexOf(onionSettings), ui::SpaceS);
+    auto scope = new QToolButton; scope->setText("Process frames…"); scope->setObjectName("processAnimationFrames");
+    controls->insertWidget(controls->count() - 1, scope);
+    connect(scope, &QToolButton::clicked, this, [this] { emit scopeOperationRequested(); });
+    connect(onion, &QCheckBox::toggled, this, [onionSettings](bool on) {
+        onionSettings->setText(on ? "Onion skin: on" : "Onion skin");
+    });
     connect(defaultTime, &QSpinBox::valueChanged, this, [this](int ticks) { if (!syncing && document) { auto state = document->animationState(); state.defaultTicks = ticks; apply(state, "Default Frame Timing"); } });
     connect(interpolate, &QCheckBox::toggled, this, [this](bool on) { if (!syncing && document) { auto state = document->animationState(); state.interpolate = on; apply(state, "Animation Interpolation"); } });
     connect(duration, &QSpinBox::valueChanged, this, [this](int ticks) {

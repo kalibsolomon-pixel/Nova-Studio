@@ -8,9 +8,11 @@
 #include <QAbstractSlider>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QDebug>
+#include <QDockWidget>
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QHash>
@@ -23,8 +25,68 @@
 #include <QStyleFactory>
 #include <QStyleOption>
 #include <QToolButton>
+#include <QMenu>
+#include <QWidgetAction>
+#include <QVBoxLayout>
 
 namespace nova::ui {
+void settingsMenu(QToolButton *button, QWidget *content) {
+    for (auto field : content->findChildren<QAbstractSpinBox *>()) {
+        field->setAlignment(Qt::AlignRight);
+        field->setMinimumWidth(80);
+    }
+    auto menu = new QMenu(button);
+    auto action = new QWidgetAction(menu);
+    auto host = new QWidget;
+    auto layout = new QVBoxLayout(host);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    auto title = new QLabel(button->text());
+    title->setProperty("role", "settingsTitle");
+    title->setFont(font(Type::Strong));
+    title->setContentsMargins(PanelPadding, PanelPadding, PanelPadding, 0);
+    layout->addWidget(title);
+    layout->addWidget(content);
+    action->setDefaultWidget(host);
+    menu->addAction(action);
+    button->setMenu(menu);
+    button->setPopupMode(QToolButton::InstantPopup);
+}
+namespace {
+class PathField final : public QLineEdit {
+  public:
+    using QLineEdit::QLineEdit;
+  protected:
+    void paintEvent(QPaintEvent *event) override {
+        QStyleOptionFrame option;
+        initStyleOption(&option);
+        const auto area = style()->subElementRect(QStyle::SE_LineEditContents, &option, this)
+                              .adjusted(SpaceXS, 0, -SpaceXS, 0);
+        if (hasFocus() || text().isEmpty() || fontMetrics().horizontalAdvance(text()) <= area.width()) {
+            QLineEdit::paintEvent(event);
+            return;
+        }
+        auto display = text();
+        display.replace('\\', '/');
+        const auto parts = display.split('/', Qt::SkipEmptyParts);
+        if (parts.size() > 2) {
+            const auto prefix = display.startsWith("//") ? "//" + parts.first() : parts.first();
+            display = prefix + "/…/" + parts.last();
+        }
+        QPainter p(this);
+        style()->drawPrimitive(QStyle::PE_PanelLineEdit, &option, &p, this);
+        p.setPen(palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled, QPalette::Text));
+        p.drawText(area, Qt::AlignVCenter | Qt::AlignLeft,
+                   fontMetrics().elidedText(display, Qt::ElideMiddle, area.width()));
+    }
+};
+}
+QLineEdit *pathField(const QString &text, QWidget *parent) {
+    auto field = new PathField(text, parent);
+    field->setToolTip(text);
+    QObject::connect(field, &QLineEdit::textChanged, field, [field](const QString &value) { field->setToolTip(value); });
+    return field;
+}
 namespace {
 Tokens active = tokens(true, "violet");
 QString hex(const QColor &c) { return c.name(QColor::HexRgb); }
@@ -57,7 +119,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.borderStrong = QColor("#3a3c46");
         t.text = QColor("#e3e4e8");
         t.muted = QColor("#a4a7b2");
-        t.disabled = QColor("#6c6f7a");
+        t.disabled = QColor("#737683"); // 3.8:1 on panels: legible yet clearly inactive
         t.placeholder = QColor("#7e818d");
         t.icon = QColor("#c4c6ce");
         t.accent = QColor(blue ? "#4a8af4" : "#7b6cf0");
@@ -78,7 +140,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.checkerLight = QColor("#6a6e78");
         t.pixelGrid = QColor(0, 0, 0, 65);
     } else {
-        t.backdrop = QColor("#dedfe3");
+        t.backdrop = QColor("#c9cbd2");
         t.base = QColor("#ffffff");
         t.canvas = QColor("#d5d7dc");
         t.window = QColor("#f4f4f6");
@@ -98,7 +160,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.accentMuted = QColor(blue ? "#e3ecfb" : "#ece9fd");
         t.accentFill = t.accent; // already 5.4:1 under white labels
         t.onAccent = Qt::white;
-        t.selection = QColor(blue ? "#cddefa" : "#dad3fb");
+        t.selection = QColor(blue ? "#bfd3f4" : "#cec4f5");
         t.selectionText = QColor("#1b1d22");
         t.warning = QColor("#94600a");
         t.danger = QColor("#b42318");
@@ -175,6 +237,10 @@ QString styleSheet(const Tokens &t) {
         "QStatusBar::item{border:0}"
         "QStatusBar QLabel{color:@muted}"
         // Panels.
+        // Establish the panel palette before transparent child containers inherit
+        // the main window's gutter colour, especially visible in the light theme.
+        "QDockWidget{background:@window}"
+        "QDockWidget>QWidget{background:@window}"
         // Dock titles are painted by NovaStyle (semibold, token colours) so no font rule
         // pins a size onto docks and their contents.
         "QDockWidget::close-button,QDockWidget::float-button{border:0;border-radius:@rS;background:transparent;"
@@ -182,6 +248,7 @@ QString styleSheet(const Tokens &t) {
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
         "QSplitter::handle{background:@border}"
         "QWidget#animationTimeline{background:@window}"
+        "QLabel[role=\"settingsTitle\"],QToolBar#toolOptions QLabel[role=\"settingsTitle\"]{font-weight:600;color:@text}"
         // Layer rows match tree rows so the eye toggle and name have room.
         "QListWidget#layerList::item{min-height:@rowHeight}"
         // Timeline frames: the selected tile carries an accent outline, not only a tint.
@@ -282,8 +349,10 @@ QString styleSheet(const Tokens &t) {
         "QTreeView::item:hover,QListView::item:hover,QTableView::item:hover{background:@hoverRow}"
         "QTreeView::item:selected,QListView::item:selected,QTableView::item:selected{background:@selection;"
         "color:@selectionText}"
-        "QTreeView::item:selected:!active,QListView::item:selected:!active,"
-        "QTableView::item:selected:!active{background:@inactiveSelection;color:@text}"
+        // The asset tree and layer list mark the selected row with an accent edge too,
+        // so selection reads at a glance in both themes.
+        "QTreeView#assetTree::item,QListWidget#layerList::item{border-left:2px solid transparent}"
+        "QTreeView#assetTree::item:selected,QListWidget#layerList::item:selected{border-left-color:@accent}"
         // Short lists embedded in a panel sit in a bordered inset well.
         "QListWidget[role=\"inset\"]{background:@base;border:1px solid @border;border-radius:@rS;padding:2px}"
         "QListWidget[role=\"inset\"]::item{height:@insetRow;padding:0 6px;border-radius:@rS}"
@@ -309,7 +378,7 @@ QString styleSheet(const Tokens &t) {
         // Grouped sections: titled cards.
         "QGroupBox{font-weight:600;border:1px solid @border;border-radius:@rM;margin-top:20px;"
         "padding:10px 8px 8px 8px;background:@surface}"
-        "QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;left:2px;padding:0 0 4px 0;"
+        "QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;left:16px;padding:0 0 4px 0;"
         "color:@text}"
         "QGroupBox QAbstractItemView{background:@window;border:1px solid @border;border-radius:@rS}"
         "QGroupBox[role=\"section\"]{font-weight:600;border:1px solid @border;border-radius:@rM;"
@@ -320,6 +389,7 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"title\"]{font-size:@titlePt;font-weight:600;color:@text}"
         "QLabel[role=\"display\"]{font-size:@displayPt;font-weight:600;color:@text}"
         "QLabel[role=\"hint\"]{color:@muted}"
+        "QLabel:disabled{color:@disabled}"
         "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
         "QLabel[role=\"keycap\"]{color:@muted;background:@surface;border:1px solid @borderStrong;"
         "border-radius:@rS;padding:1px 6px}"
@@ -352,7 +422,6 @@ QString styleSheet(const Tokens &t) {
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
         {"@primaryDisabledText", mix(t.accent, t.onAccent, 0.45)},
         {"@primaryDisabledFill", mix(t.window, t.accent, 0.42)},
-        {"@inactiveSelection", mix(t.list, t.selection, 0.75)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
         {"@muted", t.muted},
@@ -624,6 +693,12 @@ class NovaStyle : public QProxyStyle {
   public:
     NovaStyle() : QProxyStyle(QStyleFactory::create(QStringLiteral("Fusion"))) {
         setObjectName(QStringLiteral("nova"));
+    }
+    using QProxyStyle::polish;
+    void polish(QWidget *widget) override {
+        QProxyStyle::polish(widget);
+        if (qobject_cast<QDockWidget *>(widget->parentWidget()))
+            widget->setAttribute(Qt::WA_StyledBackground);
     }
     int pixelMetric(PixelMetric metric, const QStyleOption *option, const QWidget *widget) const override {
         switch (metric) {
@@ -899,7 +974,7 @@ class NovaStyle : public QProxyStyle {
         const bool readOnly = state & State_ReadOnly;
         QColor fill = !enabled || readOnly ? t.window : picker ? (hover ? t.raised : t.control) : t.base;
         QColor edge = !enabled ? t.border : focus ? t.accent : hover ? mix(t.borderStrong, t.muted, 0.35)
-                                                       : picker ? t.borderStrong : t.border;
+                                                       : t.borderStrong;
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         p->setPen(QPen(edge, 1));
@@ -917,7 +992,7 @@ class NovaStyle : public QProxyStyle {
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         QColor fill = on ? (enabled ? t.accent : t.borderStrong) : (enabled ? t.base : t.window);
-        QColor edge = on ? fill : hover ? t.accent : (enabled ? t.borderStrong : t.border);
+        QColor edge = on ? fill : hover ? t.accent : (enabled ? mix(t.borderStrong, t.muted, 0.3) : t.border);
         p->setPen(QPen(edge, 1));
         p->setBrush(fill);
         if (radio)
@@ -984,6 +1059,11 @@ void prepareApplication() {
     static bool fontApplied = false;
     QFont font = QApplication::font();
     if (!fontApplied || font.pointSizeF() != TypeBody) {
+#ifdef Q_OS_WIN
+        // Resolve the Windows UI family explicitly before changing weight in QSS;
+        // an unresolved platform alias can otherwise fall back on bold labels.
+        font.setFamily(QStringLiteral("Segoe UI"));
+#endif
         font.setPointSizeF(TypeBody);
         QApplication::setFont(font);
         fontApplied = true;
@@ -1108,6 +1188,24 @@ class ScrollFade : public QWidget {
         const int edge = area->verticalScrollBar()->value() + area->viewport()->height();
         QRegion visible(content->rect());
         bool cut = false;
+        // An embedded list can also cross its parent's viewport edge. Keep the last
+        // visible item whole instead of exposing the top half of its text.
+        if (more)
+            for (auto list : content->findChildren<QListWidget *>()) {
+                if (!list->isVisibleTo(content))
+                    continue;
+                const auto viewport = list->viewport();
+                const auto point = viewport->mapFrom(content, QPoint(list->mapTo(content, QPoint()).x() + SpaceL, edge - 1));
+                const auto index = list->indexAt(point);
+                if (!index.isValid())
+                    continue;
+                const auto item = list->visualRect(index);
+                const QRect r(viewport->mapTo(content, item.topLeft()), item.size());
+                if (r.top() < edge && r.bottom() >= edge) {
+                    visible -= QRect(0, r.top(), content->width(), r.height());
+                    cut = true;
+                }
+            }
         if (more)
             for (auto w : content->findChildren<QWidget *>()) {
                 if (!w->isVisibleTo(content) || !(qobject_cast<QLabel *>(w) || qobject_cast<QAbstractButton *>(w) ||

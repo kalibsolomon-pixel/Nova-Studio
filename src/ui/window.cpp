@@ -16,27 +16,6 @@
 #include <QtWidgets>
 namespace nova {
 namespace {
-// Shows a long folder path elided in the middle while the field is not being edited, so
-// the pack's own folder name stays visible; editing shows the full text as usual.
-class PathField : public QLineEdit {
-  public:
-    using QLineEdit::QLineEdit;
-
-  protected:
-    void paintEvent(QPaintEvent *event) override {
-        if (hasFocus() || text().isEmpty() || fontMetrics().horizontalAdvance(text()) < width() - 2 * ui::SpaceL) {
-            QLineEdit::paintEvent(event);
-            return;
-        }
-        QStyleOptionFrame option;
-        initStyleOption(&option);
-        QPainter p(this);
-        style()->drawPrimitive(QStyle::PE_PanelLineEdit, &option, &p, this);
-        const QRect area = style()->subElementRect(QStyle::SE_LineEditContents, &option, this).adjusted(2, 0, -2, 0);
-        p.setPen(palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled, QPalette::Text));
-        p.drawText(area, Qt::AlignVCenter | Qt::AlignLeft, fontMetrics().elidedText(text(), Qt::ElideMiddle, area.width()));
-    }
-};
 // Long asset names shorten their stem and keep the whole extension chain, so siblings
 // such as "material_a.png" and "material_a.png.mcmeta" stay distinguishable.
 class AssetNameDelegate : public QStyledItemDelegate {
@@ -46,6 +25,9 @@ class AssetNameDelegate : public QStyledItemDelegate {
   protected:
     void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
         QStyledItemDelegate::initStyleOption(option, index);
+        // Asset thumbnails retain their document colours when selected.
+        if (!option->icon.isNull())
+            option->icon.addPixmap(option->icon.pixmap(option->decorationSize, QIcon::Normal), QIcon::Selected);
         const auto &metrics = option->fontMetrics;
         const int room = option->rect.width() - option->decorationSize.width() - 4 * ui::SpaceS;
         if (room <= 0 || metrics.horizontalAdvance(option->text) <= room)
@@ -180,10 +162,9 @@ class EditorTabs : public QTabWidget {
         layout->addSpacing(ui::SpaceL);
         auto row = new QHBoxLayout;
         row->addStretch();
-        auto button = new QPushButton("Recent Projects");
+        auto button = new QPushButton("Recent packs");
         button->setMenu(recent);
         button->setObjectName("welcomeRecent");
-        button->setProperty("role", "icon");
         row->addWidget(button);
         row->addStretch();
         layout->addLayout(row);
@@ -191,10 +172,11 @@ class EditorTabs : public QTabWidget {
         // Shortcut hints as keycaps, matching the command palette.
         auto keys = new QWidget;
         keys->setObjectName("welcomeShortcuts");
+        keys->setMaximumWidth(640);
         // Each hint is one group; narrow areas stack the groups instead of scrolling.
         auto keyRow = welcomeKeys = new QBoxLayout(QBoxLayout::LeftToRight, keys);
         keyRow->setContentsMargins(0, 0, 0, 0);
-        keyRow->setSpacing(ui::Space2XL);
+        keyRow->setSpacing(ui::Space3XL);
         const std::pair<QStringList, const char *> hints[] = {
             {{"Ctrl", "N"}, "New pack"}, {{"Ctrl", "Shift", "O"}, "Open pack"}, {{"Ctrl", "K"}, "Search"}};
         for (const auto &[combo, what] : hints) {
@@ -209,20 +191,19 @@ class EditorTabs : public QTabWidget {
             }
             auto label = new QLabel(what);
             label->setProperty("role", "hint");
+            groupRow->addSpacing(ui::SpaceS);
             groupRow->addWidget(label);
             keyRow->addWidget(group, 0, Qt::AlignHCenter);
         }
-        layout->addWidget(keys);
+        layout->addWidget(keys, 0, Qt::AlignHCenter);
         layout->addStretch(4);
         connect(this, &QTabWidget::currentChanged, this,
                 [this] { welcome->setVisible(count() == 0); });
     }
 };
-// Name, then "PNG ↑" while the Minecraft PNG lags the editable document, then the
-// unsaved dot last, each separated so the badges never run together.
+// Tabs prioritise the filename. Export state stays in the Inspector and tooltip.
 QString documentTabText(const Document &doc, bool dirty) {
-    return QFileInfo(doc.path).fileName() + (doc.nativeDocument() && doc.exportModified() ? "  PNG ↑" : "") +
-           (dirty ? "  ●" : "");
+    return QFileInfo(doc.path).fileName() + (dirty ? "  ●" : "");
 }
 } // namespace
 
@@ -532,7 +513,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     }
     panelsMenu = new QMenu("&Panels", this);
     panelsMenu->setObjectName("panelsMenu");
-    pathText = new PathField(project);
+    pathText = ui::pathField(project);
     pathText->setMinimumWidth(120);
     pathText->setMaximumWidth(560);
     pathText->setObjectName("projectPath");
@@ -1015,6 +996,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         safetyTimer->start();
     if (!fresh)
         QTimer::singleShot(800, this, &Window::recoverSession);
+    syncWelcomeLayout();
 }
 Window::~Window() {
     if (mcpService)
@@ -1285,6 +1267,7 @@ void Window::applyTheme() {
     metrics.record("theme_icons", icons);
 }
 void Window::indexProject() {
+    syncWelcomeLayout();
     if (reconciliationTimer) {
         if (project.isEmpty())
             reconciliationTimer->stop();
@@ -1592,6 +1575,7 @@ void Window::refresh() {
     }
     if (canvas && canvas->document->animated())
         metrics.record("animation_viewport_refresh", viewportStage);
+    syncWelcomeLayout();
 }
 void Window::action(const QString &name) {
     // Reset to Vanilla history when the asset browser has focus (baseline projects only).

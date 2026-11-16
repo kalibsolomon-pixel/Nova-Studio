@@ -30,7 +30,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     targets->setAccessibleName("Model or item definition");
     v->setContentsMargins(ui::SpaceL, ui::SpaceM, ui::SpaceL, ui::SpaceM);
     v->setSpacing(ui::SpaceM);
-    v->addWidget(ui::sectionTitle("Model"));
+    v->addWidget(ui::sectionTitle("Minecraft version"));
     auto resources = new QPushButton("Resource stack…");
     resources->setObjectName("resourceStack");
     resources->setToolTip("Choose resource packs below this one for fallback textures and models");

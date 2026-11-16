@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tools.h"
+#include <QFormLayout>
 #include "theme.h"
 #include <QActionGroup>
 #include <QBuffer>
@@ -514,6 +515,11 @@ class EdgeFade : public QWidget {
 };
 class OptionsRow : public QScrollArea {
     EdgeFade *fade = nullptr;
+    void settleHeight() {
+        setFixedHeight(sizeHint().height());
+        if (auto stack = qobject_cast<QStackedWidget *>(parentWidget()); stack && stack->currentWidget() == this)
+            stack->setFixedHeight(height());
+    }
     void placeFade() {
         if (!fade) {
             fade = new EdgeFade(this);
@@ -539,7 +545,7 @@ class OptionsRow : public QScrollArea {
         QScrollArea::resizeEvent(e);
         placeFade();
         if (before != horizontalScrollBar()->isVisible() || height() != sizeHint().height())
-            QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
+            QTimer::singleShot(0, this, [this] { settleHeight(); });
     }
     // Pages pre-built during idle time sit hidden in the stacked widget, which never
     // resizes them, and scrollbar children report isVisible() == false while their page
@@ -548,7 +554,7 @@ class OptionsRow : public QScrollArea {
     // the height after the page reaches the screen, when the scrollbar state is real.
     void showEvent(QShowEvent *e) override {
         QScrollArea::showEvent(e);
-        QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
+        QTimer::singleShot(0, this, [this] { settleHeight(); });
     }
 };
 // Extra whitespace, rather than another rule, separates related option groups.
@@ -634,6 +640,8 @@ void ToolOptionsBar::showFor(Tool t) {
         page = "pick";
     pages->setCurrentIndex(ensurePage(page));
     reload();
+    // Hidden pages may need scrollbars, but must not make the active page taller.
+    pages->setFixedHeight(pages->currentWidget()->sizeHint().height());
 }
 QWidget *ToolOptionsBar::paintPage() {
     auto name = new QLabel;
@@ -703,9 +711,23 @@ QWidget *ToolOptionsBar::paintPage() {
     });
     auto toleranceLabel = label("Tolerance");
     toleranceLabel->setObjectName("replaceToleranceLabel");
-    auto w = row({name, nullptr, shape, label("Size"), size, label("Height"), height, nullptr, label("Opacity"), opacity,
-                  label("Hardness"), hardness, label("Spacing"), spacing, label("Smooth"), smoothing, nullptr, symmetry,
-                  radial, nullptr, palette, stampColors, lockAlpha, toleranceLabel, tolerance, nullptr, presets});
+    auto settings = new QToolButton;
+    settings->setText("Brush settings");
+    settings->setObjectName("brushSettings");
+    settings->setToolTip("Brush height, edge hardness, spacing and stroke smoothing");
+    auto formBody = new QWidget;
+    auto form = new QFormLayout(formBody);
+    form->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+    form->setHorizontalSpacing(ui::SpaceXL);
+    form->setVerticalSpacing(ui::SpaceL);
+    form->addRow("Height", height);
+    form->addRow("Hardness", hardness);
+    form->addRow("Spacing", spacing);
+    form->addRow("Smoothing", smoothing);
+    ui::settingsMenu(settings, formBody);
+    auto w = row({name, nullptr, shape, label("Size"), size, label("Opacity"), opacity,
+                  settings, nullptr, symmetry, radial, nullptr, palette, stampColors, lockAlpha,
+                  toleranceLabel, tolerance, nullptr, presets});
     auto brush = [this] { return &state->brush(state->tool); };
     connect(stampColors, &QCheckBox::toggled, this, [=, this](bool value) { if (!updating) { brush()->sourceColors = value; state->touch(); } });
     connect(shape, &QComboBox::currentIndexChanged, this, [=, this](int i) {

@@ -230,6 +230,11 @@ class Phase3BGallery : public QObject {
         window.findChild<QAction *>("selectNone")->trigger();
         window.findChild<QAction *>("tool-brush")->trigger();
         capture(window, "04-texture-brush-dark");
+        if (auto settings = window.findChild<QToolButton *>("brushSettings")) {
+            settings->menu()->popup(settings->mapToGlobal(QPoint(0, settings->height())));
+            capture(*settings->menu(), "18-brush-settings-dark");
+            settings->menu()->hide();
+        }
         window.findChild<QAction *>("tool-shape")->trigger();
         capture(window, "04-texture-shape-dark");
         window.findChild<QAction *>("tool-pencil")->trigger();
@@ -269,6 +274,11 @@ class Phase3BGallery : public QObject {
             dock->raise();
         }
         capture(window, "07-animation-dark");
+        if (auto settings = window.findChild<QToolButton *>("onionSettings")) {
+            settings->menu()->popup(settings->mapToGlobal(QPoint(0, settings->height())));
+            capture(*settings->menu(), "19-onion-settings-dark");
+            settings->menu()->hide();
+        }
         // Model, UV and item display.
         preset(window, "model");
         auto panel = EditorTestAccess::panel(window);

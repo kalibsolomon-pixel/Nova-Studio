@@ -130,7 +130,11 @@ class AnimationGuiTest : public QObject {
         auto mime = std::unique_ptr<QMimeData>(model->mimeData({model->index(0, 0)}));
         QVERIFY(model->dropMimeData(mime.get(), Qt::MoveAction, 3, 0, {}));
         QCOMPARE(doc->animationState().entries[2].frame, third);
-        window.findChild<QCheckBox *>("onionEnabled")->setChecked(true);
+        auto onionEnabled = window.findChild<QCheckBox *>("onionEnabled");
+        auto onionOpacity = window.findChild<QSpinBox *>("onionOpacity");
+        QVERIFY(!onionOpacity->isEnabled());
+        onionEnabled->setChecked(true);
+        QVERIFY(onionOpacity->isEnabled());
         const auto before = doc->image;
         capture(window, "03-onion-skin"); QCOMPARE(doc->image, before);
         auto source = window.findChild<QComboBox *>("sourceFrameSelector"); source->setCurrentIndex(1);

@@ -18,6 +18,10 @@ from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 
+# Dark canvas token from docs/design/DESIGN_SYSTEM.md. These assertions verify
+# rendered preview pixels as well as the model/UV content that follows them.
+DARK_CANVAS = (19, 20, 24, 255)
+
 
 def tool_error(result):
     """Return a tool error, which Nova reports as JSON text without structured content."""
@@ -195,7 +199,7 @@ async def preview_lifecycle(client: ClientSession, reconnect=False) -> None:
     revision = created["document"]["revision"]
     viewport = await preview(asset, revision, "model")
     uv = await preview(asset, revision, "uv")
-    assert viewport[0] == (19, 22, 30, 255) and len(set(viewport)) > 4
+    assert viewport[0] == DARK_CANVAS and len(set(viewport)) > 4
     assert uv[128 * 256 + 64] == (199, 51, 66, 255)
     assert uv[128 * 256 + 192] == (50, 173, 125, 255)
     await preview(asset, revision, "uv", "invalid_arguments", faceIndex=1536)
@@ -262,7 +266,7 @@ async def restored_preview(client: ClientSession) -> None:
         assert struct.unpack(">II", data[16:24]) == (256, 256)
         pixels = decode_png(data, 256, 256)
         assert len(set(pixels)) > 4
-        assert pixels[0] == ((19, 22, 30, 255) if view == "model" else (199, 51, 66, 255))
+        assert pixels[0] == (DARK_CANVAS if view == "model" else (199, 51, 66, 255))
     print("restored model and UV PNGs decoded")
 
 
@@ -479,7 +483,7 @@ async def phase4d(client: ClientSession) -> None:
 
     first = model["expectedRevision"]
     viewport = await pixels(first, "model")
-    assert viewport[0] == (19, 22, 30, 255) and len(set(viewport)) > 4
+    assert viewport[0] == DARK_CANVAS and len(set(viewport)) > 4
     uv = await pixels(first, "uv")
     assert uv[128 * 256 + 64] == (199, 51, 66, 255)
     assert uv[128 * 256 + 192] == (50, 173, 125, 255)
