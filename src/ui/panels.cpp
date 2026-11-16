@@ -112,12 +112,8 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     bg->setObjectName("backgroundSwatch");
     bg->setIconSize({22, 22});
     bg->setToolTip("Background colour (click to choose)");
-    auto swap = new QToolButton;
-    swap->setText("⇄");
-    swap->setToolTip("Swap colours (X)");
-    auto reset = new QToolButton;
-    reset->setText("◩");
-    reset->setToolTip("Default black/white (D)");
+    auto swap = ui::iconButton("swap-colors", "Swap colours (X)");
+    auto reset = ui::iconButton("reset-colors", "Default black/white (D)");
     top->addWidget(fg);
     top->addWidget(bg);
     top->addWidget(swap);

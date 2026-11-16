@@ -263,6 +263,7 @@ class Window : public QMainWindow {
     void showTextureDocument(const std::shared_ptr<Document> &doc);
     void refresh();
     void applyTheme();
+    void refreshDockTitles();
     void buildSupportMenu();
     void persist();
     void restore();

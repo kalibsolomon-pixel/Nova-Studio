@@ -7,6 +7,7 @@
 #include "modelpanel.h"
 #include "creation.h"
 #include "imageops.h"
+#include "theme.h"
 #include "window.h"
 #include <QtTest>
 #include <QtWidgets>
@@ -461,7 +462,7 @@ class Phase3BTests : public QObject {
             QVERIFY(window->findChild<QAction *>("accent-blue")->isChecked());
             QVERIFY(!window->findChild<QCheckBox *>("pixelGrid")->isChecked());
             QVERIFY(!window->findChild<QAction *>("pixelGridCommand")->isChecked());
-            QCOMPARE(qApp->palette().color(QPalette::Window), QColor("#f0f2f6"));
+            QCOMPARE(qApp->palette().color(QPalette::Window), ui::tokens(false, "blue").window);
             QVERIFY(window->close());
         }
         const auto saved = Settings(temporary.filePath("preferences/preferences.ini")).load();

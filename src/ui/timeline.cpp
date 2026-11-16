@@ -97,7 +97,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
         auto scroll = new QScrollArea; scroll->setFrameShape(QFrame::NoFrame); scroll->setWidget(content);
         scroll->setWidgetResizable(false); scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded); scroll->setMinimumWidth(0);
-        content->adjustSize(); scroll->setFixedHeight(content->sizeHint().height() + 17);
+        content->adjustSize(); scroll->setFixedHeight(content->sizeHint().height() + ui::ScrollBarWidth);
         layout->addWidget(scroll);
     };
     auto controls = new QHBoxLayout;
@@ -152,14 +152,20 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     auto timingRow = new QHBoxLayout;
     sources = new QComboBox; sources->setObjectName("sourceFrameSelector"); sources->setMinimumContentsLength(8);
     sources->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    timingRow->addWidget(new QLabel("Source")); timingRow->addWidget(sources);
+    // Field labels are muted so the values lead; each names exactly what it sets.
+    auto fieldLabel = [](const QString &text) { auto l = new QLabel(text); l->setProperty("role", "hint"); return l; };
+    timingRow->setSpacing(ui::SpaceS);
+    timingRow->addWidget(fieldLabel("Source frame")); timingRow->addWidget(sources);
+    timingRow->addSpacing(ui::SpaceL);
     duration = new QSpinBox; duration->setObjectName("entryDuration"); duration->setRange(0, INT_MAX);
     duration->setSpecialValueText("Default"); duration->setSuffix(" t"); duration->setKeyboardTracking(false);
-    timingRow->addWidget(new QLabel("Entry")); timingRow->addWidget(duration);
+    timingRow->addWidget(fieldLabel("Entry duration")); timingRow->addWidget(duration);
+    timingRow->addSpacing(ui::SpaceL);
     defaultTime = new QSpinBox; defaultTime->setObjectName("defaultDuration"); defaultTime->setRange(1, INT_MAX);
     defaultTime->setSuffix(" t"); defaultTime->setKeyboardTracking(false);
-    timingRow->addWidget(new QLabel("Default")); timingRow->addWidget(defaultTime);
-    timing = new QLabel("1 tick = 50 ms"); timingRow->addWidget(timing);
+    timingRow->addWidget(fieldLabel("Default duration")); timingRow->addWidget(defaultTime);
+    timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint"); timingRow->addWidget(timing);
+    timingRow->addSpacing(ui::SpaceL);
     interpolate = new QCheckBox("Interpolate"); interpolate->setObjectName("animationInterpolate"); timingRow->addWidget(interpolate);
     timingRow->addStretch();
     auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(56); zoom->setMaximumWidth(100);
@@ -169,6 +175,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
         model->setThumbnailSize(size); view->setIconSize({size, size}); view->setGridSize({std::max(102, size + 16), size + 42});
     });
     auto onionRow = new QHBoxLayout;
+    onionRow->setSpacing(ui::SpaceS);
     auto onion = new QCheckBox("Onion skin"); onion->setObjectName("onionEnabled"); onionRow->addWidget(onion);
     auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setPrefix("Previous "); previous->setObjectName("onionPrevious"); onionRow->addWidget(previous);
     auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setPrefix("Next "); next->setObjectName("onionNext"); onionRow->addWidget(next);

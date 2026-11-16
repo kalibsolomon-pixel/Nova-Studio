@@ -51,6 +51,7 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     auto emptyHint = ui::hint("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
                               "Model JSON opens in the Models / UV panel.");
     emptyHint->setObjectName("inspectorEmptyHint");
+    emptyHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // wraps to the dock
     ev->addWidget(emptyHint);
     ev->addStretch();
     inspectorPages->addWidget(empty);
@@ -101,7 +102,7 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     pv->addWidget(ui::sectionTitle("Active tool"));
     inspectorTool = new QLabel;
     inspectorTool->setObjectName("inspectorTool");
-    inspectorTool->setStyleSheet("font-weight:600");
+    inspectorTool->setProperty("role", "strong");
     pv->addWidget(inspectorTool);
     inspectorToolTip = ui::hint({});
     inspectorToolTip->setObjectName("inspectorToolTip");
@@ -398,6 +399,7 @@ bool Window::applyLayout(const QByteArray &packed) {
             toolPlacement->place(previous);
         return false;
     }
+    refreshDockTitles();
     return true;
 }
 // Keeps the outgoing workspace's arrangement only if the user changed it.

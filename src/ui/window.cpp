@@ -30,11 +30,18 @@ class ModelTab : public QWidget {
 class EditorTabs : public QTabWidget {
     QScrollArea *welcome;
     QLabel *logo = nullptr;
+    QVBoxLayout *welcomeLayout = nullptr;
+    QBoxLayout *welcomeActions = nullptr;
     void resizeEvent(QResizeEvent *event) override {
         QTabWidget::resizeEvent(event);
         welcome->setGeometry(rect().adjusted(8, 8, -8, -8));
         if (logo)
             logo->setVisible(welcome->height() >= 320);
+        // Narrow centre areas stack the actions instead of scrolling sideways.
+        const bool narrow = welcome->width() < 400;
+        welcomeActions->setDirection(narrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        const int margin = narrow ? ui::SpaceL : ui::Space3XL;
+        welcomeLayout->setContentsMargins(margin, margin, margin, margin);
     }
     // Quiet, theme-aware close buttons replace the style's red close glyph.
     void tabInserted(int index) override {
@@ -81,7 +88,7 @@ class EditorTabs : public QTabWidget {
         welcome->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         auto body = new QWidget;
         welcome->setWidget(body);
-        auto layout = new QVBoxLayout(body);
+        auto layout = welcomeLayout = new QVBoxLayout(body);
         layout->setContentsMargins(ui::Space3XL, ui::Space3XL, ui::Space3XL, ui::Space3XL);
         layout->setSpacing(0);
         layout->addStretch(3);
@@ -106,7 +113,7 @@ class EditorTabs : public QTabWidget {
         layout->addWidget(caption);
         layout->addSpacing(ui::Space3XL);
         Q_UNUSED(folder);
-        auto actions = new QHBoxLayout;
+        auto actions = welcomeActions = new QBoxLayout(QBoxLayout::LeftToRight);
         actions->setSpacing(ui::SpaceL);
         actions->addStretch();
         for (auto action : {create, open}) {
@@ -117,7 +124,7 @@ class EditorTabs : public QTabWidget {
             button->setObjectName(action == create ? "welcomeCreate" : "welcomeOpen");
             if (action == create)
                 ui::setPrimary(button);
-            actions->addWidget(button);
+            actions->addWidget(button, 0, Qt::AlignHCenter);
             connect(button, &QPushButton::clicked, action, &QAction::trigger);
         }
         actions->addStretch();
@@ -144,11 +151,18 @@ class EditorTabs : public QTabWidget {
                 [this] { welcome->setVisible(count() == 0); });
     }
 };
+// Name, then "PNG ↑" while the Minecraft PNG lags the editable document, then the
+// unsaved dot last, each separated so the badges never run together.
+QString documentTabText(const Document &doc, bool dirty) {
+    return QFileInfo(doc.path).fileName() + (doc.nativeDocument() && doc.exportModified() ? "  PNG ↑" : "") +
+           (dirty ? "  ●" : "");
+}
 } // namespace
 
 Window::Window(QString p, QString output, QElapsedTimer time)
     : project(p.isEmpty() ? QString() : QDir(p).absolutePath()), telemetry(std::move(output)),
       started(time) {
+    ui::prepareApplication();
     QElapsedTimer setup;
     setup.start();
     metrics.samples["application_init"].append(qApp->property("applicationInitMs").toDouble());
@@ -186,8 +200,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             const auto &doc = canvas->document;
             if (canvas == current() || doc->id() != id)
                 continue;
-            tabs->setTabText(i, QFileInfo(doc->path).fileName() + (documentDirty(*doc) ? " ●" : "") +
-                                (doc->nativeDocument() && doc->exportModified() ? " ↑PNG" : ""));
+            tabs->setTabText(i, documentTabText(*doc, documentDirty(*doc)));
             canvas->update();
         }
     });
@@ -213,7 +226,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     logo->setAccessibleName("Nova Studio logo");
     brandLayout->addWidget(logo);
     auto brandName = new QLabel("Nova Studio");
-    brandName->setStyleSheet("font-weight:600");
+    brandName->setProperty("role", "strong");
     brandLayout->addWidget(brandName);
     appBar->addWidget(brand);
     // Undo / Redo exist once: the application bar and Edit menu share them.
@@ -558,6 +571,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     tree->setHeaderHidden(true);
     tree->setUniformRowHeights(true);
     tree->setIconSize({18, 18});
+    tree->setIndentation(14); // deep packs keep room for file names
     tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tree->setSelectionMode(QAbstractItemView::SingleSelection);
     grid = new QListView;
@@ -574,6 +588,17 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
     grid->setLayoutMode(QListView::Batched);
     grid->setBatchSize(100);
+    // With no pack open the tree says so instead of showing an empty well.
+    auto noPack = ui::emptyState("No resource pack open\n\nCreate or open a pack to browse its textures, "
+                                 "models and metadata.");
+    noPack->setObjectName("assetsEmptyState");
+    noPack->setAttribute(Qt::WA_TransparentForMouseEvents);
+    (new QVBoxLayout(tree->viewport()))->addWidget(noPack);
+    const auto updateNoPack = [this, noPack] { noPack->setVisible(project.isEmpty() && proxy->rowCount() == 0); };
+    connect(proxy, &QAbstractItemModel::modelReset, noPack, updateNoPack);
+    connect(proxy, &QAbstractItemModel::rowsInserted, noPack, updateNoPack);
+    connect(proxy, &QAbstractItemModel::rowsRemoved, noPack, updateNoPack);
+    QTimer::singleShot(0, noPack, updateNoPack);
     browser = new QStackedWidget;
     browser->addWidget(tree);
     browser->addWidget(grid);
@@ -832,6 +857,16 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     metrics.record("theme_apply", stage);
     metrics.record("ui_construction", setup);
     restore();
+    // Tabbed panels list their tabs above the content. The tab names the panel, so a
+    // tabbed dock drops its own title row; single and floating docks keep theirs.
+    setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
+    for (auto dock : findChildren<QDockWidget *>()) {
+        connect(dock, &QDockWidget::topLevelChanged, this, &Window::refreshDockTitles);
+        connect(dock, &QDockWidget::dockLocationChanged, this, &Window::refreshDockTitles);
+        connect(dock, &QDockWidget::visibilityChanged, this, &Window::refreshDockTitles);
+    }
+    connect(this, &QMainWindow::tabifiedDockWidgetActivated, this, &Window::refreshDockTitles);
+    refreshDockTitles();
     if (qApp->arguments().contains("--no-preview"))
         previewDock->hide();
     if (qApp->arguments().contains("--float-preview"))
@@ -1118,6 +1153,33 @@ void Window::removeDocumentTab(int index) {
 }
 
 Canvas *Window::current() const { return dynamic_cast<Canvas *>(tabs->currentWidget()); }
+void Window::refreshDockTitles() {
+    // Deferred and coalesced: dock signals arrive in bursts while the layout settles.
+    if (property("dockTitlesPending").toBool())
+        return;
+    setProperty("dockTitlesPending", true);
+    QTimer::singleShot(0, this, [this] {
+        setProperty("dockTitlesPending", false);
+        for (auto dock : findChildren<QDockWidget *>()) {
+            auto title = dock->titleBarWidget();
+            const bool ours = title && title->property("novaTabbedTitle").toBool();
+            if (title && !ours)
+                continue; // docks with their own title bar (the tool strip) are left alone
+            bool tabbed = false;
+            if (!dock->isFloating())
+                for (auto sibling : tabifiedDockWidgets(dock))
+                    tabbed |= !sibling->isHidden();
+            if (tabbed && !ours) {
+                auto blank = new QWidget(dock);
+                blank->setProperty("novaTabbedTitle", true);
+                dock->setTitleBarWidget(blank);
+            } else if (!tabbed && ours) {
+                dock->setTitleBarWidget(nullptr);
+                title->deleteLater();
+            }
+        }
+    });
+}
 void Window::applyTheme() {
     ui::apply(ui::tokens(dark, preferences.accent));
     if (themeAction && themeAction->isChecked() != dark) {
@@ -1365,12 +1427,7 @@ void Window::refresh() {
     viewportStage.start();
     if (canvas) {
         cube->setDocument(canvas->document);
-        tabs->setTabText(
-            tabs->indexOf(canvas),
-            QFileInfo(canvas->document->path).fileName() +
-                (documentDirty(*canvas->document) ? " ●" : "") +
-                (canvas->document->nativeDocument() && canvas->document->exportModified() ? " ↑PNG"
-                                                                                          : ""));
+        tabs->setTabText(tabs->indexOf(canvas), documentTabText(*canvas->document, documentDirty(*canvas->document)));
         tabs->setTabToolTip(tabs->indexOf(canvas), canvas->document->path);
         if (auto save = findChild<QAction *>("saveCommand"))
             save->setText("Save");

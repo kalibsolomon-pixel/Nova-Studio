@@ -924,7 +924,14 @@ void ModelPanel::rebuild() {
     cube->setContextTransform(QMatrix4x4());
     syncing = true;
     for (const auto &face : mesh->faces)
-        faces->addItem(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
+        {
+            // Face first; the element names the part and the model path is shared, so it is shown once.
+            const auto element = face.element.section(" / ", -1);
+            auto item = new QListWidgetItem(QString("%1  ·  %2%3").arg(face.name, element,
+                                                face.rotation ? QString("  ·  %1°").arg(face.rotation) : QString()));
+            item->setToolTip(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
+            faces->addItem(item);
+        }
     syncing = false;
     QStringList paths = library->dependencies(asset) + library->dependents(asset) +
                         library->dependents(activeAsset);

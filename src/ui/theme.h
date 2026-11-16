@@ -26,6 +26,9 @@ struct Tokens {
     // and 3D viewports: base in dark themes, a soft grey in light themes so a large
     // workspace never glares white.
     QColor backdrop, base, canvas, window, surface, raised, control;
+    // Large list, tree and table areas: recessed in dark themes, flush with the panel in
+    // light themes so wide white areas never glare. Fields keep the base well.
+    QColor list;
     QColor border, borderStrong;
     QColor text, muted, disabled, placeholder;
     // Icon ink is a step softer than text so dense toolbars stay calm; the active
@@ -89,6 +92,9 @@ QStyle *createStyle();
 // Applies tokens to the whole application: style, palette, stylesheet and the
 // active token set. Window::applyTheme() calls this on every theme or accent change.
 void apply(const Tokens &t);
+// Installs the Nova style and the body font. Window construction calls it first, so
+// every widget is created with the final font even when the host has not set one.
+void prepareApplication();
 // The tokens most recently applied by apply(); widgets that paint custom
 // content read these instead of hard-coding colours.
 const Tokens &current();

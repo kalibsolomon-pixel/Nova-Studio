@@ -25,6 +25,41 @@ using namespace nova;
 
 namespace {
 QString galleryDir() { return qEnvironmentVariable("NOVA_PHASE3B_GALLERY_DIR"); }
+// NOVA_GALLERY_SCREEN names a screen (QScreen::name()) to open every gallery window on,
+// keeping the owner's main display free. Unlike NOVA_TEST_SCREEN it does not shrink
+// windows to fit, so captures keep their documented sizes; grab() renders the whole
+// window even where it extends past the screen edge.
+class GalleryScreen final : public QObject {
+    QString requested;
+    bool eventFilter(QObject *object, QEvent *event) override {
+        auto widget = qobject_cast<QWidget *>(object);
+        // Polish precedes the native window: placing it then keeps Windows from shrinking a
+        // window that is larger than the portrait screen while it moves there.
+        if ((event->type() != QEvent::Polish && event->type() != QEvent::Show) || !widget || !widget->isWindow() ||
+            widget->windowType() == Qt::Desktop)
+            return false;
+        // Screens exist only once the application is fully constructed: resolve here.
+        for (auto target : QGuiApplication::screens())
+            if (target->name() == requested && widget->screen() != target) {
+                // Windows caps a window at its monitor's size unless the window states a
+                // maximum; an explicit large one keeps 1600-2560 px captures on a portrait screen.
+                if (widget->maximumWidth() >= QWIDGETSIZE_MAX)
+                    widget->setMaximumSize(8192, 8192);
+                widget->setScreen(target);
+                widget->move(target->availableGeometry().topLeft() + QPoint(12, 32));
+            }
+        return false;
+    }
+
+  public:
+    GalleryScreen(QString name, QObject *parent) : QObject(parent), requested(std::move(name)) {}
+};
+void installGalleryScreen() {
+    const auto requested = qEnvironmentVariable("NOVA_GALLERY_SCREEN");
+    if (!requested.isEmpty())
+        QCoreApplication::instance()->installEventFilter(new GalleryScreen(requested, QCoreApplication::instance()));
+}
+Q_COREAPP_STARTUP_FUNCTION(installGalleryScreen)
 void copyTree(const QString &from, const QString &to) {
     QDirIterator it(from, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {

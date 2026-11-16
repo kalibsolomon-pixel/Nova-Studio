@@ -1222,7 +1222,7 @@ void Window::createMcpAccessDialog(int page) {
     overview->setWordWrap(true);
     overview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     overview->setProperty("role", "value");
-    overview->setStyleSheet("font-weight:600");
+    overview->setProperty("role", "strong");
     outer->addWidget(overview);
     auto mcpTabs = new QTabWidget(dialog);
     mcpTabs->setObjectName("mcpTabs");

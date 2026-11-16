@@ -493,7 +493,36 @@ QWidget *pageParent = nullptr;
 // Options row sized to its controls (the former fixed 58 px row wasted a third
 // of its height). A horizontal scroll bar appears only when the window is too
 // narrow, and the row grows by exactly its height while it is shown.
+// Fades the trailing edge of a scrolled options row into the bar, so a row that
+// continues past the window edge reads as scrollable rather than clipped.
+class EdgeFade : public QWidget {
+  public:
+    using QWidget::QWidget;
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        QLinearGradient fade(0, 0, width(), 0);
+        QColor clear = ui::current().window;
+        clear.setAlpha(0);
+        fade.setColorAt(0, clear);
+        fade.setColorAt(1, ui::current().window);
+        p.fillRect(rect(), fade);
+    }
+};
 class OptionsRow : public QScrollArea {
+    EdgeFade *fade = nullptr;
+    void placeFade() {
+        if (!fade) {
+            fade = new EdgeFade(this);
+            fade->setAttribute(Qt::WA_TransparentForMouseEvents);
+            connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this] { placeFade(); });
+            connect(horizontalScrollBar(), &QScrollBar::rangeChanged, this, [this] { placeFade(); });
+        }
+        const auto bar = horizontalScrollBar();
+        fade->setVisible(bar->isVisible() && bar->value() < bar->maximum());
+        fade->setGeometry(viewport()->geometry().right() - 40, viewport()->y(), 41, viewport()->height());
+        fade->raise();
+    }
+
   public:
     using QScrollArea::QScrollArea;
     QSize sizeHint() const override {
@@ -504,6 +533,7 @@ class OptionsRow : public QScrollArea {
     void resizeEvent(QResizeEvent *e) override {
         const bool before = horizontalScrollBar()->isVisible();
         QScrollArea::resizeEvent(e);
+        placeFade();
         if (before != horizontalScrollBar()->isVisible() || height() != sizeHint().height())
             QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
     }
@@ -622,6 +652,7 @@ QWidget *ToolOptionsBar::paintPage() {
     auto symmetry = new QComboBox;
     symmetry->setObjectName("symmetry");
     symmetry->addItems(ops::symmetryNames());
+    symmetry->setItemText(0, "No symmetry"); // the closed picker names its setting
     symmetry->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     symmetry->setMinimumContentsLength(8);
     symmetry->setToolTip("Symmetry painting (guides shown on the canvas)");

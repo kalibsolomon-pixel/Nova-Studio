@@ -41,6 +41,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.backdrop = QColor("#0e0f12");
         t.base = QColor("#131418");
         t.canvas = t.base;
+        t.list = t.base;
         t.window = QColor("#191a1f");
         t.surface = QColor("#1e1f25");
         t.raised = QColor("#272830");
@@ -69,18 +70,19 @@ Tokens tokens(bool dark, const QString &accent) {
         t.checkerLight = QColor("#6a6e78");
         t.pixelGrid = QColor(0, 0, 0, 65);
     } else {
-        t.backdrop = QColor("#dcdfe5");
+        t.backdrop = QColor("#dedfe3");
         t.base = QColor("#ffffff");
-        t.canvas = QColor("#e4e6eb");
-        t.window = QColor("#f5f6f8");
-        t.surface = QColor("#eef0f3");
-        t.raised = QColor("#e6e8ec");
+        t.canvas = QColor("#e6e7ea");
+        t.window = QColor("#f4f4f6");
+        t.list = t.window;
+        t.surface = QColor("#ececef");
+        t.raised = QColor("#e5e6ea");
         t.control = QColor("#ffffff");
-        t.border = QColor("#dfe1e6");
-        t.borderStrong = QColor("#c4c8d0");
+        t.border = QColor("#dcdde2");
+        t.borderStrong = QColor("#c3c5cc");
         t.text = QColor("#1b1d22");
         t.muted = QColor("#5b5f6b");
-        t.disabled = QColor("#9da1ab");
+        t.disabled = QColor("#878a93"); // 3.1:1 on panels: legible yet clearly inactive
         t.placeholder = QColor("#6e7280"); // 4.8:1 on white (AA)
         t.icon = QColor("#3d414b");
         t.accent = QColor(blue ? "#2563d9" : "#6550e0");
@@ -96,8 +98,8 @@ Tokens tokens(bool dark, const QString &accent) {
         t.warningSurface = QColor("#fdf4e3");
         t.dangerSurface = QColor("#fdecea");
         t.infoSurface = QColor("#e8f0fd");
-        t.checkerDark = QColor("#9ca0a7");
-        t.checkerLight = QColor("#aaaeb5");
+        t.checkerDark = QColor("#9c9ea4");
+        t.checkerLight = QColor("#abadb2");
         t.pixelGrid = QColor(0, 0, 0, 65);
     }
     return t;
@@ -153,6 +155,7 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#toolOptions QLabel#paintToolName{color:@text;font-weight:600;padding-left:2px;padding-right:6px}"
         "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:@stripPadV @stripPadH}"
         "QToolBar#toolBox QToolButton{padding:@toolPad}"
+        "QToolBar#toolBox QToolButton[popupMode=\"1\"]{padding-right:@arrowReserve}"
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
         "QWidget#toolsDockHost QToolBar#toolBox{border:0;border-bottom:1px solid @border}"
@@ -160,9 +163,8 @@ QString styleSheet(const Tokens &t) {
         "QStatusBar::item{border:0}"
         "QStatusBar QLabel{color:@muted}"
         // Panels.
-        "QDockWidget{font-weight:600;color:@text}"
-        "QDockWidget::title{padding:@panelPadV @panelPad;background:@window;border-bottom:1px solid @border;"
-        "text-align:left}"
+        // Dock titles are painted by NovaStyle (semibold, token colours) so no font rule
+        // pins a size onto docks and their contents.
         "QDockWidget::close-button,QDockWidget::float-button{border:0;border-radius:@rS;background:transparent;"
         "padding:2px}"
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
@@ -179,8 +181,9 @@ QString styleSheet(const Tokens &t) {
         "background:transparent}"
         "QTabBar::tab:selected{color:@text;border-bottom-color:@accent}"
         "QTabBar::tab:hover:!selected{color:@text}"
-        "QMainWindow>QTabBar{background:@window}"
-        "QMainWindow>QTabBar::tab{padding:6px 12px;margin:0;background:@window}"
+        "QMainWindow>QTabBar{background:@window;border-bottom:1px solid @border}"
+        "QMainWindow>QTabBar::tab{padding:7px 12px 6px 12px;margin:0;background:@window;font-weight:600}"
+        "QMainWindow>QTabBar::tab:!selected{font-weight:400}"
         "QTabBar#documentTabs{background:@window}"
         "QTabBar#documentTabs::tab{padding:7px 6px 7px 14px;margin:0;border:0;border-right:1px solid @border;"
         "border-top:2px solid transparent;background:@window;color:@muted}"
@@ -197,7 +200,8 @@ QString styleSheet(const Tokens &t) {
         "QPushButton[role=\"primary\"]{border-color:@accent;background:@accent;color:@onAccent;font-weight:600}"
         "QPushButton[role=\"primary\"]:hover{border-color:@accentHover;background:@accentHover}"
         "QPushButton[role=\"primary\"]:focus{border-color:@focusOnAccent}"
-        "QPushButton[role=\"primary\"]:disabled{border-color:@border;background:@surface;color:@disabled}"
+        "QPushButton[role=\"primary\"]:disabled{border-color:@accentMuted;background:@accentMuted;"
+        "color:@primaryDisabledText}"
         "QPushButton[role=\"segment\"]{padding:3px 10px;border-radius:@rS}"
         "QPushButton[role=\"icon\"]{padding:4px;min-width:18px;border-color:transparent;background:transparent}"
         "QPushButton[role=\"icon\"]:hover{background:@raised;border-color:transparent}"
@@ -243,7 +247,7 @@ QString styleSheet(const Tokens &t) {
         "text-align:center;color:transparent}"
         "QProgressBar::chunk{border-radius:3px;background:@accent}"
         // Lists, trees and tables.
-        "QTreeView,QListView,QTableView,QListWidget,QTreeWidget,QTableWidget{border:0;background:@base;"
+        "QTreeView,QListView,QTableView,QListWidget,QTreeWidget,QTableWidget{border:0;background:@list;"
         "alternate-background-color:@alternate;outline:0;selection-background-color:@selection;"
         "selection-color:@selectionText}"
         "QTreeView::item{height:@rowHeight}"
@@ -276,6 +280,7 @@ QString styleSheet(const Tokens &t) {
         "padding:10px 8px 8px 8px;background:@surface}"
         "QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;left:2px;padding:0 0 4px 0;"
         "color:@text}"
+        "QGroupBox QAbstractItemView{background:@window;border:1px solid @border;border-radius:@rS}"
         "QGroupBox[role=\"section\"]{font-weight:600;border:1px solid @border;border-radius:@rM;"
         "margin-top:20px;padding:@panelPad @panelPad @panelPadV @panelPad;background:@surface}"
         "QGroupBox[role=\"section\"]::title{subcontrol-origin:margin;left:2px;padding:0 0 4px 0;color:@text}"
@@ -284,12 +289,13 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"title\"]{font-size:@titlePt;font-weight:600;color:@text}"
         "QLabel[role=\"display\"]{font-size:@displayPt;font-weight:600;color:@text}"
         "QLabel[role=\"hint\"]{color:@muted}"
+        "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
         "QLabel[role=\"value\"]{color:@text}"
         "QLabel[role=\"warning\"]{color:@warning}"
         "QLabel[role=\"error\"]{color:@danger}"
         "QLabel[role=\"notice\"]{background:@warningSurface;color:@text;border:1px solid @noticeBorder;"
-        "border-radius:@rM;padding:8px 12px}");
+        "border-radius:@rM;padding:0}");
     const QColor sliderHandle = t.dark ? t.text : QColor(Qt::white);
     const std::pair<const char *, QColor> values[] = {
         {"@borderStrong", t.borderStrong},
@@ -301,13 +307,15 @@ QString styleSheet(const Tokens &t) {
         {"@raised", t.raised},
         {"@control", t.control},
         {"@base", t.base},
-        {"@alternate", mix(t.base, t.window, 0.5)},
-        {"@hoverRow", mix(t.base, t.raised, 0.7)},
+        {"@alternate", mix(t.list, t.raised, 0.35)},
+        {"@hoverRow", mix(t.list, t.raised, 0.7)},
+        {"@list", t.list},
         {"@accentHover", t.accentHover},
         {"@accentMuted", t.accentMuted},
         {"@accent", t.accent},
         {"@onAccent", t.onAccent},
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
+        {"@primaryDisabledText", mix(t.accentMuted, t.text, 0.45)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
         {"@muted", t.muted},
@@ -333,7 +341,8 @@ QString styleSheet(const Tokens &t) {
         {"@toolPad", px(ToolButtonPadding)},     {"@arrowReserve", px(MenuArrowWidth + MenuArrowGap + ButtonPadding)},
         {"@arrowWidth", px(MenuArrowWidth)},     {"@panelPadV", px(PanelPaddingV)},
         {"@panelPad", px(PanelPadding)},         {"@gutter", px(GutterWidth)},
-        {"@scroll", px(ScrollBarWidth)},         {"@rowHeight", px(RowHeight)},
+        {"@scroll", px(ScrollBarWidth)},
+        {"@rowHeight", px(RowHeight)},
         {"@rS", px(RadiusS)},                    {"@rM", px(RadiusM)},
         {"@rL", px(RadiusL)},                    {"@captionPt", pt(TypeCaption)},
         {"@titlePt", pt(TypeTitle)},             {"@displayPt", pt(TypeDisplay)}};
@@ -443,6 +452,8 @@ QChar materialGlyph(const QString &name) {
         {"gradient", QChar(0xe3e9)},
         {"eyedropper", QChar(0xe3b8)},
         {"effects", QChar(0xe429)},  // tune
+        {"swap-colors", QChar(0xe8d4)},  // swap_horiz
+        {"reset-colors", QChar(0xe23b)}, // format_color_reset
         {"select-replace", QChar(0xe3c6)},   // crop_square
         {"select-add", QChar(0xe145)},       // add
         {"select-subtract", QChar(0xe15b)},  // remove
@@ -486,8 +497,12 @@ class MaterialIconEngine : public QIconEngine {
         painter->setRenderHint(QPainter::TextAntialiasing);
         painter->setPen(mode == QIcon::Disabled ? disabledInk() : normalInk());
         QFont font(materialFontFamily());
-        font.setWeight(QFont::Normal);
-        font.setPixelSize(qMax(1, qMin(rect.width(), rect.height())));
+        const int pixels = qMax(1, qMin(rect.width(), rect.height()));
+        font.setPixelSize(pixels);
+        // A light stroke (wght 300) at the optical size of the drawn icon keeps dense
+        // toolbars calm and matches the 1.5 px chevrons NovaStyle draws.
+        font.setVariableAxis(QFont::Tag("wght"), 300);
+        font.setVariableAxis(QFont::Tag("opsz"), std::clamp(pixels, 20, 48));
         painter->setFont(font);
         const QString text(glyph);
         const QFontMetricsF metrics(font);
@@ -566,6 +581,8 @@ class NovaStyle : public QProxyStyle {
         switch (metric) {
         case PM_DockWidgetSeparatorExtent:
             return GutterWidth;
+        case PM_DockWidgetTitleMargin:
+            return PanelPaddingV;
         case PM_ScrollBarExtent:
             return ScrollBarWidth;
         case PM_IndicatorWidth:
@@ -592,6 +609,8 @@ class NovaStyle : public QProxyStyle {
             return 1;
         case SH_ToolTipLabel_Opacity:
             return 255;
+        case SH_UnderlineShortcut: // mnemonics appear while Alt is held, as on Windows
+            return 0;
         default:
             return QProxyStyle::styleHint(hint, option, widget, data);
         }
@@ -707,6 +726,30 @@ class NovaStyle : public QProxyStyle {
             }
         }
         QProxyStyle::drawComplexControl(control, option, painter, widget);
+    }
+    void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter,
+                     const QWidget *widget) const override {
+        if (element == CE_DockWidgetTitle) {
+            if (const auto dock = qstyleoption_cast<const QStyleOptionDockWidget *>(option)) {
+                const Tokens &t = current();
+                painter->save();
+                painter->fillRect(option->rect, t.window);
+                painter->setPen(t.border);
+                painter->drawLine(option->rect.bottomLeft(), option->rect.bottomRight());
+                // The body font, not the dock's platform title font, so titles match panel text.
+                QFont strong = QApplication::font();
+                strong.setWeight(QFont::DemiBold);
+                painter->setFont(strong);
+                painter->setPen(option->state & State_Enabled ? t.text : t.disabled);
+                QRect text = subElementRect(SE_DockWidgetTitleBarText, option, widget);
+                text.setLeft(option->rect.left() + PanelPadding);
+                painter->drawText(text, Qt::AlignLeft | Qt::AlignVCenter,
+                                  QFontMetrics(strong).elidedText(dock->title, Qt::ElideRight, text.width()));
+                painter->restore();
+                return;
+            }
+        }
+        QProxyStyle::drawControl(element, option, painter, widget);
     }
     QRect subControlRect(ComplexControl control, const QStyleOptionComplex *option, SubControl sub,
                          const QWidget *widget) const override {
@@ -857,17 +900,25 @@ QStyle *createStyle() {
     return style;
 }
 
-void apply(const Tokens &t) {
-    setCurrent(t);
+void prepareApplication() {
     // Created once at startup by main(); tests and hosts that construct the
     // workspace under plain Fusion get it here, before the palette is set.
     if (!installedStyle)
         qApp->setStyle(createStyle());
+    // Setting the default font once also clears the platform's per-class fonts (dock
+    // titles, menus, message boxes), so every surface shares the body size.
+    static bool fontApplied = false;
     QFont font = QApplication::font();
-    if (font.pointSizeF() != TypeBody) {
+    if (!fontApplied || font.pointSizeF() != TypeBody) {
         font.setPointSizeF(TypeBody);
         QApplication::setFont(font);
+        fontApplied = true;
     }
+}
+
+void apply(const Tokens &t) {
+    setCurrent(t);
+    prepareApplication();
     qApp->setPalette(palette(t));
     qApp->setStyleSheet(styleSheet(t));
 }

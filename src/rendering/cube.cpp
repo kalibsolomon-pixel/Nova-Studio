@@ -117,6 +117,9 @@ void Cube::setNotice(const QString &text) {
         noticeLabel->setTextFormat(Qt::PlainText);
         noticeLabel->setAttribute(Qt::WA_TransparentForMouseEvents); // orbiting still works under it
         noticeLabel->setProperty("role", "notice"); // tinted warning banner from the theme
+        // Padding lives on the label so placeNotice() budgets the same frame with or
+        // without the application stylesheet.
+        noticeLabel->setContentsMargins(ui::SpaceL, ui::SpaceS, ui::SpaceL, ui::SpaceS);
     }
     noticeLabel->setAccessibleName(text);
     noticeLabel->setVisible(!text.isEmpty());
