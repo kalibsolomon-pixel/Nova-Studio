@@ -468,6 +468,10 @@ QChar materialGlyph(const QString &name) {
         {"fit", QChar(0xea10)},
         {"actual", QChar(0xe693)},
         {"center", QChar(0xe3b4)},
+        {"layers", QChar(0xe53b)},
+        {"info", QChar(0xe88e)},
+        {"cube", QChar(0xefc9)}, // view_in_ar
+        {"results", QChar(0xf02f)}, // manage_search
         {"settings", QChar(0xe8b8)},
         {"activity", QChar(0xe7f5)},
         {"workspace", QChar(0xe871)},
@@ -1039,8 +1043,35 @@ QLabel *hint(const QString &text, QWidget *parent) {
     label->setWordWrap(true);
     return label;
 }
-QLabel *emptyState(const QString &text, QWidget *parent) {
-    auto label = new QLabel(text, parent);
+namespace {
+class EmptyState : public QLabel {
+    QString glyph;
+
+  public:
+    EmptyState(const QString &text, QWidget *parent, QString icon) : QLabel(text, parent), glyph(std::move(icon)) {
+        // A top margin reserves the glyph's room, so layouts and size hints account for it.
+        if (!glyph.isEmpty())
+            setContentsMargins(0, 32 + SpaceL, 0, 0);
+    }
+
+  protected:
+    void paintEvent(QPaintEvent *event) override {
+        QLabel::paintEvent(event);
+        if (glyph.isEmpty())
+            return;
+        // The glyph sits a gap above the centred text block, in the disabled ink.
+        const int size = 32;
+        const QRect content = contentsRect();
+        const QRect textBlock =
+            fontMetrics().boundingRect(content, int(alignment()) | Qt::TextWordWrap, text());
+        const int top = std::max(rect().top(), textBlock.top() - size - SpaceL);
+        QPainter p(this);
+        lineIcon(glyph, current().disabled).paint(&p, QRect(content.center().x() - size / 2, top, size, size));
+    }
+};
+} // namespace
+QLabel *emptyState(const QString &text, QWidget *parent, const QString &icon) {
+    auto label = new EmptyState(text, parent, icon);
     label->setProperty("role", "empty");
     label->setAlignment(Qt::AlignCenter);
     label->setWordWrap(true);

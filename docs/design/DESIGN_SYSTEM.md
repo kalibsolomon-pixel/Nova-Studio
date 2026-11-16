@@ -86,7 +86,7 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 | Section title | `ui::sectionTitle("Document")` |
 | Hint / secondary text | `ui::hint(text)`, or `QLabel[role="hint"]` |
 | Status value | `QLabel[role="warning"]` (needs attention, e.g. unsaved), `"error"`, or `"info"` (an available action, e.g. an export update) |
-| Empty state | `ui::emptyState(text)` |
+| Empty state | `ui::emptyState(text, parent, icon)`: centred text with an optional large muted Material glyph above it |
 | Inline warning notice | `QLabel[role="notice"]`, or `QFrame[role="notice"]` |
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |
 | Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text. Re-read the tokens on `QEvent::PaletteChange` so a theme switch re-tones existing rows. |

@@ -113,8 +113,9 @@ QIcon lineIcon(const QString &name); // uses current() tokens
 // Small helpers that keep labels and icon buttons consistent.
 QLabel *sectionTitle(const QString &text, QWidget *parent = nullptr);
 QLabel *hint(const QString &text, QWidget *parent = nullptr);
-// Centred empty-state text for panels with nothing to show yet.
-QLabel *emptyState(const QString &text, QWidget *parent = nullptr);
+// Centred empty-state text for panels with nothing to show yet. A Material icon name adds
+// a large muted glyph above the text, so the panel reads as a designed state, not a gap.
+QLabel *emptyState(const QString &text, QWidget *parent = nullptr, const QString &icon = {});
 // Marks a push button as the dialog's or view's main action (accent fill).
 void setPrimary(QWidget *button);
 // Fades the bottom edge of a scroll area into the panel while more content lies below,

@@ -16,6 +16,27 @@
 #include <QtWidgets>
 namespace nova {
 namespace {
+// Shows a long folder path elided in the middle while the field is not being edited, so
+// the pack's own folder name stays visible; editing shows the full text as usual.
+class PathField : public QLineEdit {
+  public:
+    using QLineEdit::QLineEdit;
+
+  protected:
+    void paintEvent(QPaintEvent *event) override {
+        if (hasFocus() || text().isEmpty() || fontMetrics().horizontalAdvance(text()) < width() - 2 * ui::SpaceL) {
+            QLineEdit::paintEvent(event);
+            return;
+        }
+        QStyleOptionFrame option;
+        initStyleOption(&option);
+        QPainter p(this);
+        style()->drawPrimitive(QStyle::PE_PanelLineEdit, &option, &p, this);
+        const QRect area = style()->subElementRect(QStyle::SE_LineEditContents, &option, this).adjusted(2, 0, -2, 0);
+        p.setPen(palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled, QPalette::Text));
+        p.drawText(area, Qt::AlignVCenter | Qt::AlignLeft, fontMetrics().elidedText(text(), Qt::ElideMiddle, area.width()));
+    }
+};
 // Long asset names shorten their stem and keep the whole extension chain, so siblings
 // such as "material_a.png" and "material_a.png.mcmeta" stay distinguishable.
 class AssetNameDelegate : public QStyledItemDelegate {
@@ -511,7 +532,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     }
     panelsMenu = new QMenu("&Panels", this);
     panelsMenu->setObjectName("panelsMenu");
-    pathText = new QLineEdit(project);
+    pathText = new PathField(project);
     pathText->setMinimumWidth(120);
     pathText->setMaximumWidth(560);
     pathText->setObjectName("projectPath");
@@ -640,7 +661,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     grid->setBatchSize(100);
     // With no pack open the tree says so instead of showing an empty well.
     auto noPack = ui::emptyState("No resource pack open\n\nCreate or open a pack to browse its textures, "
-                                 "models and metadata.");
+                                 "models and metadata.", nullptr, "folder");
     noPack->setObjectName("assetsEmptyState");
     noPack->setAttribute(Qt::WA_TransparentForMouseEvents);
     (new QVBoxLayout(tree->viewport()))->addWidget(noPack);

@@ -48,7 +48,7 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     auto ev = new QVBoxLayout(empty);
     ev->setContentsMargins(0, 0, 0, 0);
     // One short line, centred like the other panels' empty states; the detail is a tooltip.
-    auto emptyHint = ui::emptyState("Open a texture to inspect it");
+    auto emptyHint = ui::emptyState("Open a texture to inspect it", nullptr, "info");
     emptyHint->setObjectName("inspectorEmptyHint");
     emptyHint->setToolTip("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
                           "Model JSON opens in the Models / UV panel.");
@@ -453,8 +453,8 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
-    resizeDocks({assetsDock}, {std::clamp(w / 5, 220, 320)}, Qt::Horizontal); // room for file names
-    resizeDocks({inspectorDock}, {std::clamp(w / 5, 220, 340)}, Qt::Horizontal);
+    resizeDocks({assetsDock}, {std::clamp(w / 4, 240, 320)}, Qt::Horizontal); // room for file names
+    resizeDocks({inspectorDock}, {std::clamp(w / 5, 248, 340)}, Qt::Horizontal);
     if (name == "essentials") {
         resizeDocks({previewDock}, {std::clamp(h / 4, 150, 260)}, Qt::Vertical);
         // Layers lists are short: the inspector above gets the column's spare height.

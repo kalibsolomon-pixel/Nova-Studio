@@ -384,7 +384,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     results->header()->setStretchLastSection(false);
     results->header()->setSectionResizeMode(2, QHeaderView::Stretch);
     // Until a dry run fills it, the results table says what will appear there.
-    auto noResults = ui::emptyState("Dry-run results appear here: each target, its status and output.");
+    auto noResults = ui::emptyState("Dry-run results appear here: each target, its status and output.", nullptr, "results");
     noResults->setObjectName("batchResultsEmpty");
     noResults->setAttribute(Qt::WA_TransparentForMouseEvents);
     (new QVBoxLayout(results->viewport()))->addWidget(noResults);

@@ -221,7 +221,13 @@ void Canvas::paintEvent(QPaintEvent *) {
                       QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y())})
                     p.drawRect(QRectF(point - QPointF(4, 4), QSizeF(8, 8)));
             }
-            if (selected || (zoom >= 12 && r.width() > 70)) p.drawText(r.adjusted(3,2,-2,-2), Qt::AlignTop|Qt::AlignLeft,region.label);
+            if (selected || (zoom >= 12 && r.width() > 70)) {
+                // Face names sit on a dark chip so they read over any texture colour.
+                const auto metrics = p.fontMetrics();
+                const QRectF chip(r.left() + 3, r.top() + 3, metrics.horizontalAdvance(region.label) + 8, metrics.height() + 2);
+                p.setPen(Qt::NoPen); p.setBrush(QColor(0, 0, 0, 170)); p.drawRoundedRect(chip, 3, 3);
+                p.setPen(selected ? QColor(255,210,80) : QColor(170,240,250)); p.drawText(chip, Qt::AlignCenter, region.label);
+            }
         }
         p.restore();
     }

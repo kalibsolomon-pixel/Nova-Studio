@@ -21,9 +21,16 @@ void toneSeverity(QTreeWidgetItem *item) {
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(Qt::NoPen);
-    p.setBrush(tone);
-    p.drawEllipse(QRectF(1, 1, 8, 8));
+    // Unsupported is not a fault: a hollow ring, so severity also reads by shape.
+    if (severity == mc::Severity::Unsupported) {
+        p.setPen(QPen(tone, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QRectF(1.75, 1.75, 6.5, 6.5));
+    } else {
+        p.setPen(Qt::NoPen);
+        p.setBrush(tone);
+        p.drawEllipse(QRectF(1, 1, 8, 8));
+    }
     item->setForeground(0, tone);
     item->setIcon(0, QIcon(pm));
 }

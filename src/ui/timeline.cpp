@@ -148,6 +148,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);
     view->setViewMode(QListView::IconMode); view->setFlow(QListView::LeftToRight); view->setWrapping(false);
     view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({102, 114});
+    view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // one row of frames scrolls sideways
     view->setIconSize({72, 72}); view->setMinimumHeight(121); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     view->setDragDropMode(QAbstractItemView::InternalMove); view->setDefaultDropAction(Qt::MoveAction);
     view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel); view->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -161,13 +162,19 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     sources->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     // Field labels are muted so the values lead; each names exactly what it sets.
     auto fieldLabel = [](const QString &text) { auto l = new QLabel(text); l->setProperty("role", "hint"); return l; };
+    // Groups in the settings rows are split by the same hairline as the transport row.
+    const auto divider = [](QHBoxLayout *row) {
+        row->addSpacing(ui::SpaceL);
+        auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); row->addWidget(rule);
+        row->addSpacing(ui::SpaceL);
+    };
     timingRow->setSpacing(ui::SpaceS);
     timingRow->addWidget(fieldLabel("Source frame")); timingRow->addWidget(sources);
-    timingRow->addSpacing(ui::SpaceL);
+    divider(timingRow);
     duration = new QSpinBox; duration->setObjectName("entryDuration"); duration->setRange(0, INT_MAX);
     duration->setSpecialValueText("Default"); duration->setSuffix(" ticks"); duration->setKeyboardTracking(false);
     timingRow->addWidget(fieldLabel("Entry duration")); timingRow->addWidget(duration);
-    timingRow->addSpacing(ui::SpaceL);
+    timingRow->addSpacing(ui::SpaceXL);
     defaultTime = new QSpinBox; defaultTime->setObjectName("defaultDuration"); defaultTime->setRange(1, INT_MAX);
     defaultTime->setSuffix(" ticks"); defaultTime->setKeyboardTracking(false);
     // The unit reads as a word, singular for one tick.
@@ -178,7 +185,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     }
     timingRow->addWidget(fieldLabel("Default duration")); timingRow->addWidget(defaultTime);
     timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint"); timingRow->addWidget(timing);
-    timingRow->addSpacing(ui::SpaceL);
+    divider(timingRow);
     interpolate = new QCheckBox("Interpolate"); interpolate->setObjectName("animationInterpolate"); timingRow->addWidget(interpolate);
     timingRow->addStretch();
     auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(72); zoom->setMaximumWidth(100);
@@ -197,6 +204,8 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setPrefix("Next "); next->setObjectName("onionNext"); onionRow->addWidget(next);
     auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity"); onionRow->addWidget(opacity);
     auto tint = new QCheckBox("Tint"); tint->setChecked(true); onionRow->addWidget(tint);
+    previous->setToolTip("Onion skin: earlier frames shown"); next->setToolTip("Onion skin: later frames shown");
+    opacity->setToolTip("Onion skin opacity");
     tint->setObjectName("onionTint");
     auto updateOnion = [=, this] { emit onionChanged(onion->isChecked(), previous->value(), next->value(), opacity->value(), tint->isChecked()); };
     connect(onion, &QCheckBox::toggled, this, updateOnion); connect(previous, &QSpinBox::valueChanged, this, updateOnion);

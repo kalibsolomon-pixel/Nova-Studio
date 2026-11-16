@@ -38,11 +38,14 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
     list->setToolTip("Top row paints over lower rows. Check a layer to show it. F2 renames.\n"
                      "Ctrl/Shift-click selects several layers for Transform.");
     layout->addWidget(list, 1);
-    empty = ui::emptyState("Open a texture to see its layers");
+    empty = ui::emptyState("Open a texture to see its layers", nullptr, "layers");
     empty->setObjectName("layersEmpty");
     layout->addWidget(empty, 1);
     // Compact command strip under the list.
-    auto buttons = new QHBoxLayout;
+    auto commands = new QWidget;
+    commands->setObjectName("layerCommands");
+    auto buttons = new QHBoxLayout(commands);
+    buttons->setContentsMargins(0, 0, 0, 0);
     buttons->setSpacing(ui::SpaceXS);
     auto button = [&](const QString &icon, const QString &tip, const QString &name) {
         auto b = new QPushButton;
@@ -56,17 +59,28 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
         buttons->addWidget(b);
         return b;
     };
+    // Groups read left to right: create and name, order, transform; delete stands apart
+    // at the far edge so the destructive command is never next to a frequent one.
+    const auto divider = [&] {
+        buttons->addSpacing(ui::SpaceXS);
+        auto rule = new QFrame;
+        rule->setProperty("role", "vrule");
+        rule->setFixedSize(1, ui::IconSize);
+        buttons->addWidget(rule);
+        buttons->addSpacing(ui::SpaceXS);
+    };
     add = button("add", "New layer (Ctrl+Shift+N)", "addLayer");
     duplicate = button("duplicate", "Duplicate layer", "duplicateLayer");
-    remove = button("delete", "Delete layer", "deleteLayer");
-    buttons->addSpacing(ui::SpaceS);
+    rename = button("rename", "Rename layer (F2 in the list)", "renameLayer");
+    divider();
     up = button("up", "Raise layer (Ctrl+])", "raiseLayer");
     down = button("down", "Lower layer (Ctrl+[)", "lowerLayer");
-    rename = button("rename", "Rename layer (F2 in the list)", "renameLayer");
-    buttons->addStretch();
+    divider();
     transform = button("transform", "Transform selected layers… (move, flip, rotate, scale or recolour as one step)",
                        "transformSelectedLayers");
-    layout->addLayout(buttons);
+    buttons->addStretch();
+    remove = button("delete", "Delete layer", "deleteLayer");
+    layout->addWidget(commands);
     connect(transform, &QPushButton::clicked, this, [this] { if (transformSelected) transformSelected(); });
     connect(add, &QPushButton::clicked, this, &LayersPanel::addLayer);
     connect(duplicate, &QPushButton::clicked, this, &LayersPanel::duplicateLayer);
@@ -174,7 +188,7 @@ void LayersPanel::refresh() {
     // Without a document the opacity row and commands have nothing to act on: hide them
     // rather than show 0 and a strip of disabled icons.
     for (auto w : std::initializer_list<QWidget *>{opacity, opacitySlider, findChild<QLabel *>("layerOpacityLabel"),
-                                                   add, remove, duplicate, rename, up, down, transform})
+                                                   findChild<QWidget *>("layerCommands")})
         if (w)
             w->setVisible(open);
     if (!document) {

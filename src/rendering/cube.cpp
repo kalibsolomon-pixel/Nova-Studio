@@ -105,7 +105,7 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
 void Cube::updateEmptyState() {
     const bool empty = !document && !modelMesh;
     if (!emptyLabel) {
-        emptyLabel = ui::emptyState("Open a texture or model to preview it in 3D", this);
+        emptyLabel = ui::emptyState("Open a texture or model to preview it in 3D", this, "cube");
         emptyLabel->setObjectName("previewEmpty");
         emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     }
