@@ -490,7 +490,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     panelsMenu->setObjectName("panelsMenu");
     pathText = new QLineEdit(project);
     pathText->setMinimumWidth(120);
-    pathText->setMaximumWidth(460);
+    pathText->setMaximumWidth(560);
     pathText->setObjectName("projectPath");
     pathText->setAccessibleName("Resource pack folder");
     pathText->setPlaceholderText("Resource pack folder…");
@@ -791,8 +791,15 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             c->update();
         }
     });
-    auto center = new QPushButton("Center canvas");
+    // Joins the zoom icons in the inspector's View row.
+    auto center = new QPushButton;
     center->setObjectName("centerCanvas");
+    center->setProperty("role", "icon");
+    center->setProperty("novaIcon", "center");
+    center->setIcon(ui::lineIcon("center"));
+    center->setIconSize({ui::IconSize, ui::IconSize});
+    center->setToolTip("Center canvas");
+    center->setAccessibleName("Center canvas");
     connect(center, &QPushButton::clicked, this, [this] {
         if (current())
             current()->center();
@@ -815,6 +822,14 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     layersScroll->setWidgetResizable(true); layersScroll->setFrameShape(QFrame::NoFrame);
     layersScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     layersScroll->setWidget(layersPanel); layersDock->setWidget(layersScroll);
+    // The list scrolls itself; the dock never shrinks past the opacity row, two rows and
+    // the command strip, so those commands cannot be pushed out of view.
+    {
+        const auto margins = layersPanel->layout()->contentsMargins();
+        const int gap = layersPanel->layout()->spacing();
+        layersScroll->setMinimumHeight(margins.top() + margins.bottom() + 2 * gap + ui::ControlHeight +
+                                       2 * ui::RowHeight + 2 + ui::ControlHeight + ui::SpaceS);
+    }
     addDockWidget(Qt::RightDockWidgetArea, layersDock);
     splitDockWidget(inspectorDock, layersDock, Qt::Vertical);
     // Build editor widgets before the OpenGL preview exists: reparenting widgets into

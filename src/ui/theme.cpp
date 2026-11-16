@@ -53,7 +53,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.text = QColor("#e3e4e8");
         t.muted = QColor("#a4a7b2");
         t.disabled = QColor("#6c6f7a");
-        t.placeholder = QColor("#767985");
+        t.placeholder = QColor("#7e818d");
         t.icon = QColor("#c4c6ce");
         t.accent = QColor(blue ? "#4a8af4" : "#7b6cf0");
         t.accentHover = QColor(blue ? "#619bf7" : "#8d80f4");
@@ -74,7 +74,7 @@ Tokens tokens(bool dark, const QString &accent) {
     } else {
         t.backdrop = QColor("#dedfe3");
         t.base = QColor("#ffffff");
-        t.canvas = QColor("#e6e7ea");
+        t.canvas = QColor("#dcdde2");
         t.window = QColor("#f4f4f6");
         t.list = t.window;
         t.surface = QColor("#ececef");
@@ -91,7 +91,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.accentHover = QColor(blue ? "#1f56c2" : "#5641d2");
         t.accentMuted = QColor(blue ? "#e3ecfb" : "#ece9fd");
         t.onAccent = Qt::white;
-        t.selection = QColor(blue ? "#d3e2fb" : "#e1dcfc");
+        t.selection = QColor(blue ? "#cddefa" : "#dad3fb");
         t.selectionText = QColor("#1b1d22");
         t.warning = QColor("#94600a");
         t.danger = QColor("#b42318");
@@ -171,6 +171,9 @@ QString styleSheet(const Tokens &t) {
         "padding:2px}"
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
         "QSplitter::handle{background:@border}"
+        // Wide gutters between cards stay empty space; they show only while dragged over.
+        "QSplitter[role=\"gutter\"]::handle{background:transparent}"
+        "QSplitter[role=\"gutter\"]::handle:hover{background:@accentMuted}"
         "QFrame[role=\"rule\"]{background:@border;max-height:1px;min-height:1px;border:0}"
         "QFrame[role=\"vrule\"]{background:@borderStrong;border:0}"
         "QFrame[role=\"card\"]{background:@surface;border:1px solid @border;border-radius:@rL}"
@@ -469,6 +472,7 @@ QChar materialGlyph(const QString &name) {
         {"opacity", QChar(0xe91c)},
         {"menu", QChar(0xe5d2)},
         {"go", QChar(0xe5c8)}, // arrow_forward
+        {"center", QChar(0xe3dc)}, // filter_center_focus
         {"swap-colors", QChar(0xe8d4)},  // swap_horiz
         {"reset-colors", QChar(0xe23b)}, // format_color_reset
         {"select-replace", QChar(0xe3c6)},   // crop_square
@@ -1034,18 +1038,17 @@ class ScrollFade : public QWidget {
     void place() {
         const auto bar = area->verticalScrollBar();
         const auto viewport = area->viewport()->geometry();
-        setGeometry(viewport.left(), viewport.bottom() - 31, viewport.width(), 32);
+        setGeometry(viewport.left(), viewport.bottom() - 11, viewport.width(), 12);
         setVisible(bar->maximum() > 0 && bar->value() < bar->maximum());
         raise();
     }
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
-        QColor clear = current().window;
-        clear.setAlpha(0);
         QLinearGradient fade(0, 0, 0, height());
-        fade.setColorAt(0, clear);
-        fade.setColorAt(1, current().window);
+        fade.setColorAt(0, QColor(0, 0, 0, 0));
+        fade.setColorAt(1, QColor(0, 0, 0, current().dark ? 110 : 30));
         p.fillRect(rect(), fade);
+        p.fillRect(QRect(0, height() - 1, width(), 1), current().border);
     }
 };
 } // namespace

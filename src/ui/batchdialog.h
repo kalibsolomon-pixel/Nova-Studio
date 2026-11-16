@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QFuture>
 #include <atomic>
+#include <functional>
 #include <memory>
 
 class QComboBox;
@@ -65,6 +66,7 @@ class BatchDialog : public QDialog {
     void previewNativeSamples();
     void resolve();
     void syncSteps(int select = -1);
+    std::function<void()> showStepChrome; // empty state vs. editor and edit bar
     void stepEdited();
     void invalidate();
     void previewSamples();

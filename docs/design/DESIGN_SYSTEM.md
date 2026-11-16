@@ -25,21 +25,21 @@ two tokens.
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
-| `backdrop` | `#0e0f12` | `#dcdfe5` | Gutters between docked panels, main-window background |
+| `backdrop` | `#0e0f12` | `#dedfe3` | Gutters between docked panels, main-window background |
 | `base` | `#131418` | `#ffffff` | Field wells, lists, trees, tables |
-| `canvas` | `#131418` | `#e4e6eb` | Surround of the texture canvas and the 3D viewport |
-| `window` | `#191a1f` | `#f5f6f8` | Panel and chrome fill (menu bar, toolbars, dock titles, status bar) |
-| `surface` | `#1e1f25` | `#eef0f3` | Cards and grouped sections; hover on document tabs |
-| `raised` | `#272830` | `#e6e8ec` | Hover fills, menus, tooltips, popups |
+| `canvas` | `#131418` | `#dcdde2` | Surround of the texture canvas and the 3D viewport |
+| `window` | `#191a1f` | `#f4f4f6` | Panel and chrome fill (menu bar, toolbars, dock titles, status bar) |
+| `surface` | `#1e1f25` | `#ececef` | Cards and grouped sections; hover on document tabs |
+| `raised` | `#272830` | `#e5e6ea` | Hover fills, menus, tooltips, popups |
 | `control` | `#24252c` | `#ffffff` | Push-button and picker fill |
-| `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#dfe1e6` / `#c4c8d0` | Hairlines / control outlines |
-| `text` / `muted` | `#e3e4e8` / `#9b9ea9` | `#1b1d22` / `#5b5f6b` | Primary / secondary text |
-| `disabled` / `placeholder` | `#62656f` / `#767985` | `#9da1ab` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
+| `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#d6d8de` / `#bfc2ca` | Hairlines / control outlines |
+| `text` / `muted` | `#e3e4e8` / `#a4a7b2` | `#1b1d22` / `#5b5f6b` | Primary / secondary text |
+| `disabled` / `placeholder` | `#6c6f7a` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
 | `icon` | `#c4c6ce` | `#3d414b` | Default icon ink, one step softer than text |
 | `accent` | `#7b6cf0` (blue `#4a8af4`) | `#6550e0` (blue `#2563d9`) | Focus, primary actions, checked state, active tab |
 | `accentHover` / `accentMuted` | | | Primary hover / checked toggles, inactive selection |
 | `onAccent` | white | white | Text and marks on accent fills |
-| `selection` / `selectionText` | `#383461` / white | `#e1dcfc` / `#1b1d22` | Selected rows and text selection |
+| `selection` / `selectionText` | `#383461` / white | `#dad3fb` / `#1b1d22` | Selected rows and text selection |
 | `warning`, `danger`, `success`, `info` | | | Status text; pair with a word or icon |
 | `warningSurface`, `dangerSurface`, `infoSurface` | | | Tinted backgrounds for inline notices |
 | `checkerDark` / `checkerLight` / `pixelGrid` | | | Canvas transparency and grid. `checkerboard_theme_test` guards their contrast against `canvas`. |
@@ -87,7 +87,11 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 | Empty state | `ui::emptyState(text)` |
 | Inline warning notice | `QLabel[role="notice"]`, or `QFrame[role="notice"]` |
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |
-| Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text |
+| Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text. Re-read the tokens on `QEvent::PaletteChange` so a theme switch re-tones existing rows. |
+| Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
+| Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. It never dims the last line. |
+| Card gutter | `QSplitter[role="gutter"]` for wide handles between cards: empty space that tints `accentMuted` on hover |
+| Empty list with a first action | Put the action (a primary button) inside the empty state, and hide the list's edit bar until the list has rows (see the batch operation stack). |
 
 Rules that a stylesheet cannot express live in `NovaStyle` (`theme.cpp`). These are field
 geometry, arrows, branch chevrons, check marks, dock and folder icons, and metrics.

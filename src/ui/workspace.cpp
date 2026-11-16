@@ -96,9 +96,9 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     zoomLabel->setMinimumWidth(48);
     zoomLabel->setAccessibleName("Canvas zoom");
     zoomRow->addWidget(zoomLabel);
+    zoomRow->addWidget(center);
     zoomRow->addStretch();
     pv->addWidget(zoomBox);
-    pv->addWidget(center);
     pv->addWidget(ui::sectionTitle("Active tool"));
     inspectorTool = new QLabel;
     inspectorTool->setObjectName("inspectorTool");
@@ -108,8 +108,8 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     inspectorToolTip->setObjectName("inspectorToolTip");
     inspectorToolTip->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addWidget(inspectorToolTip);
-    inspectorTips = ui::hint("Right-click the canvas for editing commands. Wheel zooms; Space+drag or "
-                             "middle-drag pans. Help › Keyboard Shortcuts (Ctrl+/) lists every key.");
+    inspectorTips = ui::hint("Right-click the canvas for commands. Ctrl+/ lists every shortcut.");
+    inspectorTips->setToolTip("Wheel zooms; Space+drag or middle-drag pans.");
     inspectorTips->setObjectName("inspectorTips");
     inspectorTips->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addSpacing(ui::SpaceS);
@@ -455,11 +455,15 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
     resizeDocks({inspectorDock}, {std::clamp(w / 5, 220, 340)}, Qt::Horizontal);
     if (name == "essentials") {
         resizeDocks({previewDock}, {std::clamp(h / 4, 150, 260)}, Qt::Vertical);
+        // Layers lists are short: the inspector above gets the column's spare height.
+        resizeDocks({layersDock}, {std::clamp(h / 4, 170, 240)}, Qt::Vertical);
     } else if (name == "texture" || name == "animation" || name == "uv") {
         // Preview moves into the side column so the canvas spans the full height.
         // Short windows tab it with Layers (splitDockWidget tabs into a tabbed
         // group); taller ones stack it below so it stays visible while painting.
-        if (h < 720) {
+        // Animation always tabs it: the timeline already takes the bottom of the
+        // window, and the canvas shows the playing frame.
+        if (h < 720 || name == "animation") {
             splitDockWidget(layersDock, previewDock, Qt::Vertical);
         } else {
             removeDockWidget(previewDock);
@@ -477,6 +481,8 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
             preferences.timelineVisible = true;
         }
         resizeDocks({previewDock}, {std::clamp(h / 5, 140, 220)}, Qt::Vertical);
+        if (h >= 720 && name != "animation")
+            resizeDocks({layersDock}, {std::clamp(h / 5, 150, 200)}, Qt::Vertical);
     } else if (name == "model") {
         modelsDock->raise();
         resizeDocks({inspectorDock}, {std::clamp(w / 4, 300, 380)}, Qt::Horizontal);

@@ -235,11 +235,17 @@ class SearchDelegate : public QStyledItemDelegate {
         const bool hovered = opt.state & QStyle::State_MouseOver;
         const auto category = index.data(Category).toString();
         const auto previous = index.row() > 0 ? index.siblingAtRow(index.row() - 1).data(Category).toString() : QString();
-        const bool showCategory = !category.isEmpty() && category != previous;
+        // A new group starts under a hairline; the footer names the selected row's group.
+        const bool groupStart = index.row() > 0 && !category.isEmpty() && category != previous;
         const auto shortcut = index.data(Shortcut).toString();
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
         const QRectF row = QRectF(opt.rect).adjusted(ui::SpaceXS, 1, -ui::SpaceXS, -1);
+        if (groupStart) {
+            p->setPen(QPen(t.border, 1));
+            p->drawLine(QPointF(row.left() + ui::SpaceL, opt.rect.top() + 0.5),
+                        QPointF(row.right() - ui::SpaceL, opt.rect.top() + 0.5));
+        }
         if (selected || hovered) {
             p->setPen(Qt::NoPen);
             p->setBrush(selected ? t.selection : t.raised);
@@ -264,20 +270,19 @@ class SearchDelegate : public QStyledItemDelegate {
                 const auto key = keys[i];
                 const qreal w = std::max<qreal>(capMetrics.horizontalAdvance(key) + 10, 20);
                 const QRectF cap(right - w, row.center().y() - 10, w, 20);
-                p->setPen(QPen(selected ? quiet : t.borderStrong, 1));
-                p->setBrush(selected ? QColor(0, 0, 0, 0) : t.surface);
+                p->setPen(QPen(t.borderStrong, 1));
+                p->setBrush(t.surface);
                 p->drawRoundedRect(cap.adjusted(0.5, 0.5, -0.5, -0.5), ui::RadiusS, ui::RadiusS);
-                p->setPen(quiet);
+                p->setPen(unavailable ? t.disabled : t.muted);
                 p->drawText(cap, Qt::AlignCenter, key);
                 right = cap.left() - 3;
             }
             right -= ui::SpaceM;
         }
-        if (showCategory || unavailable) {
+        if (unavailable) {
             p->setFont(capFont);
             p->setPen(quiet);
-            const auto label = unavailable ? (category.isEmpty() ? QString("Unavailable") : "Unavailable · " + category)
-                                           : category;
+            const auto label = QString("Unavailable");
             const qreal w = capMetrics.horizontalAdvance(label);
             p->drawText(QRectF(right - w, row.top(), w, row.height()), Qt::AlignVCenter | Qt::AlignRight, label);
             right -= w + ui::SpaceL;

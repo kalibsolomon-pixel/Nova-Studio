@@ -67,6 +67,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     root->addSpacing(ui::SpaceS);
     auto split = new QSplitter;
     split->setHandleWidth(ui::SpaceXL);
+    split->setProperty("role", "gutter");
     root->addWidget(split, 1);
     // ---------------------------------------------------------------- targets
     auto targetsBox = new QGroupBox("1 · Targets");
@@ -223,17 +224,30 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     steps->setAccessibleName("Operation steps");
     steps->setToolTip("Steps run top to bottom; untick to disable a step");
     pv->addWidget(steps, 1);
-    // Empty state: say how to start instead of showing a blank list.
-    auto emptySteps = new QLabel("No operations yet. Use Add operation below or choose a saved pipeline; "
+    // Empty state: the first step is the next action, so it is offered right here.
+    auto emptyState = new QWidget;
+    emptyState->setObjectName("batchStepsEmptyState");
+    auto emptyStack = new QVBoxLayout(emptyState);
+    emptyStack->setSpacing(ui::SpaceXL);
+    emptyStack->addStretch();
+    auto emptySteps = new QLabel("No operations yet. Add one, or choose a saved pipeline above; "
                                  "steps run top to bottom.");
     emptySteps->setObjectName("batchStepsEmpty");
     emptySteps->setProperty("role", "hint");
     emptySteps->setWordWrap(true);
     emptySteps->setAlignment(Qt::AlignCenter);
-    emptySteps->setAttribute(Qt::WA_TransparentForMouseEvents);
+    emptyStack->addWidget(emptySteps);
+    auto addFirst = new QPushButton("Add operation…");
+    addFirst->setObjectName("batchAddFirstStep");
+    ui::setPrimary(addFirst);
+    emptyStack->addWidget(addFirst, 0, Qt::AlignHCenter);
+    emptyStack->addStretch();
     auto emptyLayout = new QVBoxLayout(steps->viewport());
-    emptyLayout->addWidget(emptySteps);
-    auto stepRow = new QHBoxLayout;
+    emptyLayout->addWidget(emptyState);
+    auto stepBar = new QWidget;
+    stepBar->setObjectName("batchStepBar");
+    auto stepRow = new QHBoxLayout(stepBar);
+    stepRow->setContentsMargins(0, 0, 0, 0);
     auto addButton = new QToolButton;
     addButton->setText("Add operation");
     addButton->setProperty("novaIcon", "add");
@@ -258,6 +272,8 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
                 });
     }
     addButton->setMenu(addMenu);
+    connect(addFirst, &QPushButton::clicked, addFirst,
+            [addFirst, addMenu] { addMenu->popup(addFirst->mapToGlobal(QPoint(0, addFirst->height()))); });
     auto dup = new QPushButton("Duplicate"), rem = new QPushButton("Remove"), up = new QPushButton,
          down = new QPushButton;
     // Reorder buttons are icon buttons with names for assistive technology.
@@ -272,7 +288,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     stepRow->addStretch();
     for (auto b : {dup, rem, up, down})
         stepRow->addWidget(b);
-    pv->addLayout(stepRow);
+    pv->addWidget(stepBar);
     editor = new ParamEditor;
     editor->paletteText = context.paletteText;
     auto editorScroll = new QScrollArea;
@@ -280,11 +296,15 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     editorScroll->setWidget(editor);
     editorScroll->setMinimumHeight(220);
     pv->addWidget(editorScroll, 1);
-    const auto showEditor = [editorScroll, list = steps] { editorScroll->setVisible(list->count() > 0); };
-    connect(steps->model(), &QAbstractItemModel::rowsInserted, editorScroll, showEditor);
-    connect(steps->model(), &QAbstractItemModel::rowsRemoved, editorScroll, showEditor);
-    connect(steps->model(), &QAbstractItemModel::modelReset, editorScroll, showEditor);
-    showEditor();
+    // With no steps the empty state offers Add operation; the editor and edit bar arrive with the first step.
+    // With no steps the empty state offers Add operation; the editor and edit bar arrive
+    // with the first step. syncSteps() calls this after every rebuild of the list.
+    showStepChrome = [editorScroll, stepBar, emptyState, list = steps] {
+        editorScroll->setVisible(list->count() > 0);
+        stepBar->setVisible(list->count() > 0);
+        emptyState->setVisible(list->count() == 0);
+    };
+    showStepChrome();
     split->addWidget(pipeBox);
     // ---------------------------------------------------------------- preview / output
     auto outBox = new QGroupBox("3 · Preview, output and run");
@@ -326,7 +346,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     grid->addWidget(browse, 1, 2);
     grid->addWidget(new QLabel("Name pattern"), 2, 0);
     grid->addWidget(pattern, 2, 1, 1, 2);
-    grid->addWidget(overwrite, 3, 0, 1, 3);
+    grid->addWidget(overwrite, 3, 1, 1, 2);
     grid->addWidget(inPlace, 4, 0, 1, 3);
     grid->addWidget(new QLabel("Backups"), 5, 0);
     grid->addWidget(backup, 5, 1, 1, 2);
@@ -341,6 +361,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     cancelButton = new QPushButton("Cancel job");
     cancelButton->setObjectName("batchCancel");
     cancelButton->setEnabled(false);
+    cancelButton->hide(); // shown only while a job runs
     runRow->setSpacing(ui::SpaceS);
     runRow->addWidget(cancelButton);
     runRow->addStretch();
@@ -598,8 +619,8 @@ void BatchDialog::syncSteps(int select) {
         item->setCheckState(s.enabled ? Qt::Checked : Qt::Unchecked);
         steps->addItem(item);
     }
-    if (auto empty = steps->findChild<QLabel *>("batchStepsEmpty"))
-        empty->setVisible(pipeline.steps.empty());
+    if (showStepChrome)
+        showStepChrome();
     updating = false;
     steps->setCurrentRow(select);
     if (select < 0)
@@ -799,6 +820,7 @@ bool BatchDialog::startNative() {
     runButton->setEnabled(false);
     dryRun->setEnabled(false);
     cancelButton->setEnabled(true);
+    cancelButton->show();
     progress->setRange(0, int(nativePlan.items.size()));
     progress->setValue(0);
     auto shared = std::make_shared<batch::NativePlan>(nativePlan);
@@ -817,6 +839,7 @@ bool BatchDialog::startNative() {
         planned = false;
         dryRun->setEnabled(true);
         cancelButton->setEnabled(false);
+        cancelButton->hide();
         progress->setValue(progress->maximum());
         for (int i = 0; i < results->topLevelItemCount() && i < int(nativePlan.items.size()); ++i) {
             const auto &item = nativePlan.items[size_t(i)];
@@ -887,6 +910,7 @@ bool BatchDialog::start() {
     runButton->setEnabled(false);
     dryRun->setEnabled(false);
     cancelButton->setEnabled(true);
+    cancelButton->show();
     progress->setRange(0, int(currentPlan.items.size()));
     progress->setValue(0);
     auto shared = std::make_shared<batch::Plan>(currentPlan);
@@ -904,6 +928,7 @@ bool BatchDialog::start() {
         planned = false;
         dryRun->setEnabled(true);
         cancelButton->setEnabled(false);
+        cancelButton->hide();
         progress->setValue(progress->maximum());
         for (int i = 0; i < results->topLevelItemCount() && i < int(currentPlan.items.size()); ++i) {
             const auto &item = currentPlan.items[size_t(i)];

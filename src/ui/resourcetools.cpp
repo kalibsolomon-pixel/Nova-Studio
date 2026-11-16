@@ -5,6 +5,29 @@
 #include <QtConcurrent>
 #include <QtWidgets>
 namespace nova {
+namespace {
+constexpr int SeverityRole = Qt::UserRole + 1;
+// Severity reads by colour, a matching dot and its word, never colour alone. Tones come
+// from the active theme, so a theme switch re-tones existing rows.
+void toneSeverity(QTreeWidgetItem *item) {
+    const auto &t = ui::current();
+    const auto severity = mc::Severity(item->data(0, SeverityRole).toInt());
+    const QColor tone = severity == mc::Severity::Error         ? t.danger
+                        : severity == mc::Severity::Warning     ? t.warning
+                        : severity == mc::Severity::Information ? t.info
+                                                                : t.muted;
+    QPixmap pm(QSize(10, 10) * 2);
+    pm.setDevicePixelRatio(2);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(tone);
+    p.drawEllipse(QRectF(1, 1, 8, 8));
+    item->setForeground(0, tone);
+    item->setIcon(0, QIcon(pm));
+}
+} // namespace
 ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     setObjectName("resourceTools");
     auto v = new QVBoxLayout(this);
@@ -40,6 +63,10 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     problems->setHeaderLabels(
         {"Severity", "File", "Field / line", "Explanation", "Suggested action"});
     problems->setRootIsDecorated(false);
+    ui::afterEvents(problems, {QEvent::PaletteChange}, [this] {
+        for (int i = 0; i < problems->topLevelItemCount(); ++i)
+            toneSeverity(problems->topLevelItem(i));
+    });
     problems->setUniformRowHeights(true);
     problems->setAlternatingRowColors(false);
     for (int column = 2; column < 5; ++column)
@@ -190,25 +217,8 @@ void ResourceTools::populate(int offset) {
                                  d.field + (d.line ? " line " + QString::number(d.line) : ""),
                                  d.message, d.suggestion});
         item->setData(0, Qt::UserRole, i);
-        // Severity reads by colour, a matching dot and its word, never colour alone.
-        const auto &t = ui::current();
-        const auto dot = [](const QColor &c) {
-            QPixmap pm(QSize(10, 10) * 2);
-            pm.setDevicePixelRatio(2);
-            pm.fill(Qt::transparent);
-            QPainter p(&pm);
-            p.setRenderHint(QPainter::Antialiasing);
-            p.setPen(Qt::NoPen);
-            p.setBrush(c);
-            p.drawEllipse(QRectF(1, 1, 8, 8));
-            return QIcon(pm);
-        };
-        const QColor tone = d.severity == mc::Severity::Error     ? t.danger
-                            : d.severity == mc::Severity::Warning ? t.warning
-                            : d.severity == mc::Severity::Information ? t.info
-                                                                  : t.muted;
-        item->setForeground(0, tone);
-        item->setIcon(0, dot(tone));
+        item->setData(0, SeverityRole, int(d.severity));
+        toneSeverity(item);
         item->setToolTip(3, d.message);
         item->setToolTip(4, d.suggestion);
         problems->addTopLevelItem(item);

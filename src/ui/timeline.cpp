@@ -164,11 +164,17 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     timingRow->addWidget(fieldLabel("Source frame")); timingRow->addWidget(sources);
     timingRow->addSpacing(ui::SpaceL);
     duration = new QSpinBox; duration->setObjectName("entryDuration"); duration->setRange(0, INT_MAX);
-    duration->setSpecialValueText("Default"); duration->setSuffix(" t"); duration->setKeyboardTracking(false);
+    duration->setSpecialValueText("Default"); duration->setSuffix(" ticks"); duration->setKeyboardTracking(false);
     timingRow->addWidget(fieldLabel("Entry duration")); timingRow->addWidget(duration);
     timingRow->addSpacing(ui::SpaceL);
     defaultTime = new QSpinBox; defaultTime->setObjectName("defaultDuration"); defaultTime->setRange(1, INT_MAX);
-    defaultTime->setSuffix(" t"); defaultTime->setKeyboardTracking(false);
+    defaultTime->setSuffix(" ticks"); defaultTime->setKeyboardTracking(false);
+    // The unit reads as a word, singular for one tick.
+    for (auto spin : {duration, defaultTime}) {
+        const auto unit = [spin](int v) { spin->setSuffix(v == 1 ? " tick" : " ticks"); };
+        connect(spin, &QSpinBox::valueChanged, spin, unit);
+        unit(spin->value());
+    }
     timingRow->addWidget(fieldLabel("Default duration")); timingRow->addWidget(defaultTime);
     timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint"); timingRow->addWidget(timing);
     timingRow->addSpacing(ui::SpaceL);

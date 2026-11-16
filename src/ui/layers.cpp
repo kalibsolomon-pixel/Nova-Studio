@@ -32,7 +32,7 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
     list = new QListWidget;
     list->setObjectName("layerList");
     list->setAccessibleName("Layers");
-    list->setMinimumHeight(90);
+    list->setMinimumHeight(2 * ui::RowHeight); // short docks keep the command strip visible
     list->setSelectionMode(QAbstractItemView::ExtendedSelection);
     list->setEditTriggers(QAbstractItemView::EditKeyPressed);
     list->setToolTip("Top row paints over lower rows. Check a layer to show it. F2 renames.\n"
@@ -171,8 +171,10 @@ void LayersPanel::refresh() {
         w->setEnabled(open);
     list->setVisible(open);
     empty->setVisible(!open);
-    // Without a document the opacity row has nothing to act on: hide it rather than show 0.
-    for (auto w : std::initializer_list<QWidget *>{opacity, opacitySlider, findChild<QLabel *>("layerOpacityLabel")})
+    // Without a document the opacity row and commands have nothing to act on: hide them
+    // rather than show 0 and a strip of disabled icons.
+    for (auto w : std::initializer_list<QWidget *>{opacity, opacitySlider, findChild<QLabel *>("layerOpacityLabel"),
+                                                   add, remove, duplicate, rename, up, down, transform})
         if (w)
             w->setVisible(open);
     if (!document) {
