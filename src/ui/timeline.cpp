@@ -262,19 +262,14 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     onionForm->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
     onionForm->setHorizontalSpacing(ui::SpaceXL); onionForm->setVerticalSpacing(ui::SpaceL);
     auto onion = new QCheckBox("Show adjacent frames"); onion->setObjectName("onionEnabled"); onionForm->addRow(onion);
-    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setObjectName("onionPrevious"); onionForm->addRow("Previous frames", previous);
-    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setObjectName("onionNext"); onionForm->addRow("Next frames", next);
+    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setObjectName("onionPrevious"); onionForm->addRow("Previous frames", ui::sliderField(previous, "Onion skin previous frames"));
+    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setObjectName("onionNext"); onionForm->addRow("Next frames", ui::sliderField(next, "Onion skin next frames"));
     auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity");
     auto opacityField = ui::sliderField(opacity, "Onion skin opacity");
     onionForm->addRow("Opacity", opacityField);
-    for (int row : {1, 2}) {
-        auto field = onionForm->itemAt(row, QFormLayout::FieldRole);
-        field->widget()->setFixedWidth(ui::SettingsValueWidth);
-        field->setAlignment(Qt::AlignRight);
-    }
     auto tint = new QCheckBox("Tint adjacent frames"); tint->setChecked(true); onionForm->addRow(tint);
     const auto syncOnionControls = [=](bool enabled) {
-        for (QWidget *control : std::initializer_list<QWidget *>{previous, next, opacityField, tint}) {
+        for (QWidget *control : std::initializer_list<QWidget *>{previous->parentWidget(), next->parentWidget(), opacityField, tint}) {
             control->setEnabled(enabled);
             if (auto label = onionForm->labelForField(control))
                 label->setEnabled(enabled);

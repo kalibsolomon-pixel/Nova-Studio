@@ -355,17 +355,26 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     overwrite->setToolTip("Existing output files may be replaced; path conflicts are still checked");
     backup = ui::pathField(directory->text() + "-originals");
     backup->setObjectName("batchBackup");
+    // Each choice's settings sit under its radio, indented to the radio's label.
+    const int indent = toDirectory->style()->pixelMetric(QStyle::PM_ExclusiveIndicatorWidth, nullptr, toDirectory) +
+                       toDirectory->style()->pixelMetric(QStyle::PM_RadioButtonLabelSpacing, nullptr, toDirectory);
+    const auto dependent = [indent](const QString &text) {
+        auto label = new QLabel(text);
+        label->setIndent(indent);
+        return label;
+    };
     auto grid = new QGridLayout;
     grid->addWidget(toDirectory, 0, 0, 1, 3);
-    grid->addWidget(new QLabel("Folder"), 1, 0);
+    grid->addWidget(dependent("Folder"), 1, 0);
     grid->addWidget(directory, 1, 1);
     grid->addWidget(browse, 1, 2);
-    grid->addWidget(new QLabel("Name pattern"), 2, 0);
+    grid->addWidget(dependent("Name pattern"), 2, 0);
     grid->addWidget(pattern, 2, 1, 1, 2);
     grid->addWidget(overwrite, 3, 1, 1, 2);
-    grid->addWidget(inPlace, 4, 0, 1, 3);
-    grid->addWidget(new QLabel("Backups"), 5, 0);
-    grid->addWidget(backup, 5, 1, 1, 2);
+    grid->setRowMinimumHeight(4, ui::SpaceL); // a gap between the two choices
+    grid->addWidget(inPlace, 5, 0, 1, 3);
+    grid->addWidget(dependent("Backups"), 6, 0);
+    grid->addWidget(backup, 6, 1, 1, 2);
     ov->addLayout(grid);
     auto runRow = new QHBoxLayout;
     dryRun = new QPushButton("Dry run");

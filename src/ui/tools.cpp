@@ -177,6 +177,40 @@ void ToolState::applyBrushPreset(Tool t, const QJsonObject &p) {
 
 // ---------------------------------------------------------------- tool box
 namespace {
+// A rail button whose menu holds more tools. As in Photoshop, a small triangle in the
+// bottom-right corner marks it instead of a separate arrow segment, so every rail button is
+// the same square. Press and hold, right-click, Alt+Down or the menu key opens the menu.
+class ToolGroupButton : public QToolButton {
+  public:
+    using QToolButton::QToolButton;
+
+  protected:
+    void paintEvent(QPaintEvent *e) override {
+        QToolButton::paintEvent(e);
+        if (!menu())
+            return;
+        const auto &t = ui::current();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(!isEnabled() ? t.disabled : isChecked() ? t.accent : t.muted);
+        const QPointF corner = QRectF(rect()).bottomRight() - QPointF(ui::SpaceXS + 1, ui::SpaceXS + 1);
+        const qreal size = 5;
+        p.drawPolygon(QPolygonF{corner, corner - QPointF(size, 0), corner - QPointF(0, size)});
+    }
+    void contextMenuEvent(QContextMenuEvent *e) override {
+        if (!menu())
+            return QToolButton::contextMenuEvent(e);
+        showMenu();
+    }
+    void keyPressEvent(QKeyEvent *e) override {
+        if (menu() && (e->key() == Qt::Key_Menu || (e->key() == Qt::Key_Down && e->modifiers() & Qt::AltModifier))) {
+            showMenu();
+            return;
+        }
+        QToolButton::keyPressEvent(e);
+    }
+};
 // Foreground/background chip at the foot of the tool strip (fast colour access).
 class ColorChip : public QWidget {
     ToolState *state;
@@ -258,7 +292,7 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
         connect(a, &QAction::triggered, this, [this, t = info.tool] { state->setTool(t); });
         auto &button = groups[info.group];
         if (!button) {
-            button = new QToolButton(this);
+            button = new ToolGroupButton(this);
             button->setObjectName("toolGroup-" + info.group);
             button->setPopupMode(QToolButton::DelayedPopup);
             button->setAutoRaise(true);
@@ -268,14 +302,11 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
         }
         button->menu()->addAction(a);
     }
-    for (auto button : std::as_const(groups)) {
-        if (button->menu()->actions().size() > 1)
-            button->setPopupMode(QToolButton::MenuButtonPopup);
-        else
+    for (auto button : std::as_const(groups))
+        if (button->menu()->actions().size() < 2)
             button->setMenu(nullptr);
-    }
     addSeparator();
-    effectsButton = new QToolButton(this);
+    effectsButton = new ToolGroupButton(this);
     effectsButton->setObjectName("effectsButton");
     effectsButton->setText("Effects");
     effectsButton->setProperty("novaIcon", "effects");
@@ -587,7 +618,7 @@ QWidget *ToolOptionsBar::paintPage() {
     form->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
     form->setHorizontalSpacing(ui::SpaceXL);
     form->setVerticalSpacing(ui::SpaceL);
-    form->addRow("Height", height);
+    form->addRow("Height", ui::sliderField(height, "Height"));
     form->addRow("Hardness", ui::sliderField(hardness, "Hardness"));
     form->addRow("Spacing", ui::sliderField(spacing, "Spacing"));
     form->addRow("Smoothing", ui::sliderField(smoothing, "Smoothing"));

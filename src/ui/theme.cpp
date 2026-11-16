@@ -49,6 +49,8 @@ QWidget *sliderField(QSpinBox *value, const QString &label) {
     slider->setMinimumWidth(96);
     value->setAccessibleName(label);
     value->setFixedWidth(SettingsValueWidth);
+    // The slider is the pointer control; the value box takes typing, arrows and the wheel.
+    value->setButtonSymbols(QAbstractSpinBox::NoButtons);
     row->addWidget(slider, 1);
     row->addWidget(value);
     field->setFocusProxy(value);
@@ -262,7 +264,6 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#toolOptions QLabel#paintToolName,QToolBar#toolOptions QLabel#toolOptionsName{color:@text;font-weight:600;padding-left:2px;padding-right:6px}"
         "QToolBar#toolBox{border-bottom:0;border-right:1px solid @border;padding:@stripPadV @stripPadH}"
         "QToolBar#toolBox QToolButton{padding:@toolPad}"
-        "QToolBar#toolBox QToolButton[popupMode=\"1\"]{padding-right:@arrowReserve}"
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
         "QStatusBar{background:@window;border-top:1px solid @border;color:@muted}"
@@ -325,6 +326,13 @@ QString styleSheet(const Tokens &t) {
         "QPushButton[role=\"icon\"]{padding:4px;min-width:18px;border-color:transparent;background:transparent}"
         "QPushButton[role=\"icon\"]:hover{background:@raised;border-color:transparent}"
         "QPushButton[role=\"icon\"]:disabled{background:transparent;border-color:transparent}"
+        // Link: a quiet text command beside a heading (no frame, no menu arrow). accentHover is
+        // the higher-contrast accent in both themes.
+        "QPushButton[role=\"link\"]{padding:2px 6px;border-color:transparent;background:transparent;color:@accentHover}"
+        "QPushButton[role=\"link\"]:hover{background:@accentMuted;border-color:transparent}"
+        "QPushButton[role=\"link\"]:focus{border-color:@accent}"
+        "QPushButton[role=\"link\"]:disabled{color:@disabled;background:transparent;border-color:transparent}"
+        "QPushButton[role=\"link\"]::menu-indicator{image:none;width:0}"
         "QPushButton::menu-indicator{subcontrol-origin:padding;subcontrol-position:center right;width:10px;"
         "right:-4px}"
         "QToolButton{border:@btnBorder solid transparent;border-radius:@rS;padding:@btnPad;background:transparent;"
@@ -339,9 +347,9 @@ QString styleSheet(const Tokens &t) {
         "QToolButton[popupMode=\"2\"]{padding-right:18px}"
         "QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-origin:padding;subcontrol-position:center right;"
         "right:4px;width:10px;height:10px}"
-        "QToolBar#toolBox QToolButton[popupMode=\"2\"]{padding:@toolPad;padding-right:@arrowReserve}"
-        "QToolBar#toolBox QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-origin:padding;"
-        "subcontrol-position:center right;right:2px;width:10px;height:10px}"
+        // Rail buttons mark a menu with a corner triangle (ToolGroupButton), not an arrow.
+        "QToolBar#toolBox QToolButton[popupMode=\"2\"]{padding:@toolPad}"
+        "QToolBar#toolBox QToolButton::menu-indicator{image:none;width:0;height:0}"
         "QToolButton[role=\"disclosure\"]{border:0;padding:4px 2px;font-weight:600;color:@muted}"
         "QToolButton[role=\"disclosure\"]:hover{color:@text;background:transparent}"
         "QToolButton[role=\"disclosure\"]:checked{background:transparent;color:@text}"

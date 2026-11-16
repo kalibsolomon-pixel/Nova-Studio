@@ -2,7 +2,32 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 26
+## Latest completed combined review: 27
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 7 | 6 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 7 | 6 | 7 | 6 | 8 | 7 |
+| opencode/longcat-2.5-free | 8 | 7 | 7 | 7 | 7 | 7 | 6 | 7 |
+| opencode/minimax-m3.1-flash-free | 7 | 7 | 6 | 6 | 6 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** First review of the fixed left rail; GPT-6.1 Terra rejoins
+at the user's request, and all six reviewers finished inside five minutes. The rail's
+split-button arrows (on grouped tools only) read as doubled, uneven controls, and the brush
+popover's Height row lacked the slider its siblings had. The next pass marks grouped tools
+with a Photoshop-style corner triangle instead of an arrow segment, so every rail button is
+the same square and the rail is narrower (press and hold, right-click, Alt+Down or the menu
+key opens the group). Every settings-popover row is now a slider with an unstepped value
+box. Batch output settings indent under their radio choice; Welcome's "View all" becomes a
+link-styled command, and recent-pack paths abbreviate the home folder to `~`.
+
+Several reviewer claims conflict with the captures and are not treated as defects: rail
+icons are `#c4c6ce` on the dark rail and `#3d414b` on the light one (not "near-invisible");
+the onion-skin Opacity slider is grey because its master switch is off.
+
+## Combined review: 26
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -156,9 +181,11 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 24 | whole application and all six toolbar placements; OpenCode reviewers only | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit; Kimi: no review |
 | 25 | tool name on every options row, framed floating strip | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 8; LongCat: five-minute limit; Kimi: no review |
 | 26 | one primary Batch action, right-rail hairline facing the canvas | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit |
+| 27 | fixed left tool rail, matching status text | GLM free: 6; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 8; Terra: 7 |
 
 ## Verification
 
+- Corner-triangle rail, slider popovers and indented Batch output: the complete regression run (MCP excluded) passed 66/66 suites in 326.98 seconds.
 - Fixed tool rail checkpoint: the complete regression run (MCP excluded) passed 66/66 suites in 326.31 seconds with process-local `TEMP`/`TMP` at `build/t`, including the rewritten `tool-strip` suite at 100%, 150% and 200% scaling. The status bar's message now uses the body size, like its labels.
 - Native Qt gallery: dark/light, welcome/editor, selection, animation, models, batch, palette and settings. Gallery/test windows use the secondary portrait display.
 - Targeted workspace, tool-strip (including 150% and 200%), editor GUI and tool-options checks: 6/6 passed.

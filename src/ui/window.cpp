@@ -77,8 +77,8 @@ class RecentPackDelegate final : public QStyledItemDelegate {
         p->setFont(option.font);
         p->setPen(t.muted);
         p->drawText(text.adjusted(0, line + ui::SpaceXS, 0, 0), Qt::AlignVCenter,
-                    QFontMetrics(option.font).elidedText(QDir::toNativeSeparators(index.data(Qt::UserRole).toString()),
-                                                        Qt::ElideMiddle, text.width()));
+                    QFontMetrics(option.font).elidedText(index.data(Qt::UserRole + 2).toString(), Qt::ElideMiddle,
+                                                        text.width()));
         p->restore();
     }
 };
@@ -102,9 +102,15 @@ class EditorTabs : public QTabWidget {
                 continue;
             const auto path = action->text();
             const auto name = QFileInfo(path).fileName();
-            auto item = new QListWidgetItem(name + '\n' + QDir::toNativeSeparators(path), recentPacks);
+            // The home folder reads as "~", so the part of the path that differs stays visible.
+            auto shown = QDir::toNativeSeparators(path);
+            const auto home = QDir::toNativeSeparators(QDir::homePath());
+            if (shown.startsWith(home + QDir::separator(), Qt::CaseInsensitive))
+                shown = '~' + shown.mid(home.size());
+            auto item = new QListWidgetItem(name + '\n' + shown, recentPacks);
             item->setData(Qt::UserRole, path);
             item->setData(Qt::UserRole + 1, name);
+            item->setData(Qt::UserRole + 2, shown);
             item->setToolTip("Open pack: " + QDir::toNativeSeparators(path));
             item->setSizeHint({0, 2 * recentPacks->fontMetrics().lineSpacing() + 2 * ui::SpaceL + 2 * ui::SpaceXS});
         }
@@ -234,6 +240,7 @@ class EditorTabs : public QTabWidget {
         recentHeader->addWidget(recentTitle);
         recentHeader->addStretch();
         allRecent = new QPushButton("View all");
+        allRecent->setProperty("role", "link");
         allRecent->setMenu(recent);
         allRecent->setObjectName("welcomeRecent");
         recentHeader->addWidget(allRecent);

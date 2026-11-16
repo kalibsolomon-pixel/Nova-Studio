@@ -99,6 +99,7 @@ document at 1280×900.
 | Text field, spin box, combo box | Plain Qt widgets; `NovaStyle` draws the shared field well and chevrons |
 | Checkbox, radio | Plain Qt widgets; `NovaStyle` draws rounded accent indicators |
 | Section title | `ui::sectionTitle("Document")` |
+| Text command beside a heading | `QPushButton[role="link"]`: frameless `accentHover` text that tints `accentMuted` on hover; a menu on it opens without a drop-down arrow (Welcome's "View all") |
 | Hint / secondary text | `ui::hint(text)`, or `QLabel[role="hint"]` |
 | Status value | `QLabel[role="warning"]` (needs attention, e.g. unsaved), `"error"`, or `"info"` (an available action, e.g. an export update) |
 | Empty state | `ui::emptyState(text, parent, icon)`: centred text with an optional large muted Material glyph above it |
@@ -108,9 +109,10 @@ document at 1280×900.
 | Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
 | Secondary settings | `ui::settingsMenu(button, content)`: a native menu hosting a form with `PanelPadding`, `SpaceXL` between columns and `SpaceL` between rows. Keep routine controls on the working row; label the settings button by its task. |
 | Path field | `ui::pathField(text)`: a native line edit that preserves the first and final path segments when unfocused. Editing and `text()` retain the entire path; the tooltip shows it in full. |
-| Continuous numeric setting | `ui::sliderField(spinBox, label)`: a native slider paired with the exact editable value; both stay synchronized and carry the same accessible name. |
+| Continuous numeric setting | `ui::sliderField(spinBox, label)`: a native slider paired with the exact editable value; both stay synchronized and carry the same accessible name. The value box has no step buttons (the slider is the pointer control). Every row of a settings popover uses it, so values line up in one column. |
 | Scrolling panel | `ui::addScrollFade(area)`: a soft edge shadow and hairline mark more content below. A row the edge would cut in half is hidden whole, so a panel never ends on half a heading. |
 | Card gutter | `QSplitter[role="gutter"]` for wide handles between cards: empty space that tints `accentMuted` on hover |
+| Settings of a radio choice | Under the radio, with their labels indented to the radio's text (indicator width plus label spacing), and a `SpaceL` gap before the next choice (see Batch output) |
 | Empty list with a first action | Put the action (a primary button) inside the empty state, and hide the list's edit bar until the list has rows (see the batch operation stack). |
 
 Rules that a stylesheet cannot express live in `NovaStyle` (`theme.cpp`). These are field
@@ -158,8 +160,11 @@ every user's muscle memory agree on where the tools are. View › Panels › Too
 still hides and shows it. Workspace layouts saved by earlier builds, in which the strip
 could move, restore with the rail on the left and the rest of their arrangement intact.
 The rail chooses the tool; the Tool Options row above the canvas edits it. The colour
-wells share the 30px tool target. Split buttons group tool variants without extra
-separators; rules separate Effects and the colour wells.
+wells share the 30px tool target. A button that groups tool variants (and Effects) is the
+same square as every other rail button, marked by a small triangle in its bottom-right
+corner (`muted`, or `accent` when checked) rather than a separate arrow segment. Press and
+hold, right-click, Alt+Down or the menu key opens its menu; every variant also has its own
+shortcut and an Edit › Tool menu entry. Rules separate Effects and the colour wells.
 
 ## Checking a change
 
