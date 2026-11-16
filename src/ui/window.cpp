@@ -140,11 +140,27 @@ class EditorTabs : public QTabWidget {
         row->addStretch();
         layout->addLayout(row);
         layout->addSpacing(ui::Space2XL);
-        auto keys = new QLabel("Ctrl+N  New pack     Ctrl+Shift+O  Open pack     Ctrl+K  Search");
+        // Shortcut hints as keycaps, matching the command palette.
+        auto keys = new QWidget;
         keys->setObjectName("welcomeShortcuts");
-        keys->setProperty("role", "hint");
-        keys->setAlignment(Qt::AlignCenter);
-        keys->setWordWrap(true);
+        auto keyRow = new QHBoxLayout(keys);
+        keyRow->setContentsMargins(0, 0, 0, 0);
+        keyRow->setSpacing(ui::SpaceS);
+        keyRow->addStretch();
+        const std::pair<QStringList, const char *> hints[] = {
+            {{"Ctrl", "N"}, "New pack"}, {{"Ctrl", "Shift", "O"}, "Open pack"}, {{"Ctrl", "K"}, "Search"}};
+        for (const auto &[combo, what] : hints) {
+            for (const auto &key : combo) {
+                auto cap = new QLabel(key);
+                cap->setProperty("role", "keycap");
+                keyRow->addWidget(cap);
+            }
+            auto label = new QLabel(what);
+            label->setProperty("role", "hint");
+            keyRow->addWidget(label);
+            keyRow->addSpacing(ui::Space2XL);
+        }
+        keyRow->addStretch();
         layout->addWidget(keys);
         layout->addStretch(4);
         connect(this, &QTabWidget::currentChanged, this,
@@ -474,6 +490,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     pathText->setToolTip("Resource pack folder · type a path and press Enter, or use Open Resource Pack (Ctrl+Shift+O)");
     auto open = new QAction("Go", this);
     open->setObjectName("openTypedProject");
+    open->setProperty("novaIcon", "go");
+    open->setIcon(ui::lineIcon("go"));
     open->setToolTip("Open the folder typed in the project field");
     connect(open, &QAction::triggered, pathText, &QLineEdit::returnPressed);
     connect(pathText, &QLineEdit::returnPressed, this, [this] {

@@ -105,7 +105,7 @@ class LayerGuiTests : public QObject {
         QCOMPARE(cube->document, doc);
         QTRY_VERIFY(doc->dirty.isEmpty());
         QVERIFY(tabs->tabText(0).contains("●"));
-        QVERIFY(tabs->tabText(0).contains("↑PNG"));
+        QVERIFY(tabs->tabText(0).contains("PNG ↑"));
         window.findChild<QAction *>("saveNativeCommand")->trigger();
         QVERIFY(!doc->modified());
         QVERIFY(doc->exportModified());

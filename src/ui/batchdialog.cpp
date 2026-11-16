@@ -296,6 +296,12 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     pattern->setToolTip("Tokens: {path} relative path, {dir} folder, {name} file name, {index} 0001…");
     overwrite = new QCheckBox("Overwrite existing outputs (still conflict-checked)");
     backup = new QLineEdit(directory->text() + "-originals");
+    // Long paths read from their start; the full value is always in the tooltip.
+    for (auto field : {directory, backup}) {
+        field->setCursorPosition(0);
+        field->setToolTip(field->text());
+        connect(field, &QLineEdit::textChanged, field, [field](const QString &text) { field->setToolTip(text); });
+    }
     backup->setObjectName("batchBackup");
     auto grid = new QGridLayout;
     grid->addWidget(toDirectory, 0, 0, 1, 3);

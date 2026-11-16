@@ -91,7 +91,8 @@ void TimelineModel::setCursor(int value) {
 TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(parent), session(s), playback(this) {
     setObjectName("animationTimeline");
     setMinimumWidth(240);
-    auto layout = new QVBoxLayout(this); layout->setContentsMargins(6, 4, 6, 4); layout->setSpacing(4);
+    auto layout = new QVBoxLayout(this);
+    layout->setContentsMargins(ui::SpaceXL, ui::SpaceS, ui::SpaceXL, ui::SpaceS); layout->setSpacing(ui::SpaceS);
     auto scrollRow = [this, layout](QHBoxLayout *row) {
         auto content = new QWidget; content->setLayout(row); row->setContentsMargins(0, 0, 0, 0);
         auto scroll = new QScrollArea; scroll->setFrameShape(QFrame::NoFrame); scroll->setWidget(content);
@@ -170,7 +171,10 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     timingRow->addStretch();
     auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(56); zoom->setMaximumWidth(100);
     zoom->setObjectName("timelineZoom");
-    zoom->setToolTip("Timeline thumbnail size"); timingRow->addWidget(zoom); scrollRow(timingRow);
+    zoom->setToolTip("Timeline thumbnail size");
+    auto zoomIcon = new QLabel; zoomIcon->setPixmap(ui::lineIcon("zoom-in").pixmap(ui::IconSize, ui::IconSize));
+    zoomIcon->setToolTip(zoom->toolTip()); timingRow->addWidget(zoomIcon);
+    timingRow->addWidget(zoom); scrollRow(timingRow);
     connect(zoom, &QSlider::valueChanged, this, [this](int size) {
         model->setThumbnailSize(size); view->setIconSize({size, size}); view->setGridSize({std::max(102, size + 16), size + 42});
     });

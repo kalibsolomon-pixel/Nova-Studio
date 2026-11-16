@@ -11,6 +11,7 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
     auto row = new QHBoxLayout;
     row->setSpacing(ui::SpaceM);
     auto opacityLabel = new QLabel("Opacity");
+    opacityLabel->setObjectName("layerOpacityLabel");
     opacityLabel->setProperty("role", "hint");
     row->addWidget(opacityLabel);
     opacitySlider = new QSlider(Qt::Horizontal);
@@ -170,6 +171,10 @@ void LayersPanel::refresh() {
         w->setEnabled(open);
     list->setVisible(open);
     empty->setVisible(!open);
+    // Without a document the opacity row has nothing to act on: hide it rather than show 0.
+    for (auto w : std::initializer_list<QWidget *>{opacity, opacitySlider, findChild<QLabel *>("layerOpacityLabel")})
+        if (w)
+            w->setVisible(open);
     if (!document) {
         list->clear();
         return;

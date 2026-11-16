@@ -485,6 +485,10 @@ QSpinBox *spin(const QString &tip, int lo, int hi, int value, const QString &suf
     s->setAccessibleName(tip);
     s->setSuffix(suffix);
     s->setKeyboardTracking(false);
+    // Options-bar fields are compact value fields (wheel, arrow keys or typing), as in
+    // other creative tools' option bars; step buttons would push the row off screen.
+    s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    s->setAlignment(Qt::AlignRight);
     return s;
 }
 // Pages are created directly under their stacked widget: building a parentless

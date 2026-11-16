@@ -101,8 +101,8 @@ QIcon swatchIcon(QRgb c, int size = 30) {
 ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget(parent), state(s), store(p) {
     setObjectName("colorPanel");
     auto v = new QVBoxLayout(this);
-    v->setContentsMargins(8, 8, 8, 8);
-    v->setSpacing(6);
+    v->setContentsMargins(ui::SpaceXL, ui::SpaceL, ui::SpaceXL, ui::SpaceL);
+    v->setSpacing(ui::SpaceM);
     auto top = new QHBoxLayout;
     fg = new QToolButton;
     fg->setObjectName("foregroundSwatch");
@@ -119,12 +119,18 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     top->addWidget(swap);
     top->addWidget(reset);
     top->addStretch();
+    v->addLayout(top);
+    // Hex gets its own full-width row so the whole code always shows.
+    auto hexRow = new QHBoxLayout;
+    hexRow->setSpacing(ui::SpaceL);
+    auto hexLabel = new QLabel("Hex");
+    hexLabel->setProperty("role", "hint");
+    hexRow->addWidget(hexLabel);
     hex = new QLineEdit;
     hex->setObjectName("colorHex");
     hex->setToolTip("Hexadecimal colour: #RRGGBB or #AARRGGBB");
-    hex->setMaximumWidth(110);
-    top->addWidget(hex);
-    v->addLayout(top);
+    hexRow->addWidget(hex, 1);
+    v->addLayout(hexRow);
     auto grid2 = new QGridLayout;
     grid2->setHorizontalSpacing(4);
     grid2->setVerticalSpacing(2);
@@ -136,6 +142,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     for (int i = 0; i < 3; ++i) {
         auto l = new QLabel(names[i]);
         l->setObjectName(QString("channelLabel%1").arg(i));
+        l->setProperty("role", "hint");
         slider[i] = new QSlider(Qt::Horizontal);
         channel[i] = new QSpinBox;
         slider[i]->setRange(0, i == 0 ? 359 : 100);
@@ -153,14 +160,25 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
                                             : ops::fromHsl({h, a, b}, alpha->value()));
         });
     }
-    auto rgbRow = new QHBoxLayout;
+    // R G / B A as a two-by-two grid, so no field is squeezed at common dock widths.
+    auto rgbRow = new QGridLayout;
+    rgbRow->setHorizontalSpacing(ui::SpaceS);
+    rgbRow->setVerticalSpacing(ui::SpaceS);
+    rgbRow->setColumnStretch(1, 1);
+    rgbRow->setColumnStretch(3, 1);
+    rgbRow->setColumnMinimumWidth(2, ui::SpaceL + 10);
+    auto channelLabel = [](const char *text) {
+        auto l = new QLabel(text);
+        l->setProperty("role", "hint");
+        return l;
+    };
     const char *rgbNames[3] = {"R", "G", "B"};
     for (int i = 0; i < 3; ++i) {
         rgb[i] = new QSpinBox;
         rgb[i]->setRange(0, 255);
         rgb[i]->setObjectName(QString("rgb%1").arg(rgbNames[i]));
-        rgbRow->addWidget(new QLabel(rgbNames[i]));
-        rgbRow->addWidget(rgb[i]);
+        rgbRow->addWidget(channelLabel(rgbNames[i]), i / 2, (i % 2) * 2);
+        rgbRow->addWidget(rgb[i], i / 2, (i % 2) * 2 + 1);
         connect(rgb[i], &QSpinBox::valueChanged, this, [this] {
             if (!updating)
                 push(qRgba(rgb[0]->value(), rgb[1]->value(), rgb[2]->value(), alpha->value()));
@@ -169,15 +187,16 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     alpha = new QSpinBox;
     alpha->setRange(0, 255);
     alpha->setObjectName("rgbA");
-    rgbRow->addWidget(new QLabel("A"));
-    rgbRow->addWidget(alpha);
+    rgbRow->addWidget(channelLabel("A"), 1, 2);
+    rgbRow->addWidget(alpha, 1, 3);
     connect(alpha, &QSpinBox::valueChanged, this, [this](int a) {
         if (!updating)
             push(qRgba(qRed(state->foreground), qGreen(state->foreground), qBlue(state->foreground), a));
     });
     grid2->addLayout(rgbRow, 4, 0, 1, 3);
     v->addLayout(grid2);
-    v->addWidget(new QLabel("Recent"));
+    v->addSpacing(ui::SpaceS);
+    v->addWidget(ui::sectionTitle("Recent"));
     recentRow = new QWidget;
     auto rl = new QHBoxLayout(recentRow);
     rl->setContentsMargins(0, 0, 0, 0);
@@ -188,7 +207,8 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     paletteBox->setObjectName("paletteSelector");
     paletteBox->setToolTip("Active palette (also used by palette lock and Map to Palette)");
     auto menuButton = new QToolButton;
-    menuButton->setText("☰");
+    menuButton->setProperty("novaIcon", "menu");
+    menuButton->setIcon(ui::lineIcon("menu"));
     menuButton->setObjectName("paletteMenu");
     menuButton->setToolTip("Palette commands");
     menuButton->setPopupMode(QToolButton::InstantPopup);

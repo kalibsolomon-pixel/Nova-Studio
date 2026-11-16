@@ -200,7 +200,7 @@ QString styleSheet(const Tokens &t) {
         "QPushButton[role=\"primary\"]{border-color:@accent;background:@accent;color:@onAccent;font-weight:600}"
         "QPushButton[role=\"primary\"]:hover{border-color:@accentHover;background:@accentHover}"
         "QPushButton[role=\"primary\"]:focus{border-color:@focusOnAccent}"
-        "QPushButton[role=\"primary\"]:disabled{border-color:@accentMuted;background:@accentMuted;"
+        "QPushButton[role=\"primary\"]:disabled{border-color:@primaryDisabledEdge;background:transparent;"
         "color:@primaryDisabledText}"
         "QPushButton[role=\"segment\"]{padding:3px 10px;border-radius:@rS}"
         "QPushButton[role=\"icon\"]{padding:4px;min-width:18px;border-color:transparent;background:transparent}"
@@ -255,7 +255,7 @@ QString styleSheet(const Tokens &t) {
         "QTreeView::item:selected,QListView::item:selected,QTableView::item:selected{background:@selection;"
         "color:@selectionText}"
         "QTreeView::item:selected:!active,QListView::item:selected:!active,"
-        "QTableView::item:selected:!active{background:@accentMuted;color:@text}"
+        "QTableView::item:selected:!active{background:@inactiveSelection;color:@text}"
         "QHeaderView{background:@window;border:0}"
         "QHeaderView::section{background:@window;color:@muted;padding:5px 8px;border:0;"
         "border-bottom:1px solid @border;border-right:1px solid @border;font-weight:600}"
@@ -290,6 +290,8 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"display\"]{font-size:@displayPt;font-weight:600;color:@text}"
         "QLabel[role=\"hint\"]{color:@muted}"
         "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
+        "QLabel[role=\"keycap\"]{color:@muted;background:@surface;border:1px solid @borderStrong;"
+        "border-radius:@rS;padding:1px 6px}"
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
         "QLabel[role=\"value\"]{color:@text}"
         "QLabel[role=\"warning\"]{color:@warning}"
@@ -315,7 +317,9 @@ QString styleSheet(const Tokens &t) {
         {"@accent", t.accent},
         {"@onAccent", t.onAccent},
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
-        {"@primaryDisabledText", mix(t.accentMuted, t.text, 0.45)},
+        {"@primaryDisabledText", mix(t.window, t.accent, 0.7)},
+        {"@primaryDisabledEdge", mix(t.window, t.accent, 0.45)},
+        {"@inactiveSelection", mix(t.list, t.selection, 0.75)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
         {"@muted", t.muted},
@@ -452,6 +456,8 @@ QChar materialGlyph(const QString &name) {
         {"gradient", QChar(0xe3e9)},
         {"eyedropper", QChar(0xe3b8)},
         {"effects", QChar(0xe429)},  // tune
+        {"menu", QChar(0xe5d2)},
+        {"go", QChar(0xe5c8)}, // arrow_forward
         {"swap-colors", QChar(0xe8d4)},  // swap_horiz
         {"reset-colors", QChar(0xe23b)}, // format_color_reset
         {"select-replace", QChar(0xe3c6)},   // crop_square
@@ -912,6 +918,10 @@ void prepareApplication() {
     if (!fontApplied || font.pointSizeF() != TypeBody) {
         font.setPointSizeF(TypeBody);
         QApplication::setFont(font);
+        // The platform also assigns its own menu and item-view fonts; pin them to the
+        // body font so menus, lists and panels share one size.
+        for (const char *cls : {"QMenuBar", "QMenu", "QAbstractItemView", "QTabBar", "QDockWidget", "QGroupBox"})
+            QApplication::setFont(font, cls);
         fontApplied = true;
     }
 }

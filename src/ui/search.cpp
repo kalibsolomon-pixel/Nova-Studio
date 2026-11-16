@@ -209,6 +209,20 @@ namespace {
 // and the shortcut sits in a fixed right column as keycaps. Selection is an inset
 // rounded highlight.
 enum SearchRole { RightText = Qt::UserRole + 1, Unavailable, Category, Shortcut };
+// Fades the list's last partial row into the dialog, so results continue rather than being cut.
+class BottomFade : public QWidget {
+  public:
+    using QWidget::QWidget;
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        QLinearGradient fade(0, 0, 0, height());
+        QColor clear = ui::current().list;
+        clear.setAlpha(0);
+        fade.setColorAt(0, clear);
+        fade.setColorAt(1, ui::current().list);
+        p.fillRect(rect(), fade);
+    }
+};
 class SearchDelegate : public QStyledItemDelegate {
   public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -298,6 +312,13 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     list->setUniformItemSizes(true);
     list->setItemDelegate(new SearchDelegate(list));
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto fade = new BottomFade(list);
+    fade->setAttribute(Qt::WA_TransparentForMouseEvents);
+    ui::afterEvents(list, {QEvent::Resize, QEvent::Show}, [list = list, fade] {
+        fade->setGeometry(list->viewport()->x(), list->viewport()->geometry().bottom() - 27,
+                          list->viewport()->width(), 28);
+        fade->raise();
+    });
     list->setMouseTracking(true); // hover highlight
     list->setAttribute(Qt::WA_Hover);
     detail = new QLabel;
