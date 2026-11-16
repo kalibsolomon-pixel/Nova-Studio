@@ -155,7 +155,7 @@ void Window::updateInspector() {
             set("export", "Changed on disk — review before export", "error");
         else
             set("export", doc->exportModified() ? "Update available (Ctrl+Alt+E)" : "Matches editable source",
-                doc->exportModified() ? "warning" : "value");
+                doc->exportModified() ? "info" : "value");
     } else {
         set("source", {});
         set("export", {});

@@ -27,7 +27,7 @@ two tokens.
 | --- | --- | --- | --- |
 | `backdrop` | `#0e0f12` | `#dedfe3` | Gutters between docked panels, main-window background |
 | `base` | `#131418` | `#ffffff` | Field wells, lists, trees, tables |
-| `canvas` | `#131418` | `#dcdde2` | Surround of the texture canvas and the 3D viewport |
+| `canvas` | `#131418` | `#d5d7dc` | Surround of the texture canvas and the 3D viewport |
 | `window` | `#191a1f` | `#f4f4f6` | Panel and chrome fill (menu bar, toolbars, dock titles, status bar) |
 | `surface` | `#1e1f25` | `#ececef` | Cards and grouped sections; hover on document tabs |
 | `raised` | `#272830` | `#e5e6ea` | Hover fills, menus, tooltips, popups |
@@ -38,6 +38,7 @@ two tokens.
 | `icon` | `#c4c6ce` | `#3d414b` | Default icon ink, one step softer than text |
 | `accent` | `#7b6cf0` (blue `#4a8af4`) | `#6550e0` (blue `#2563d9`) | Focus, primary actions, checked state, active tab |
 | `accentHover` / `accentMuted` | | | Primary hover / checked toggles, inactive selection |
+| `accentFill` | `#6a5ae0` (blue `#2d6ad0`) | = `accent` | Primary-button fill: the accent deepened until white labels meet AA (4.5:1) |
 | `onAccent` | white | white | Text and marks on accent fills |
 | `selection` / `selectionText` | `#383461` / white | `#dad3fb` / `#1b1d22` | Selected rows and text selection |
 | `warning`, `danger`, `success`, `info` | | | Status text; pair with a word or icon |
@@ -77,13 +78,14 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 
 | Component | How to get it |
 | --- | --- |
-| Primary button | `ui::setPrimary(button)`: accent fill and `onAccent` text. Use one per view, for the main action. |
+| Primary button | `ui::setPrimary(button)`: `accentFill` fill and `onAccent` text. Use one per view, for the main action. |
 | Secondary button | Plain `QPushButton`: control fill and `borderStrong` outline |
 | Icon button | `ui::iconButton(icon, tooltip)`, or `QPushButton[role="icon"]` |
 | Text field, spin box, combo box | Plain Qt widgets; `NovaStyle` draws the shared field well and chevrons |
 | Checkbox, radio | Plain Qt widgets; `NovaStyle` draws rounded accent indicators |
 | Section title | `ui::sectionTitle("Document")` |
 | Hint / secondary text | `ui::hint(text)`, or `QLabel[role="hint"]` |
+| Status value | `QLabel[role="warning"]` (needs attention, e.g. unsaved), `"error"`, or `"info"` (an available action, e.g. an export update) |
 | Empty state | `ui::emptyState(text)` |
 | Inline warning notice | `QLabel[role="notice"]`, or `QFrame[role="notice"]` |
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |

@@ -16,6 +16,29 @@
 #include <QtWidgets>
 namespace nova {
 namespace {
+// Long asset names shorten their stem and keep the whole extension chain, so siblings
+// such as "material_a.png" and "material_a.png.mcmeta" stay distinguishable.
+class AssetNameDelegate : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+  protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        const auto &metrics = option->fontMetrics;
+        const int room = option->rect.width() - option->decorationSize.width() - 4 * ui::SpaceS;
+        if (room <= 0 || metrics.horizontalAdvance(option->text) <= room)
+            return;
+        const int dot = option->text.indexOf('.', 1);
+        if (dot < 0)
+            return;
+        const auto suffix = option->text.mid(dot);
+        const int stemRoom = room - metrics.horizontalAdvance(suffix);
+        if (stemRoom < 3 * metrics.horizontalAdvance(QChar(0x2026)))
+            return; // too narrow: the view's own elision takes over
+        option->text = metrics.elidedText(option->text.left(dot), Qt::ElideRight, stemRoom) + suffix;
+    }
+};
 class ModelTab : public QWidget {
   public:
     explicit ModelTab(std::shared_ptr<mc::ModelEdit> document) : doc(std::move(document)) {
@@ -597,7 +620,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     tree->setUniformRowHeights(true);
     tree->setIconSize({18, 18});
     tree->setIndentation(14); // deep packs keep room for file names
-    tree->setTextElideMode(Qt::ElideMiddle); // "animated…png.mcmeta" keeps its extension
+    tree->setTextElideMode(Qt::ElideMiddle);
+    tree->setItemDelegate(new AssetNameDelegate(tree)); // "animat….png.mcmeta" keeps its extensions
     tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tree->setSelectionMode(QAbstractItemView::SingleSelection);
     grid = new QListView;

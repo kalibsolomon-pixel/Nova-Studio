@@ -91,6 +91,7 @@ void TimelineModel::setCursor(int value) {
 }
 TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(parent), session(s), playback(this) {
     setObjectName("animationTimeline");
+    setAttribute(Qt::WA_StyledBackground); // one panel fill behind every row, like the other docks
     setMinimumWidth(240);
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(ui::SpaceXL, ui::SpaceS, ui::SpaceXL, ui::SpaceS); layout->setSpacing(ui::SpaceS);
@@ -141,7 +142,7 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); }, "duplicate");
     button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); }, "delete");
     controls->addStretch();
-    button("Properties…", "animationProperties", [this] { emit propertiesRequested(); });
+    button("Properties…", "animationProperties", [this] { emit propertiesRequested(); }, "settings");
     scrollRow(controls);
     model = new TimelineModel(this);
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);

@@ -37,7 +37,9 @@ struct Tokens {
     QColor icon;
     // Accent fills (primary buttons, checked toggles) carry onAccent text. accentHover
     // brightens a fill under the pointer; accentMuted tints selected-but-unfocused rows.
-    QColor accent, accentHover, accentMuted, onAccent, selection, selectionText;
+    // accentFill is the primary-button fill: the accent, deepened where needed so its
+    // onAccent label meets WCAG AA (4.5:1).
+    QColor accent, accentHover, accentMuted, accentFill, onAccent, selection, selectionText;
     QColor warning, danger, success, info;
     // Tinted backgrounds for inline notices (warning, danger and info banners).
     QColor warningSurface, dangerSurface, infoSurface;

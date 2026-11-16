@@ -63,6 +63,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.accent = QColor(blue ? "#4a8af4" : "#7b6cf0");
         t.accentHover = QColor(blue ? "#619bf7" : "#8d80f4");
         t.accentMuted = QColor(blue ? "#1b2a42" : "#29263f");
+        t.accentFill = QColor(blue ? "#2d6ad0" : "#6a5ae0"); // 5.1:1 under white labels
         t.onAccent = Qt::white;
         t.selection = QColor(blue ? "#21406e" : "#383461");
         t.selectionText = Qt::white;
@@ -79,7 +80,7 @@ Tokens tokens(bool dark, const QString &accent) {
     } else {
         t.backdrop = QColor("#dedfe3");
         t.base = QColor("#ffffff");
-        t.canvas = QColor("#dcdde2");
+        t.canvas = QColor("#d5d7dc");
         t.window = QColor("#f4f4f6");
         t.list = t.window;
         t.surface = QColor("#ececef");
@@ -95,6 +96,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.accent = QColor(blue ? "#2563d9" : "#6550e0");
         t.accentHover = QColor(blue ? "#1f56c2" : "#5641d2");
         t.accentMuted = QColor(blue ? "#e3ecfb" : "#ece9fd");
+        t.accentFill = t.accent; // already 5.4:1 under white labels
         t.onAccent = Qt::white;
         t.selection = QColor(blue ? "#cddefa" : "#dad3fb");
         t.selectionText = QColor("#1b1d22");
@@ -105,8 +107,8 @@ Tokens tokens(bool dark, const QString &accent) {
         t.warningSurface = QColor("#fdf4e3");
         t.dangerSurface = QColor("#fdecea");
         t.infoSurface = QColor("#e8f0fd");
-        t.checkerDark = QColor("#96989e");
-        t.checkerLight = QColor("#a4a6ab"); // a step down with the deeper canvas well
+        t.checkerDark = QColor("#8f9197");
+        t.checkerLight = QColor("#9d9fa4"); // a step below the canvas well, keeping the edge visible
         t.pixelGrid = QColor(0, 0, 0, 65);
     }
     return t;
@@ -179,6 +181,9 @@ QString styleSheet(const Tokens &t) {
         "padding:2px}"
         "QDockWidget::close-button:hover,QDockWidget::float-button:hover{background:@raised}"
         "QSplitter::handle{background:@border}"
+        "QWidget#animationTimeline{background:@window}"
+        // Layer rows match tree rows so the eye toggle and name have room.
+        "QListWidget#layerList::item{min-height:@rowHeight}"
         // Timeline frames: the selected tile carries an accent outline, not only a tint.
         "QListView#frameTimeline::item{border:2px solid transparent;border-radius:@rM}"
         "QListView#frameTimeline::item:selected{border-color:@accent;background:@selection;color:@selectionText}"
@@ -216,8 +221,8 @@ QString styleSheet(const Tokens &t) {
         "QPushButton:checked{border-color:@accent;background:@accentMuted;color:@text}"
         "QPushButton:focus{border-color:@accent}"
         "QPushButton:disabled{color:@disabled;border-color:@border;background:@window}"
-        "QPushButton[role=\"primary\"]{border-color:@accent;background:@accent;color:@onAccent;font-weight:600}"
-        "QPushButton[role=\"primary\"]:hover{border-color:@accentHover;background:@accentHover}"
+        "QPushButton[role=\"primary\"]{border-color:@accentFill;background:@accentFill;color:@onAccent;font-weight:600}"
+        "QPushButton[role=\"primary\"]:hover{border-color:@accent;background:@accent}"
         "QPushButton[role=\"primary\"]:focus{border-color:@focusOnAccent}"
         "QPushButton[role=\"primary\"]:disabled{border-color:@primaryDisabledFill;background:@primaryDisabledFill;"
         "color:@primaryDisabledText}"
@@ -321,6 +326,7 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
         "QLabel[role=\"value\"]{color:@text}"
         "QLabel[role=\"warning\"]{color:@warning}"
+        "QLabel[role=\"info\"]{color:@info}"
         "QLabel[role=\"error\"]{color:@danger}"
         "QLabel[role=\"notice\"]{background:@warningSurface;color:@text;border:1px solid @noticeBorder;"
         "border-radius:@rM;padding:0}");
@@ -338,6 +344,7 @@ QString styleSheet(const Tokens &t) {
         {"@alternate", mix(t.list, t.raised, 0.35)},
         {"@hoverRow", mix(t.list, t.raised, 0.7)},
         {"@list", t.list},
+        {"@accentFill", t.accentFill},
         {"@accentHover", t.accentHover},
         {"@accentMuted", t.accentMuted},
         {"@accent", t.accent},
@@ -355,6 +362,7 @@ QString styleSheet(const Tokens &t) {
         {"@noticeBorder", mix(t.warningSurface, t.warning, 0.45)},
         {"@warning", t.warning},
         {"@danger", t.danger},
+        {"@info", t.info},
         {"@sliderHandle", sliderHandle},
         {"@scrollThumb", t.dark ? mix(t.borderStrong, t.muted, 0.25) : mix(t.borderStrong, t.window, 0.15)},
         {"@scrollHover", mix(t.borderStrong, t.muted, 0.5)}};

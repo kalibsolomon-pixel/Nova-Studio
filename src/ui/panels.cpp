@@ -21,6 +21,49 @@
 #include <QVBoxLayout>
 
 namespace nova {
+namespace {
+// A colour-channel slider: its track previews the colours the channel reaches, and the
+// handle carries the current colour, as in dedicated paint tools.
+class ChannelSlider : public QSlider {
+    QGradientStops stops;
+    QColor handle;
+
+  public:
+    ChannelSlider() : QSlider(Qt::Horizontal) {}
+    void setTrack(QGradientStops s, QColor c) {
+        stops = std::move(s);
+        handle = c;
+        update();
+    }
+
+  protected:
+    void paintEvent(QPaintEvent *) override {
+        const auto &t = ui::current();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const qreal radius = 7;
+        const QRectF track(radius, height() / 2.0 - 3, width() - 2 * radius, 6);
+        QLinearGradient fill(track.topLeft(), track.topRight());
+        fill.setStops(stops.isEmpty() ? QGradientStops{{0, t.raised}, {1, t.raised}} : stops);
+        p.setPen(QPen(t.borderStrong, 1));
+        p.setBrush(fill);
+        p.drawRoundedRect(track, 3, 3);
+        const qreal span = std::max(1, maximum() - minimum());
+        const QPointF centre(track.left() + (value() - minimum()) / span * track.width(), height() / 2.0);
+        p.setPen(QPen(QColor(0, 0, 0, 110), 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(centre, radius, radius);
+        p.setPen(QPen(Qt::white, 2));
+        p.setBrush(handle.isValid() ? handle : t.accent);
+        p.drawEllipse(centre, radius - 1.5, radius - 1.5);
+        if (hasFocus()) {
+            p.setPen(QPen(t.accent, 1.5));
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(centre, radius + 1.5, radius + 1.5);
+        }
+    }
+};
+} // namespace
 // Compact palette swatches; click = foreground, right-click = background,
 // double-click = edit (user palettes), context menu for removal.
 class SwatchGrid : public QWidget {
@@ -145,7 +188,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
         auto l = new QLabel(names[i]);
         l->setObjectName(QString("channelLabel%1").arg(i));
         l->setProperty("role", "hint");
-        slider[i] = new QSlider(Qt::Horizontal);
+        slider[i] = new ChannelSlider;
         channel[i] = new QSpinBox;
         channel[i]->setButtonSymbols(QAbstractSpinBox::NoButtons); // compact value field; wheel and keys step
         slider[i]->setRange(0, i == 0 ? 359 : 100);
@@ -497,6 +540,24 @@ void ColorPanel::pull() {
     rgb[2]->setValue(qBlue(c));
     alpha->setValue(qAlpha(c));
     updating = false;
+    // Channel tracks: hue sweeps the spectrum; the others run from 0 to 100% of the current colour.
+    const bool hsv = model->currentIndex() == 0;
+    const double h = channel[0]->value() / 360.0, a = channel[1]->value() / 100.0, b = channel[2]->value() / 100.0;
+    const auto colour = [hsv](double hue, double sat, double level) {
+        return hsv ? QColor::fromHsvF(float(hue), float(sat), float(level))
+                   : QColor::fromHslF(float(hue), float(sat), float(level));
+    };
+    QGradientStops hue, saturation, level;
+    for (int i = 0; i <= 6; ++i)
+        hue.append({i / 6.0, colour(std::min(i / 6.0, 0.9999), 1, hsv ? 1 : 0.5)});
+    saturation = {{0, colour(h, 0, b)}, {1, colour(h, 1, b)}};
+    level = hsv ? QGradientStops{{0, colour(h, a, 0)}, {1, colour(h, a, 1)}}
+                : QGradientStops{{0, colour(h, a, 0)}, {0.5, colour(h, a, 0.5)}, {1, colour(h, a, 1)}};
+    const QColor current = QColor::fromRgb(qRed(c), qGreen(c), qBlue(c));
+    const QGradientStops tracks[3] = {hue, saturation, level};
+    for (int i = 0; i < 3; ++i)
+        if (auto track = dynamic_cast<ChannelSlider *>(slider[i]))
+            track->setTrack(tracks[i], current);
 }
 void ColorPanel::push(QRgb c) {
     state->foreground = c;

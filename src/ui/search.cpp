@@ -234,18 +234,25 @@ class SearchDelegate : public QStyledItemDelegate {
         const bool selected = opt.state & QStyle::State_Selected;
         const bool hovered = opt.state & QStyle::State_MouseOver;
         const auto category = index.data(Category).toString();
-        const auto previous = index.row() > 0 ? index.siblingAtRow(index.row() - 1).data(Category).toString() : QString();
-        // A new group starts under a hairline; the footer names the selected row's group.
-        const bool groupStart = index.row() > 0 && !category.isEmpty() && category != previous;
         const auto shortcut = index.data(Shortcut).toString();
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
-        const QRectF row = QRectF(opt.rect).adjusted(ui::SpaceXS, 1, -ui::SpaceXS, -1);
-        if (groupStart) {
-            p->setPen(QPen(t.border, 1));
-            p->drawLine(QPointF(row.left() + ui::SpaceL, opt.rect.top() + 0.5),
-                        QPointF(row.right() - ui::SpaceL, opt.rect.top() + 0.5));
+        QRect itemRect = opt.rect;
+        // Each group opens with a small caps heading; later groups also get a hairline above it.
+        if (const int header = headerHeight(index, opt.fontMetrics)) {
+            const QRect band(opt.rect.left(), opt.rect.top(), opt.rect.width(), header);
+            if (index.row() > 0) {
+                p->setPen(QPen(t.border, 1));
+                p->drawLine(QPointF(band.left() + ui::SpaceL, band.top() + 0.5),
+                            QPointF(band.right() - ui::SpaceL, band.top() + 0.5));
+            }
+            p->setFont(ui::font(ui::Type::Caption));
+            p->setPen(t.muted);
+            p->drawText(band.adjusted(ui::SpaceL + ui::SpaceS, 0, 0, -ui::SpaceXS), Qt::AlignLeft | Qt::AlignBottom,
+                        groupTitle(category).toUpper());
+            itemRect.setTop(band.bottom() + 1);
         }
+        const QRectF row = QRectF(itemRect).adjusted(ui::SpaceXS, 1, -ui::SpaceXS, -1);
         if (selected || hovered) {
             p->setPen(Qt::NoPen);
             p->setBrush(selected ? t.selection : t.raised);
@@ -296,7 +303,20 @@ class SearchDelegate : public QStyledItemDelegate {
     }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         auto size = QStyledItemDelegate::sizeHint(option, index);
-        return {size.width(), std::max(size.height(), option.fontMetrics.height() + 2 * ui::SpaceL + 2)};
+        return {size.width(), std::max(size.height(), option.fontMetrics.height() + 2 * ui::SpaceL + 2) +
+                                  headerHeight(index, option.fontMetrics)};
+    }
+
+  private:
+    static int headerHeight(const QModelIndex &index, const QFontMetrics &) {
+        const auto category = index.data(Category).toString();
+        if (category.isEmpty())
+            return 0;
+        const auto previous = index.row() > 0 ? index.siblingAtRow(index.row() - 1).data(Category).toString() : QString();
+        return category != previous ? QFontMetrics(ui::font(ui::Type::Caption)).height() + ui::SpaceXL : 0;
+    }
+    static QString groupTitle(const QString &category) {
+        return category == "Asset" ? QString("Assets") : category.endsWith('s') ? category : category + "s";
     }
 };
 } // namespace
@@ -318,7 +338,7 @@ SearchDialog::SearchDialog(SearchIndex searchIndex, QWidget *parent) : QDialog(p
     list = new QListWidget;
     list->setObjectName("commandList");
     list->setAccessibleName("Search results");
-    list->setUniformItemSizes(true);
+    list->setUniformItemSizes(false); // the first row of each group carries its heading
     list->setItemDelegate(new SearchDelegate(list));
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto fade = new BottomFade(list);
