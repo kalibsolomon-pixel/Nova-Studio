@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "window.h"
-#include "tool_placement.h"
+#include "workspace_layout.h"
 #include "service.h"
 #include "branding.h"
 #include "fabric_testing.h"
@@ -1862,17 +1862,13 @@ void Window::restore() {
                           : QString("essentials");
     bool ok = false;
     if (!preferences.layout.isEmpty()) {
-        // An unknown tool position falls back to the left edge; the rest of the layout stays.
         ok = applyLayout(preferences.layout);
         metrics.count("layout_restored", ok ? 1 : 0);
     }
     if (!ok && name != "essentials")
         applyPreset(name, false);
-    else if (!ok) {
-        if (toolPlacement)
-            toolPlacement->place(ToolPlacement::LeftEdge);
+    else if (!ok)
         restoreState(defaultLayout, 1);
-    }
     preset = name;
     // The restored arrangement is this workspace's baseline once it has settled.
     QTimer::singleShot(0, this, [this, name] {
@@ -1904,11 +1900,9 @@ void Window::keepOnScreen() {
         if (dock && dock->isFloating())
             if (const auto target = Settings::visibleGeometry(dock->geometry(), available); target != dock->geometry())
                 dock->setGeometry(target);
-    if (toolPlacement)
-        toolPlacement->keepReachable();
 }
 // Screens added, removed, resized or rescaled (DPI): keep the window and floating
-// panels, including a floating tool strip, on an available screen.
+// panels on an available screen.
 void Window::watchScreens() {
     auto check = [this] {
         metrics.count("screen_change_rechecks", 1);
@@ -1938,10 +1932,8 @@ void Window::resetWorkspace() {
     for (auto bar : {static_cast<QToolBar *>(toolBox), static_cast<QToolBar *>(toolOptions), appBar})
         if (bar)
             bar->show();
-    // Product default: every workspace forgets the user's arrangement, tools on the left.
+    // Product default: every workspace forgets the user's arrangement.
     preferences.presetLayouts.clear();
-    if (toolPlacement)
-        toolPlacement->place(ToolPlacement::LeftEdge);
     applyPreset("essentials", false);
     statusBar()->showMessage("Workspace reset to Essentials");
 }

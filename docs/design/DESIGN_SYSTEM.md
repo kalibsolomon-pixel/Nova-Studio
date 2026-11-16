@@ -40,7 +40,7 @@ two tokens.
 | `accentHover` / `accentMuted` | | | Primary hover / checked toggles, inactive selection |
 | `accentFill` | `#6a5ae0` (blue `#2d6ad0`) | = `accent` | Primary-button fill: the accent deepened until white labels meet AA (4.5:1) |
 | `onAccent` | white | white | Text and marks on accent fills |
-| `selection` / `selectionText` | `#383461` / white | `#cec4f5` / `#1b1d22` | Selected rows and text selection |
+| `selection` / `selectionText` | `#383461` / white | `#c6bcf4` / `#1b1d22` | Selected rows and text selection |
 | `warning`, `danger`, `success`, `info` | | | Status text; pair with a word or icon |
 | `warningSurface`, `dangerSurface`, `infoSurface` | | | Tinted backgrounds for inline notices |
 | `checkerDark` / `checkerLight` / `pixelGrid` | | | Canvas transparency and grid. `checkerboard_theme_test` guards their contrast against `canvas`. |
@@ -75,10 +75,8 @@ Use `ui::font(Type)` in code, or a stylesheet role on a label.
 Tool options use 6px gaps, reducing to 4px below `OptionsCompactWidth` (900 logical
 pixels) so short forms remain compact. Secondary settings menus share
 `SettingsLabelWidth` (104) and `SettingsValueWidth` (80), right-aligned numbers and
-the same title treatment. Hosted tool strips size both the dock host and flow
-viewport from their wrapped rows; the native toolbar's empty layout hint is not
-the content height. Gallery captures 20–26 cover all six supported positions and
-the separate floating window.
+the same title treatment. Gallery capture 20 shows the tool rail with a texture
+document at 1280×900.
 
 ## Spacing and shape
 
@@ -154,14 +152,14 @@ and headings; list wells and fields retain their own boundaries. Short target li
 and empty operation stacks keep a bounded height; a populated stack gives its
 space back to the list and parameter editor.
 
-The editing toolbar supports left/right rails, a top row, positions above Colours
-and Assets, and a floating window. Narrow panel placements use a regular grid
-of up to four columns with the grip at the leading edge and colour wells in the grid; wide and floating strips
-retain a single row. The colour wells share the 30px tool target. Moving above
-a tabbed dock preserves its peers, their visual order and visibility, and preserves space for
-the editing panel below. Side-column widths survive movement to the top row below Tool Options.
-The grip's keyboard menu exposes all six positions. Split buttons group tool
-variants without extra separators; rules separate Effects and the colour wells.
+The editing toolbar is a fixed vertical rail on the left edge, as in Aseprite and
+Photoshop: it cannot be dragged, docked elsewhere or floated, so every workspace and
+every user's muscle memory agree on where the tools are. View › Panels › Tool Strip
+still hides and shows it. Workspace layouts saved by earlier builds, in which the strip
+could move, restore with the rail on the left and the rest of their arrangement intact.
+The rail chooses the tool; the Tool Options row above the canvas edits it. The colour
+wells share the 30px tool target. Split buttons group tool variants without extra
+separators; rules separate Effects and the colour wells.
 
 ## Checking a change
 

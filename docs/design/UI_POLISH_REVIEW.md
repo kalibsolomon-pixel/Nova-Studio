@@ -2,7 +2,26 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 25
+## Latest completed combined review: 26
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 6 | 6 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 8 | 7 | 8 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 6 | 6 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 7 | 7 | 7 | 8 | 6 | 7 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled.
+Every reviewer again named the six toolbar placements as the main consistency cost and
+recommended one fixed vertical rail on the left, as in Aseprite and Photoshop. The user
+then allowed a fixed position, so the next pass removes the movable strip: no grip, tools
+dock, position menu or floating window. Layouts saved with another position restore
+with the rail on the left. The light theme's selection fill moves to `#c6bcf4` so
+selected rows read against the light panels, the inspector's navigation hint shrinks
+to one line with the full shortcut list in its tooltip, and the status bar's message text
+uses the body size instead of the platform's smaller status font.
+
+## Combined review: 25
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -134,12 +153,15 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 21 | whole application and all six toolbar placements, sliders and stronger indicators/icons | GLM free: 8; LongCat free: 7; Kimi: five-minute limit |
 | 22 | whole application and all six toolbar placements, recent-pack list and compact Batch | GLM free: 7; LongCat free: 7; Kimi: five-minute limit |
 | 23 | whole application and all six toolbar placements, named recent-pack commands and fewer tool separators | GLM free: 7; LongCat free: 7; Kimi: 7 |
+| 24 | whole application and all six toolbar placements; OpenCode reviewers only | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit; Kimi: no review |
+| 25 | tool name on every options row, framed floating strip | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 8; LongCat: five-minute limit; Kimi: no review |
+| 26 | one primary Batch action, right-rail hairline facing the canvas | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit |
 
 ## Verification
 
-- Current uncommitted checkpoint: the complete regression run passed 65/67 suites in 455.55 seconds. `phase3b-workspace` and `texture-pixels` failed. An independent `texture-pixels` rerun passed all 14 checks in 16.80 seconds, but the full-run failure remains unexplained. The workspace failure reproduces in `presetsArrangePanelsWithoutChangingDocuments`: Colours is the selected tab with expected dock geometry, but its visible region is empty. Re-raising it after layout activation did not help; that attempted fix and diagnostic logging were removed. This checkpoint is not validated for push.
+- Fixed tool rail checkpoint: the complete regression run (MCP excluded) passed 66/66 suites in 326.31 seconds with process-local `TEMP`/`TMP` at `build/t`, including the rewritten `tool-strip` suite at 100%, 150% and 200% scaling. The status bar's message now uses the body size, like its labels.
 - Native Qt gallery: dark/light, welcome/editor, selection, animation, models, batch, palette and settings. Gallery/test windows use the secondary portrait display.
-- Targeted workspace, tool-placement (including 150% and 200%) and tool-options checks: 6/6 passed.
+- Targeted workspace, tool-strip (including 150% and 200%), editor GUI and tool-options checks: 6/6 passed.
 - Regression run before the latest border/spacing pass: 66/66 passed with MCP explicitly excluded.
 - Full regression run with official MCP SDK 1.26.0: 67/67 suites passed. MCP pixel assertions now match the documented canvas token; the standalone MCP check passed 24 checks with one optional benchmark skipped.
 - Later font, frame-size, path and Welcome-layout changes: four targeted GUI suites passed. Subsequent surface/UV changes: workspace, UV, animation and tool-options checks passed; final gallery and persistence checks are recorded separately in the task evidence.
@@ -161,22 +183,12 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | Batch | [Before](screenshots/before-11-batch-dark.png) | [Current](screenshots/11-batch-dark.png) |
 | Light theme | [Before](screenshots/before-17-light-texture.png) | [Current](screenshots/17-light-texture.png) |
 
-Editing-toolbar positions: [left](screenshots/20-tools-left.png),
-[right](screenshots/21-tools-right.png), [top](screenshots/22-tools-top.png),
-[above Colours](screenshots/23-tools-above-colours.png),
-[above Assets](screenshots/24-tools-above-assets.png),
-[floating context](screenshots/25-tools-floating-context.png), and
-[floating detail](screenshots/26-tools-floating.png).
+Editing toolbar: [fixed left rail](screenshots/20-tools-left.png). Rounds 15–26 reviewed
+six movable placements; those captures were retired with the movable strip.
 
-The toolbar transition check verifies that the wrapped strip fits its dock
-host after moving from the top, retains tab peers and hidden-panel state, and
-preserves side-column widths. The native gallery repeats the width check with
-a loaded document. The host and flow viewport follow the actual rows;
-this prevents tools on a second row from being clipped. Placement checks passed at
-normal, 150% and 200% scaling. Toolbar-only scores do not replace the whole-application acceptance requirement.
-
-The top placement retains a dedicated row below Tool Options. Panel placements
-use two rows of four tools beside the grip at normal widths. Floating defaults
-to the lower canvas margin after layout settles.
+`tests/tool_strip_test.cpp` checks that the rail stays a fixed vertical strip on the left
+in every workspace, after Reset Workspace and after restoring layouts saved with any
+other position, and that every tool is reachable by pointer and keyboard in compact,
+normal and large windows at 100%, 150% and 200% scaling.
 
 Evidence remains under `build/ui-polish`: baseline, latest captures, scores, review JSON and regression diagnostics. Design acceptance and the workspace regression remain open.

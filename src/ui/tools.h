@@ -100,28 +100,13 @@ class ToolBox : public QToolBar {
     QMap<Tool, QAction *> actions;
     QActionGroup *exclusive;
     QAction *spacerItem = nullptr, *chipItem = nullptr;
-    // Wrapping mode: the strip's own widgets move into one row-wrapping container.
-    QWidget *flow = nullptr; // a plain child laid over the toolbar's padded area
-    QList<QAction *> wrappedActions;
     void sync();
-    void placeFlow();
-
-  protected:
-    void resizeEvent(QResizeEvent *) override;
 
   public:
     ToolBox(ToolState *state, QWidget *parent = nullptr);
     QAction *actionFor(Tool t) const { return actions.value(t); }
     QToolButton *effectsButton = nullptr;
     void refreshIcons(const QColor &ink);
-    // Horizontal placements share a flow layout; narrow panels use a tool grid
-    // instead of hiding tools behind QToolBar's overflow button. The same buttons, actions,
-    // shortcuts, tooltips and accessible names are kept, in the same order. Edge
-    // rails use the plain toolbar layout.
-    void setWrapping(bool wrap);
-    bool wrapping() const { return flow != nullptr; }
-    // Width of the strip on one row in wrapping mode (0 otherwise).
-    int singleRowWidth() const;
   signals:
     void colorsRequested();
 };

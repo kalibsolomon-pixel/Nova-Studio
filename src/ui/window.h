@@ -95,9 +95,8 @@ class Window : public QMainWindow {
     Settings settings;
     Preferences preferences;
     QByteArray defaultLayout;
-    // Tool strip position (tool_placement.h) and the arrangement right after the current
-    // workspace preset was applied, to tell the user's own changes from the preset's.
-    class ToolStripPlacement *toolPlacement = nullptr;
+    // The arrangement right after the current workspace preset was applied, to tell the
+    // user's own changes from the preset's.
     QByteArray presetBaseline;
     QByteArray currentLayout();
     bool applyLayout(const QByteArray &packed);

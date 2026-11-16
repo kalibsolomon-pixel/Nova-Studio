@@ -346,68 +346,12 @@ class Phase3BGallery : public QObject {
         preset(window, "essentials");
         captureModal("17-light-batch", [&] { EditorTestAccess::batch(window); });
         setTheme(window, true);
-        // Review every supported tool-strip position with a real editing document.
-        // The floating strip is a separate native window, so capture it separately.
+        // The fixed tool rail with a real editing document at a typical laptop size.
+        window.findChild<QAction *>("resetWorkspaceCommand")->trigger();
         preset(window, "texture");
         window.resize(1280, 900);
-        const std::pair<const char *, const char *> placements[] = {
-            {"left", "20-tools-left"}, {"right", "21-tools-right"}, {"top", "22-tools-top"},
-            {"above-colours", "23-tools-above-colours"}, {"above-assets", "24-tools-above-assets"},
-            {"floating", "25-tools-floating-context"}};
-        for (const auto &[id, name] : placements) {
-            // Each position starts from the same workspace, so resizing and a
-            // previous placement cannot cumulatively shrink its side panels.
-            window.findChild<QAction *>("resetWorkspaceCommand")->trigger();
-            preset(window, "texture");
-            auto colours = window.findChild<QDockWidget *>("colors");
-            const int columnBefore = colours->width();
-            const auto colourTabOrder = [&] {
-                QStringList labels;
-                for (auto tabs : window.findChildren<QTabBar *>()) {
-                    if (!tabs->isVisible())
-                        continue;
-                    labels.clear();
-                    for (int i = 0; i < tabs->count(); ++i)
-                        labels << tabs->tabText(i);
-                    if (labels.contains(colours->windowTitle()))
-                        return labels;
-                }
-                return QStringList();
-            };
-            const auto tabsBefore = colourTabOrder();
-            auto action = window.findChild<QAction *>(QString("toolPlacement-") + id);
-            QVERIFY(action);
-            action->trigger();
-            QTest::qWait(80);
-            QCOMPARE(colourTabOrder(), tabsBefore);
-            QVERIFY2(colours->width() >= columnBefore - 1, "moving tools shrank the Colours column");
-            auto box = window.findChild<QToolBar *>("toolBox");
-            QVERIFY(box);
-            if (box->parentWidget()->objectName() == "toolsDockHost") {
-                QVERIFY2(box->parentWidget()->rect().contains(box->geometry()), "strip exceeds its dock host");
-                for (auto button : box->findChildren<QToolButton *>())
-                    if (button->objectName().startsWith("toolGroup-"))
-                        QVERIFY2(!button->visibleRegion().isEmpty(), qPrintable(button->objectName()));
-            }
-            if (QString(id) == "floating") {
-                auto tools = window.findChild<QDockWidget *>("toolsDock");
-                QVERIFY(tools);
-                tools->raise();
-                QTest::qWait(140);
-                // QWidget::grab omits separate native tool windows. Composite
-                // their real native grabs at their actual window positions.
-                auto context = window.grab();
-                QPainter painter(&context);
-                painter.drawPixmap(tools->mapToGlobal(QPoint()) - window.mapToGlobal(QPoint()), tools->grab());
-                painter.end();
-                QVERIFY(context.save(galleryDir() + '/' + name + ".png"));
-            } else {
-                capture(window, name);
-            }
-        }
-        if (auto tools = window.findChild<QDockWidget *>("toolsDock"))
-            capture(*tools, "26-tools-floating");
-        window.findChild<QAction *>("toolPlacement-left")->trigger();
+        QTest::qWait(80);
+        capture(window, "20-tools-left");
         window.close();
         QTest::qWait(100);
         if (window.isVisible()) {

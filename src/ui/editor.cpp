@@ -6,7 +6,6 @@
 #include "opdialog.h"
 #include "panels.h"
 #include "theme.h"
-#include "tool_placement.h"
 #include "window.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -350,7 +349,6 @@ void Window::buildEditor(QMenu *view) {
     tabifyDockWidget(layersDock, historyDock);
     colorsDock->raise();
     layersDock->raise();
-    toolPlacement = new ToolStripPlacement(this, toolBox, colorsDock, assetsDock);
     connect(&toolState, &ToolState::changed, this, [this] {
         if (current())
             current()->update();

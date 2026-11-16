@@ -192,7 +192,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.accentMuted = QColor(blue ? "#e3ecfb" : "#ece9fd");
         t.accentFill = t.accent; // already 5.4:1 under white labels
         t.onAccent = Qt::white;
-        t.selection = QColor(blue ? "#bfd3f4" : "#cec4f5");
+        t.selection = QColor(blue ? "#b6cdf3" : "#c6bcf4");
         t.selectionText = QColor("#1b1d22");
         t.warning = QColor("#94600a");
         t.danger = QColor("#b42318");
@@ -265,9 +265,6 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#toolBox QToolButton[popupMode=\"1\"]{padding-right:@arrowReserve}"
         "QToolBar::separator{background:@border;width:1px;height:1px;margin:@sepMinor @sepMajor}"
         "QToolBar#toolBox::separator{margin:@sepTool @sepMinor}"
-        "QWidget#toolsDockHost QToolBar#toolBox{border:0;border-bottom:1px solid @border}"
-        "QToolBar#toolBox[rightEdge=\"true\"]{border-right:0;border-left:1px solid @border}"
-        "QToolBar#toolBox[floatingStrip=\"true\"]{border:1px solid @borderHover;border-radius:@rM;background:@surface}"
         "QStatusBar{background:@window;border-top:1px solid @border;color:@muted}"
         "QStatusBar::item{border:0}"
         "QStatusBar QLabel{color:@muted}"
@@ -339,7 +336,6 @@ QString styleSheet(const Tokens &t) {
         // Split buttons reserve the arrow segment plus a gap, so the arrow never touches the icon.
         "QToolButton[popupMode=\"1\"]{padding-right:@arrowReserve}"
         "QToolButton::menu-button{border:0;width:@arrowWidth}"
-        "QToolButton#toolPlacementGrip::menu-indicator{image:none;width:0}"
         "QToolButton[popupMode=\"2\"]{padding-right:18px}"
         "QToolButton[popupMode=\"2\"]::menu-indicator{subcontrol-origin:padding;subcontrol-position:center right;"
         "right:4px;width:10px;height:10px}"
@@ -1077,7 +1073,7 @@ void pinClassFonts() {
     QFont body = QApplication::font();
     body.setPointSizeF(TypeBody);
     for (const char *cls : {"QMenuBar", "QMenu", "QAbstractItemView", "QHeaderView", "QTabBar", "QDockWidget",
-                            "QGroupBox", "QMessageBox", "QComboBoxListView"})
+                            "QGroupBox", "QMessageBox", "QComboBoxListView", "QStatusBar"})
         if (QApplication::font(cls) != body)
             QApplication::setFont(body, cls);
 }

@@ -6,9 +6,9 @@
 #include "layers.h"
 #include "modelpanel.h"
 #include "theme.h"
-#include "tool_placement.h"
 #include "timeline.h"
 #include "window.h"
+#include "workspace_layout.h"
 #include "vanilla/cache.h"
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -110,8 +110,8 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     inspectorToolTip->setObjectName("inspectorToolTip");
     inspectorToolTip->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addWidget(inspectorToolTip);
-    inspectorTips = ui::hint("Right-click the canvas for commands. Ctrl+/ lists every shortcut.");
-    inspectorTips->setToolTip("Wheel zooms; Space+drag or middle-drag pans.");
+    inspectorTips = ui::hint("Right-click the canvas for commands.");
+    inspectorTips->setToolTip("Wheel zooms; Space+drag or middle-drag pans. Ctrl+/ lists every shortcut.");
     inspectorTips->setObjectName("inspectorTips");
     inspectorTips->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addSpacing(ui::SpaceS);
@@ -243,8 +243,6 @@ void Window::buildWorkspaceMenu(QMenu *view) {
     toolBox->toggleViewAction()->setText("Tool Strip");
     toolOptions->toggleViewAction()->setText("Tool Options Bar");
     panelsMenu->addAction(toolBox->toggleViewAction());
-    panelsMenu->addMenu(toolPlacement->menu());
-    panelsMenu->addAction(toolPlacement->dockWidget()->toggleViewAction());
     panelsMenu->addAction(toolOptions->toggleViewAction());
     view->addMenu(panelsMenu);
     view->addSeparator();
@@ -384,7 +382,7 @@ void Window::refreshThemeIcons() {
 QByteArray Window::currentLayout() {
     if (!welcomeEditorLayout.isEmpty())
         return welcomeEditorLayout;
-    return packLayout(toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge, saveState(1));
+    return packLayout(saveState(1));
 }
 void Window::syncWelcomeLayout(bool forceEditor) {
     if (defaultLayout.isEmpty() || !tabs || !toolOptions || !toolBox)
@@ -405,22 +403,19 @@ void Window::syncWelcomeLayout(bool forceEditor) {
         applyLayout(editorLayout);
     }
 }
-// Restores a packed layout: the tool strip goes to its saved position first, so the
-// saved state then finds it in the right container (main-window toolbar or tools dock).
+// Restores a packed layout. The tool rail stays on the left edge even when the state was
+// saved by a build that let the strip move elsewhere.
 bool Window::applyLayout(const QByteArray &packed) {
-    ToolPlacement placement;
-    QByteArray state;
-    unpackLayout(packed, &placement, &state); // unknown positions read as the left edge
-    if (state.isEmpty())
+    const auto state = unpackLayout(packed);
+    if (state.isEmpty() || !restoreState(state, 1))
         return false;
-    const auto previous = toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge;
-    if (toolPlacement)
-        toolPlacement->place(placement);
-    if (!restoreState(state, 1)) {
-        if (toolPlacement)
-            toolPlacement->place(previous);
-        return false;
+    if (toolBox && toolBarArea(toolBox) != Qt::LeftToolBarArea) {
+        const bool shown = toolBox->isVisibleTo(this);
+        addToolBar(Qt::LeftToolBarArea, toolBox);
+        toolBox->setVisible(shown);
     }
+    if (toolBox && toolBarBreak(toolBox))
+        removeToolBarBreak(toolBox);
     refreshDockTitles();
     return true;
 }
@@ -471,8 +466,6 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         syncWelcomeLayout();
         return;
     }
-    if (toolPlacement)
-        toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
     if (name == "essentials") {
