@@ -1460,7 +1460,14 @@ void Window::refresh() {
     if (canvas) {
         cube->setDocument(canvas->document);
         tabs->setTabText(tabs->indexOf(canvas), documentTabText(*canvas->document, documentDirty(*canvas->document)));
-        tabs->setTabToolTip(tabs->indexOf(canvas), canvas->document->path);
+        // The badges explain themselves on hover.
+        tabs->setTabToolTip(tabs->indexOf(canvas),
+                            canvas->document->path +
+                                (canvas->document->nativeDocument() && canvas->document->exportModified()
+                                     ? QString("\nPNG ↑ — the Minecraft PNG is older than this document "
+                                               "(Update Minecraft PNG, Ctrl+Alt+E)")
+                                     : QString()) +
+                                (documentDirty(*canvas->document) ? QString("\n● — unsaved changes") : QString()));
         if (auto save = findChild<QAction *>("saveCommand"))
             save->setText("Save");
         if (auto saveAs = findChild<QAction *>("saveAsCommand"))

@@ -280,6 +280,11 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     editorScroll->setWidget(editor);
     editorScroll->setMinimumHeight(220);
     pv->addWidget(editorScroll, 1);
+    const auto showEditor = [editorScroll, list = steps] { editorScroll->setVisible(list->count() > 0); };
+    connect(steps->model(), &QAbstractItemModel::rowsInserted, editorScroll, showEditor);
+    connect(steps->model(), &QAbstractItemModel::rowsRemoved, editorScroll, showEditor);
+    connect(steps->model(), &QAbstractItemModel::modelReset, editorScroll, showEditor);
+    showEditor();
     split->addWidget(pipeBox);
     // ---------------------------------------------------------------- preview / output
     auto outBox = new QGroupBox("3 · Preview, output and run");

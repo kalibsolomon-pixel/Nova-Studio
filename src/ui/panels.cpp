@@ -477,7 +477,7 @@ void ColorPanel::pull() {
     fg->setIcon(swatchIcon(c, 30));
     bg->setIcon(swatchIcon(state->background, 22));
     if (!hex->hasFocus())
-        hex->setText(ops::colorName(c));
+        hex->setText(qAlpha(c) == 255 ? QColor::fromRgba(c).name(QColor::HexRgb).toUpper() : ops::colorName(c));
     // Keep the hue when the colour is grey so dragging saturation is stable.
     if (model->currentIndex() == 0) {
         const auto h = ops::toHsv(c);

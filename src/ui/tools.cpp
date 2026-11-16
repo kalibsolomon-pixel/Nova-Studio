@@ -554,7 +554,12 @@ class OptionsRow : public QScrollArea {
 // Extra whitespace, rather than another rule, separates related option groups.
 QWidget *groupGap() {
     auto gap = new QWidget;
-    gap->setFixedWidth(ui::GroupGap);
+    auto layout = new QHBoxLayout(gap);
+    layout->setContentsMargins(ui::GroupGap, 0, ui::GroupGap, 0);
+    auto rule = new QFrame;
+    rule->setProperty("role", "vrule");
+    rule->setFixedSize(1, ui::IconSize);
+    layout->addWidget(rule);
     return gap;
 }
 QWidget *row(std::initializer_list<QWidget *> widgets) {
@@ -667,6 +672,8 @@ QWidget *ToolOptionsBar::paintPage() {
     palette->setIcon(ui::lineIcon("palette"));
     palette->setProperty("novaIcon", "palette");
     palette->setAccessibleName("Palette lock");
+    palette->setProperty("role", "toggle");
+    palette->setIconSize({ui::IconSize, ui::IconSize});
     auto stampColors = new QCheckBox("Stamp colours");
     stampColors->setObjectName("stampSourceColors");
     stampColors->setToolTip("Use source RGBA colours; off recolours stamp coverage with the foreground. Palette lock maps source colours.");
@@ -676,6 +683,8 @@ QWidget *ToolOptionsBar::paintPage() {
     lockAlpha->setIcon(ui::lineIcon("opacity"));
     lockAlpha->setProperty("novaIcon", "opacity");
     lockAlpha->setAccessibleName("Lock alpha");
+    lockAlpha->setProperty("role", "toggle");
+    lockAlpha->setIconSize({ui::IconSize, ui::IconSize});
     lockAlpha->setToolTip("Lock alpha: paint only over existing pixels, preserving their transparency");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");

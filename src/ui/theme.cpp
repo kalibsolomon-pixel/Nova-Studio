@@ -80,8 +80,8 @@ Tokens tokens(bool dark, const QString &accent) {
         t.surface = QColor("#ececef");
         t.raised = QColor("#e5e6ea");
         t.control = QColor("#ffffff");
-        t.border = QColor("#dcdde2");
-        t.borderStrong = QColor("#c3c5cc");
+        t.border = QColor("#d6d8de");
+        t.borderStrong = QColor("#bfc2ca");
         t.text = QColor("#1b1d22");
         t.muted = QColor("#5b5f6b");
         t.disabled = QColor("#878a93"); // 3.1:1 on panels: legible yet clearly inactive
@@ -202,7 +202,7 @@ QString styleSheet(const Tokens &t) {
         "QPushButton[role=\"primary\"]{border-color:@accent;background:@accent;color:@onAccent;font-weight:600}"
         "QPushButton[role=\"primary\"]:hover{border-color:@accentHover;background:@accentHover}"
         "QPushButton[role=\"primary\"]:focus{border-color:@focusOnAccent}"
-        "QPushButton[role=\"primary\"]:disabled{border-color:@primaryDisabledEdge;background:transparent;"
+        "QPushButton[role=\"primary\"]:disabled{border-color:@primaryDisabledFill;background:@primaryDisabledFill;"
         "color:@primaryDisabledText}"
         "QPushButton[role=\"segment\"]{padding:3px 10px;border-radius:@rS}"
         "QPushButton[role=\"icon\"]{padding:4px;min-width:18px;border-color:transparent;background:transparent}"
@@ -238,6 +238,10 @@ QString styleSheet(const Tokens &t) {
         "selection-background-color:@selection;selection-color:@selectionText}"
         "QPlainTextEdit[role=\"path\"]{background:@surface}"
         "QCheckBox,QRadioButton{spacing:8px}"
+        "QCheckBox[role=\"toggle\"]{spacing:0;padding:4px;border:1px solid transparent;border-radius:@rS}"
+        "QCheckBox[role=\"toggle\"]::indicator{width:0;height:0}"
+        "QCheckBox[role=\"toggle\"]:hover{background:@raised}"
+        "QCheckBox[role=\"toggle\"]:checked{background:@accentMuted;border-color:@accent}"
         "QSlider::groove:horizontal{height:4px;border-radius:2px;background:@raised}"
         "QSlider::sub-page:horizontal{height:4px;border-radius:2px;background:@accent}"
         "QSlider::add-page:horizontal{height:4px;border-radius:2px;background:@raised}"
@@ -321,8 +325,8 @@ QString styleSheet(const Tokens &t) {
         {"@accent", t.accent},
         {"@onAccent", t.onAccent},
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
-        {"@primaryDisabledText", mix(t.window, t.accent, 0.7)},
-        {"@primaryDisabledEdge", mix(t.window, t.accent, 0.45)},
+        {"@primaryDisabledText", mix(t.accent, t.onAccent, 0.45)},
+        {"@primaryDisabledFill", mix(t.window, t.accent, 0.42)},
         {"@inactiveSelection", mix(t.list, t.selection, 0.75)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
