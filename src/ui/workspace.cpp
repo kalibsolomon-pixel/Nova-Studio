@@ -451,7 +451,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
-    resizeDocks({assetsDock}, {std::clamp(w / 6, 180, 300)}, Qt::Horizontal);
+    resizeDocks({assetsDock}, {std::clamp(w / 5, 220, 320)}, Qt::Horizontal); // room for file names
     resizeDocks({inspectorDock}, {std::clamp(w / 5, 220, 340)}, Qt::Horizontal);
     if (name == "essentials") {
         resizeDocks({previewDock}, {std::clamp(h / 4, 150, 260)}, Qt::Vertical);

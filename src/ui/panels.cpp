@@ -207,6 +207,8 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     rl->setContentsMargins(0, 0, 0, 0);
     rl->setSpacing(2);
     v->addWidget(recentRow);
+    v->addSpacing(ui::SpaceS);
+    v->addWidget(ui::sectionTitle("Palette"));
     auto pRow = new QHBoxLayout;
     paletteBox = new QComboBox;
     paletteBox->setObjectName("paletteSelector");
@@ -465,6 +467,8 @@ void ColorPanel::rebuildRecent() {
         connect(b, &QToolButton::clicked, this, [this, c] { state->setForeground(c); });
         layout->addWidget(b);
     }
+    if (state->recent.isEmpty()) // say so rather than leave a blank gap
+        layout->addWidget(ui::hint("Colours you paint with appear here."));
     static_cast<QHBoxLayout *>(layout)->addStretch();
 }
 void ColorPanel::pull() {

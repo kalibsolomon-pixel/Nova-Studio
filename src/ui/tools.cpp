@@ -662,14 +662,21 @@ QWidget *ToolOptionsBar::paintPage() {
     symmetry->setToolTip("Symmetry painting (guides shown on the canvas)");
     auto radial = spin("Radial segments", 2, 32, 6);
     radial->setObjectName("radialCount");
-    auto palette = new QCheckBox("Palette lock");
+    // Lock toggles are compact icon checkboxes; their names live in tooltips and for assistive tech.
+    auto palette = new QCheckBox;
+    palette->setIcon(ui::lineIcon("palette"));
+    palette->setProperty("novaIcon", "palette");
+    palette->setAccessibleName("Palette lock");
     auto stampColors = new QCheckBox("Stamp colours");
     stampColors->setObjectName("stampSourceColors");
     stampColors->setToolTip("Use source RGBA colours; off recolours stamp coverage with the foreground. Palette lock maps source colours.");
     palette->setObjectName("paletteLock");
-    palette->setToolTip("Snap stroke colours to the nearest colour of the active palette");
-    auto lockAlpha = new QCheckBox("Lock alpha");
-    lockAlpha->setToolTip("Paint only over existing pixels, preserving their transparency");
+    palette->setToolTip("Palette lock: snap stroke colours to the nearest colour of the active palette");
+    auto lockAlpha = new QCheckBox;
+    lockAlpha->setIcon(ui::lineIcon("opacity"));
+    lockAlpha->setProperty("novaIcon", "opacity");
+    lockAlpha->setAccessibleName("Lock alpha");
+    lockAlpha->setToolTip("Lock alpha: paint only over existing pixels, preserving their transparency");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");
     auto presets = new QPushButton("Presets");

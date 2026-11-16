@@ -32,6 +32,7 @@ class EditorTabs : public QTabWidget {
     QLabel *logo = nullptr;
     QVBoxLayout *welcomeLayout = nullptr;
     QBoxLayout *welcomeActions = nullptr;
+    QBoxLayout *welcomeKeys = nullptr;
     void resizeEvent(QResizeEvent *event) override {
         QTabWidget::resizeEvent(event);
         welcome->setGeometry(rect().adjusted(8, 8, -8, -8));
@@ -40,6 +41,9 @@ class EditorTabs : public QTabWidget {
         // Narrow centre areas stack the actions instead of scrolling sideways.
         const bool narrow = welcome->width() < 400;
         welcomeActions->setDirection(narrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        welcomeKeys->setDirection(welcome->width() < 600 ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        // Shortcut hints are secondary: very narrow areas drop them rather than scroll.
+        welcomeKeys->parentWidget()->setVisible(welcome->width() >= 320);
         const int margin = narrow ? ui::SpaceL : ui::Space3XL;
         welcomeLayout->setContentsMargins(margin, margin, margin, margin);
     }
@@ -143,24 +147,27 @@ class EditorTabs : public QTabWidget {
         // Shortcut hints as keycaps, matching the command palette.
         auto keys = new QWidget;
         keys->setObjectName("welcomeShortcuts");
-        auto keyRow = new QHBoxLayout(keys);
+        // Each hint is one group; narrow areas stack the groups instead of scrolling.
+        auto keyRow = welcomeKeys = new QBoxLayout(QBoxLayout::LeftToRight, keys);
         keyRow->setContentsMargins(0, 0, 0, 0);
-        keyRow->setSpacing(ui::SpaceS);
-        keyRow->addStretch();
+        keyRow->setSpacing(ui::Space2XL);
         const std::pair<QStringList, const char *> hints[] = {
             {{"Ctrl", "N"}, "New pack"}, {{"Ctrl", "Shift", "O"}, "Open pack"}, {{"Ctrl", "K"}, "Search"}};
         for (const auto &[combo, what] : hints) {
+            auto group = new QWidget;
+            auto groupRow = new QHBoxLayout(group);
+            groupRow->setContentsMargins(0, 0, 0, 0);
+            groupRow->setSpacing(ui::SpaceS);
             for (const auto &key : combo) {
                 auto cap = new QLabel(key);
                 cap->setProperty("role", "keycap");
-                keyRow->addWidget(cap);
+                groupRow->addWidget(cap);
             }
             auto label = new QLabel(what);
             label->setProperty("role", "hint");
-            keyRow->addWidget(label);
-            keyRow->addSpacing(ui::Space2XL);
+            groupRow->addWidget(label);
+            keyRow->addWidget(group, 0, Qt::AlignHCenter);
         }
-        keyRow->addStretch();
         layout->addWidget(keys);
         layout->addStretch(4);
         connect(this, &QTabWidget::currentChanged, this,

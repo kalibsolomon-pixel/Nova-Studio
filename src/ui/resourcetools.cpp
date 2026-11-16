@@ -190,14 +190,25 @@ void ResourceTools::populate(int offset) {
                                  d.field + (d.line ? " line " + QString::number(d.line) : ""),
                                  d.message, d.suggestion});
         item->setData(0, Qt::UserRole, i);
-        // Severity reads by colour and by its word, never colour alone.
+        // Severity reads by colour, a matching dot and its word, never colour alone.
         const auto &t = ui::current();
-        if (d.severity == mc::Severity::Error)
-            item->setForeground(0, t.danger);
-        else if (d.severity == mc::Severity::Warning)
-            item->setForeground(0, t.warning);
-        else if (d.severity == mc::Severity::Unsupported)
-            item->setForeground(0, t.muted);
+        const auto dot = [](const QColor &c) {
+            QPixmap pm(QSize(10, 10) * 2);
+            pm.setDevicePixelRatio(2);
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c);
+            p.drawEllipse(QRectF(1, 1, 8, 8));
+            return QIcon(pm);
+        };
+        const QColor tone = d.severity == mc::Severity::Error     ? t.danger
+                            : d.severity == mc::Severity::Warning ? t.warning
+                            : d.severity == mc::Severity::Information ? t.info
+                                                                  : t.muted;
+        item->setForeground(0, tone);
+        item->setIcon(0, dot(tone));
         item->setToolTip(3, d.message);
         item->setToolTip(4, d.suggestion);
         problems->addTopLevelItem(item);

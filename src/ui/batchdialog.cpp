@@ -59,7 +59,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     root->setSpacing(ui::SpaceL);
     // A titled header states what the dialog does before its three steps.
     auto title = new QLabel("Batch processing");
-    title->setProperty("role", "title");
+    title->setFont(ui::font(ui::Type::Heading));
     root->addWidget(title);
     auto subtitle = ui::hint("Choose the textures, build an operation stack, then preview and run it. "
                              "A dry run writes nothing.");
@@ -353,10 +353,23 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     results = new QTreeWidget;
     results->setObjectName("batchResults");
     results->setAccessibleName("Dry run and batch results");
-    results->setHeaderLabels({"Source", "Status", "Output / message", "Size"});
+    results->setHeaderLabels({"Source", "Status", "Output", "Size"});
+    results->headerItem()->setToolTip(2, "Output file, or the message explaining why a target was skipped");
     results->setRootIsDecorated(false);
     results->setUniformRowHeights(true);
     results->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    results->header()->setMinimumSectionSize(72);
+    results->header()->setStretchLastSection(false);
+    results->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    // Until a dry run fills it, the results table says what will appear there.
+    auto noResults = ui::emptyState("Dry-run results appear here: each target, its status and output.");
+    noResults->setObjectName("batchResultsEmpty");
+    noResults->setAttribute(Qt::WA_TransparentForMouseEvents);
+    (new QVBoxLayout(results->viewport()))->addWidget(noResults);
+    connect(results->model(), &QAbstractItemModel::rowsInserted, noResults, [noResults] { noResults->hide(); });
+    connect(results->model(), &QAbstractItemModel::modelReset, noResults, [noResults, r = results] {
+        noResults->setVisible(r->topLevelItemCount() == 0);
+    });
     results->setMinimumHeight(120);
     ov->addWidget(results, 1);
     status = new QLabel;

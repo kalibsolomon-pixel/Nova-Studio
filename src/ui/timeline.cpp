@@ -14,8 +14,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const {
     auto frame = std::find_if(frames.begin(), frames.end(), [&](const auto &f) { return f.first == entry.frame; });
     if (frame == frames.end()) return {};
     const int ticks = entry.ticks ? entry.ticks : defaultTicks;
-    if (role == Qt::DisplayRole) return QString("%1%2 · %3t\n%4")
-        .arg(cursor == index.row() ? "▶ " : "").arg(index.row() + 1).arg(ticks).arg(frame->second);
+    if (role == Qt::DisplayRole) return QString("%1%2 · %3 %4\n%5")
+        .arg(cursor == index.row() ? "▶ " : "").arg(index.row() + 1).arg(ticks).arg(ticks == 1 ? "tick" : "ticks")
+        .arg(frame->second);
     if (role == Qt::ToolTipRole) return QString("Entry %1 → %2\n%3 ticks = %4 ms%5\nDrag to reorder playback references")
         .arg(index.row() + 1).arg(frame->second).arg(ticks).arg(qint64(ticks) * 50).arg(entry.ticks ? "" : " (default)");
     if (role == Qt::UserRole) return entry.frame;

@@ -245,6 +245,10 @@ class SearchDelegate : public QStyledItemDelegate {
             p->setBrush(selected ? t.selection : t.raised);
             p->drawRoundedRect(row, ui::RadiusM, ui::RadiusM);
         }
+        if (selected) { // accent bar marks the row Enter will run
+            p->setBrush(t.accent);
+            p->drawRoundedRect(QRectF(row.left() + 3, row.top() + 7, 3, row.height() - 14), 1.5, 1.5);
+        }
         const QColor ink = unavailable ? t.disabled : selected ? t.selectionText : t.text;
         const QColor quiet = selected ? t.selectionText : t.muted;
         // Keycaps, right to left.

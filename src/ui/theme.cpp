@@ -51,8 +51,8 @@ Tokens tokens(bool dark, const QString &accent) {
         t.border = QColor("#2a2b33");
         t.borderStrong = QColor("#3a3c46");
         t.text = QColor("#e3e4e8");
-        t.muted = QColor("#9b9ea9");
-        t.disabled = QColor("#62656f");
+        t.muted = QColor("#a4a7b2");
+        t.disabled = QColor("#6c6f7a");
         t.placeholder = QColor("#767985");
         t.icon = QColor("#c4c6ce");
         t.accent = QColor(blue ? "#4a8af4" : "#7b6cf0");
@@ -258,6 +258,8 @@ QString styleSheet(const Tokens &t) {
         "color:@selectionText}"
         "QTreeView::item:selected:!active,QListView::item:selected:!active,"
         "QTableView::item:selected:!active{background:@inactiveSelection;color:@text}"
+        // Short lists embedded in a panel sit in a bordered inset well.
+        "QListWidget[role=\"inset\"]{background:@base;border:1px solid @border;border-radius:@rS;padding:2px}"
         "QHeaderView{background:@window;border:0}"
         "QHeaderView::section{background:@window;color:@muted;padding:5px 8px;border:0;"
         "border-bottom:1px solid @border;border-right:1px solid @border;font-weight:600}"
@@ -458,6 +460,9 @@ QChar materialGlyph(const QString &name) {
         {"gradient", QChar(0xe3e9)},
         {"eyedropper", QChar(0xe3b8)},
         {"effects", QChar(0xe429)},  // tune
+        {"eye-off", QChar(0xe8f5)},   // visibility_off
+        {"palette", QChar(0xe40a)},
+        {"opacity", QChar(0xe91c)},
         {"menu", QChar(0xe5d2)},
         {"go", QChar(0xe5c8)}, // arrow_forward
         {"swap-colors", QChar(0xe8d4)},  // swap_horiz
@@ -670,8 +675,21 @@ class NovaStyle : public QProxyStyle {
                         option->state & State_Selected ? t.selectionText : t.muted);
             }
             return;
-        case PE_IndicatorCheckBox:
         case PE_IndicatorItemViewItemCheck:
+            if (widget && widget->objectName() == QLatin1String("layerList")) {
+                const bool visible = option->state & State_On;
+                QRect r(QPoint(), QSize(16, 16));
+                r.moveCenter(option->rect.center());
+                const QColor ink = !(option->state & State_Enabled) ? t.disabled
+                                   : visible                         ? t.icon
+                                                                     : t.disabled;
+                lineIcon(visible ? QStringLiteral("eye") : QStringLiteral("eye-off"), ink, t.disabled)
+                    .paint(painter, r);
+                return;
+            }
+            drawCheck(option, painter, t, false);
+            return;
+        case PE_IndicatorCheckBox:
             drawCheck(option, painter, t, false);
             return;
         case PE_IndicatorRadioButton:
