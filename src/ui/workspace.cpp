@@ -508,7 +508,8 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         problemsDock->show();
     animationRefresh(); // the timeline follows the active document, as before
     if (name == "animation" && animationDock->isVisible())
-        resizeDocks({animationDock}, {std::clamp(h / 4, 200, 240)}, Qt::Vertical);
+        // The timeline takes only the height its controls and one row of frames need.
+        resizeDocks({animationDock}, {animationDock->minimumSizeHint().height()}, Qt::Vertical);
     // Size columns after moving/tabbing the preview. Intermediate dock moves
     // otherwise redistribute them and undo the requested working widths.
     resizeDocks({assetsDock, inspectorDock},

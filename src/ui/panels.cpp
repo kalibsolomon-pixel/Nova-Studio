@@ -163,7 +163,8 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     top->addWidget(reset);
     top->addStretch();
     v->addLayout(top);
-    // Hex gets its own full-width row so the whole code always shows.
+    // Hex shares its row with the slider model, as in other colour pickers; the field keeps
+    // room for the longest code (#AARRGGBB), so the palette below stays in view.
     auto hexRow = new QHBoxLayout;
     hexRow->setSpacing(ui::SpaceL);
     auto hexLabel = new QLabel("Hex");
@@ -172,17 +173,19 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     hex = new QLineEdit;
     hex->setObjectName("colorHex");
     hex->setToolTip("Hexadecimal colour: #RRGGBB or #AARRGGBB");
+    hex->setMinimumWidth(hex->fontMetrics().horizontalAdvance("#AARRGGBB") + 2 * ui::SpaceL + 2 * ui::SpaceS);
     hexRow->addWidget(hex, 1);
-    v->addLayout(hexRow);
-    auto grid2 = new QGridLayout;
-    grid2->setHorizontalSpacing(4);
-    grid2->setVerticalSpacing(2);
     model = new QComboBox;
     model->addItems({"HSV", "HSL"});
     model->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     model->setMinimumContentsLength(4);
     model->setToolTip("Hue/saturation model for the sliders (encoded sRGB)");
-    grid2->addWidget(model, 0, 0, 1, 3);
+    model->setAccessibleName("Colour slider model");
+    hexRow->addWidget(model);
+    v->addLayout(hexRow);
+    auto grid2 = new QGridLayout;
+    grid2->setHorizontalSpacing(4);
+    grid2->setVerticalSpacing(2);
     const char *names[3] = {"H", "S", "V"};
     for (int i = 0; i < 3; ++i) {
         auto l = new QLabel(names[i]);
@@ -193,9 +196,9 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
         channel[i]->setButtonSymbols(QAbstractSpinBox::NoButtons); // compact value field; wheel and keys step
         slider[i]->setRange(0, i == 0 ? 359 : 100);
         channel[i]->setRange(0, i == 0 ? 359 : 100);
-        grid2->addWidget(l, i + 1, 0);
-        grid2->addWidget(slider[i], i + 1, 1);
-        grid2->addWidget(channel[i], i + 1, 2);
+        grid2->addWidget(l, i, 0);
+        grid2->addWidget(slider[i], i, 1);
+        grid2->addWidget(channel[i], i, 2);
         connect(slider[i], &QSlider::valueChanged, channel[i], &QSpinBox::setValue);
         connect(channel[i], &QSpinBox::valueChanged, slider[i], &QSlider::setValue);
         connect(channel[i], &QSpinBox::valueChanged, this, [this] {
@@ -241,7 +244,7 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
         if (!updating)
             push(qRgba(qRed(state->foreground), qGreen(state->foreground), qBlue(state->foreground), a));
     });
-    grid2->addLayout(rgbRow, 4, 0, 1, 3);
+    grid2->addLayout(rgbRow, 3, 0, 1, 3);
     v->addLayout(grid2);
     v->addSpacing(ui::SpaceS);
     v->addWidget(ui::sectionTitle("Recent"));

@@ -34,7 +34,7 @@ two tokens.
 | `control` | `#24252c` | `#ffffff` | Push-button and picker fill |
 | `border` / `borderStrong` | `#2a2b33` / `#3a3c46` | `#d6d8de` / `#bfc2ca` | Hairlines / control outlines |
 | `text` / `muted` | `#e3e4e8` / `#a4a7b2` | `#1b1d22` / `#5b5f6b` | Primary / secondary text |
-| `disabled` / `placeholder` | `#737683` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
+| `disabled` / `placeholder` | `#7a7d89` / `#7e818d` | `#878a93` / `#6e7280` | Disabled ink / field placeholders (AA on white) |
 | `icon` | `#c4c6ce` | `#3d414b` | Default icon ink, one step softer than text |
 | `accent` | `#7b6cf0` (blue `#4a8af4`) | `#6550e0` (blue `#2563d9`) | Focus, primary actions, checked state, active tab |
 | `accentHover` / `accentMuted` | | | Primary hover / checked toggles, inactive selection |
@@ -63,7 +63,7 @@ selected face priority.
 
 | `ui::Type` | Size | Weight | Use |
 | --- | --- | --- | --- |
-| `Caption` | 9 pt | Semibold, tracked | Section titles (`ui::sectionTitle`), keycaps, metadata |
+| `Caption` | 9 pt | Semibold, tracked | Section titles (`ui::sectionTitle`, in `text` so they outrank the muted field labels below them), keycaps, metadata |
 | `Body` | 9.75 pt | Regular | Everything else |
 | `Strong` | 9.75 pt | Semibold | Dock titles, the active tool name, group titles |
 | `Title` | 10.5 pt | Semibold | Dialog headings (`QLabel[role="title"]`) |

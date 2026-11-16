@@ -594,7 +594,10 @@ QWidget *ToolOptionsBar::paintPage() {
     lockAlpha->setToolTip("Lock alpha: paint only over existing pixels, preserving their transparency");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");
-    auto presets = new QPushButton("Presets");
+    // A menu command like Brush settings beside it: frameless text with a drop-down arrow.
+    auto presets = new QToolButton;
+    presets->setText("Presets");
+    presets->setPopupMode(QToolButton::InstantPopup);
     presets->setObjectName("brushPresets");
     presets->setToolTip("Save or apply brush presets");
     auto menu = new QMenu(presets);

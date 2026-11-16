@@ -153,7 +153,7 @@ Tokens tokens(bool dark, const QString &accent) {
         t.borderStrong = QColor("#3a3c46");
         t.text = QColor("#e3e4e8");
         t.muted = QColor("#a4a7b2");
-        t.disabled = QColor("#737683"); // 3.8:1 on panels: legible yet clearly inactive
+        t.disabled = QColor("#7a7d89"); // 4.1:1 on panels: readable yet clearly inactive
         t.placeholder = QColor("#7e818d");
         t.icon = QColor("#c4c6ce");
         t.accent = QColor(blue ? "#4a8af4" : "#7b6cf0");
@@ -422,7 +422,9 @@ QString styleSheet(const Tokens &t) {
         "margin-top:20px;padding:@panelPad @panelPad @panelPadV @panelPad;background:@surface}"
         "QGroupBox[role=\"section\"]::title{subcontrol-origin:margin;left:2px;padding:0 0 4px 0;color:@text}"
         // Text roles.
-        "QLabel[role=\"section\"]{font-size:@captionPt;font-weight:600;color:@muted;padding-top:6px}"
+        // Section titles take the text colour: their field labels are muted, so the title has to
+        // outrank them by more than case and weight.
+        "QLabel[role=\"section\"]{font-size:@captionPt;font-weight:600;color:@text;padding-top:6px}"
         "QLabel[role=\"title\"]{font-size:@titlePt;font-weight:600;color:@text}"
         "QLabel[role=\"display\"]{font-size:@displayPt;font-weight:600;color:@text}"
         "QLabel[role=\"hint\"]{color:@muted}"

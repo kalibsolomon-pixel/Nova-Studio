@@ -2,7 +2,30 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 27
+## Latest completed combined review: 28
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 7 | 7 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 7 | 7 | 8 | 7 |
+| opencode/longcat-2.5-free | 8 | 7 | 8 | 8 | 8 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 8 | 7 | 7 | 7 | 7 | 6 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** Spacing and icon scores rose. Recurring findings: the
+palette swatches were cut off at the bottom of the Colours panel, section titles were no
+brighter than the field labels under them, disabled text was hard to read, and Presets
+was the only framed menu button on the options row. The next pass puts the Hex field and
+the HSV/HSL choice on one row so the whole palette fits, draws section titles in `text`,
+raises dark `disabled` to `#7a7d89` (4.1:1), makes Presets a frameless menu command like
+Brush settings, and sizes the Animation timeline to its content when that workspace is set up.
+
+Not treated as defects: the claim that the light theme keeps a dark menu bar and rail
+(capture 17 shows both light); opacity in 0–255, which matches pixel-art tools and the
+alpha channel.
+
+## Combined review: 27
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -182,9 +205,11 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 25 | tool name on every options row, framed floating strip | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 8; LongCat: five-minute limit; Kimi: no review |
 | 26 | one primary Batch action, right-rail hairline facing the canvas | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit |
 | 27 | fixed left tool rail, matching status text | GLM free: 6; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 8; Terra: 7 |
+| 28 | corner-triangle rail, slider popovers, indented Batch output | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
 
 ## Verification
 
+- Hex and slider model on one row, brighter section titles and disabled text, frameless Presets: the complete regression run (MCP excluded) passed 66/66 suites in 324.41 seconds.
 - Corner-triangle rail, slider popovers and indented Batch output: the complete regression run (MCP excluded) passed 66/66 suites in 326.98 seconds.
 - Fixed tool rail checkpoint: the complete regression run (MCP excluded) passed 66/66 suites in 326.31 seconds with process-local `TEMP`/`TMP` at `build/t`, including the rewritten `tool-strip` suite at 100%, 150% and 200% scaling. The status bar's message now uses the body size, like its labels.
 - Native Qt gallery: dark/light, welcome/editor, selection, animation, models, batch, palette and settings. Gallery/test windows use the secondary portrait display.
