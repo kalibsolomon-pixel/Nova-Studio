@@ -98,6 +98,12 @@ class SwatchGrid : public QWidget {
             p.fillRect(r.adjusted(r.width() / 2, r.height() / 2, 0, 0), ui::current().checkerLight);
             p.fillRect(r, QColor::fromRgba(colors[size_t(i)]));
         }
+        // A faint rim keeps swatches close to the panel colour visible as cells.
+        QColor rim = ui::current().text;
+        rim.setAlpha(40);
+        p.setPen(rim);
+        for (int i = 0; i < int(colors.size()); ++i)
+            p.drawRect(QRect((i % cols) * cell, (i / cols) * cell, cell - 2, cell - 2));
     }
     void mousePressEvent(QMouseEvent *e) override {
         const int i = indexAt(e->position().toPoint());

@@ -2,7 +2,26 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 30
+## Latest completed combined review: 31
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 8 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 8 | 7 | 8 | 8 | 8 | 8 |
+| opencode/minimax-m3.1-flash-free | 7 | 6 | 7 | 7 | 6 | 6 | 6 | 7 |
+| opencode/inkling-2-small-free | 7 | 7 | 6 | 7 | 7 | 6 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled.
+MiniMax rose to 7, so every scored reviewer is at 7 or 8. Concrete findings: dark palette
+swatches close to the panel colour disappear as cells, and "Process frames…" was the only
+text-only command on the Animation row. The next pass draws a faint rim around every
+swatch and gives "Process frames…" a leading icon like its neighbours.
+
+Not treated as defects: "REcent"/"PALette" casing (the captures read RECENT and PALETTE);
+a ~16px rail (icons are 20px).
+
+## Combined review: 30
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -249,9 +268,11 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 28 | corner-triangle rail, slider popovers, indented Batch output | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
 | 29 | whole palette in view, brighter section titles and disabled text | GLM free: 6; GLM z.ai: 8; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
 | 30 | framed artboard, accent-faded disabled checks | GLM free: 7; GLM z.ai: 8; LongCat: 8; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 31 | firmer light hairlines, larger rail triangles, amber unsaved status | GLM free: 7; GLM z.ai: 8; MiniMax: 7; Inkling: 7; Terra: 7; LongCat: five-minute limit |
 
 ## Verification
 
+- Swatch rims and the Process frames icon: the complete regression run (MCP excluded) passed 66/66 suites in 328.82 seconds.
 - Darker light hairlines, 6px rail triangles and the amber unsaved status: the complete regression run (MCP excluded) passed 66/66 suites in 325.74 seconds.
 - Faded-accent disabled checks and the framed artboard: the complete regression run (MCP excluded) passed 66/66 suites in 323.84 seconds.
 - Hex and slider model on one row, brighter section titles and disabled text, frameless Presets: the complete regression run (MCP excluded) passed 66/66 suites in 324.41 seconds.

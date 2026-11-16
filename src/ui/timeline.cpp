@@ -291,6 +291,9 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     controls->insertWidget(controls->indexOf(onionSettings), frameRule);
     controls->insertSpacing(controls->indexOf(onionSettings), ui::SpaceS);
     auto scope = new QToolButton; scope->setText("Process frames…"); scope->setObjectName("processAnimationFrames");
+    // An icon beside the text, like the other frame commands on this row.
+    scope->setProperty("novaIcon", "effects"); scope->setIcon(ui::lineIcon("effects"));
+    scope->setIconSize({ui::IconSize, ui::IconSize}); scope->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     controls->insertWidget(controls->count() - 1, scope);
     connect(scope, &QToolButton::clicked, this, [this] { emit scopeOperationRequested(); });
     connect(onion, &QCheckBox::toggled, this, [onionSettings](bool on) {
