@@ -366,8 +366,15 @@ void ToolBox::setWrapping(bool wrap) {
         }
         flow = strip;
         // The toolbar is exactly as tall as the rows (plus its padding and bottom rule).
-        strip->heightChanged = [this](int rows) {
+        strip->heightChanged = [this, strip](int rows) {
             setFixedHeight(rows + 2 * ui::ToolStripPaddingV + 1);
+            // The empty native toolbar layout has a different size hint from
+            // the wrapped controls. Size the dock host from the actual rows.
+            if (parentWidget() && parentWidget()->objectName() == "toolsDockHost")
+                parentWidget()->setFixedHeight(height());
+            // A height change during a resize can be coalesced by Qt. Keep the
+            // flow viewport tall enough for the rows just laid out immediately.
+            strip->resize(strip->width(), rows);
         };
         strip->show();
         placeFlow();
@@ -541,6 +548,8 @@ class OptionsRow : public QScrollArea {
     }
     QSize minimumSizeHint() const override { return {80, sizeHint().height()}; }
     void resizeEvent(QResizeEvent *e) override {
+        if (widget() && widget()->layout())
+            widget()->layout()->setSpacing(e->size().width() < ui::OptionsCompactWidth ? ui::SpaceS : ui::SpaceM);
         const bool before = horizontalScrollBar()->isVisible();
         QScrollArea::resizeEvent(e);
         placeFade();
@@ -578,7 +587,7 @@ QWidget *row(std::initializer_list<QWidget *> widgets) {
     auto w = new QWidget;
     auto l = new QHBoxLayout(w);
     l->setContentsMargins(ui::SpaceXS, ui::SpaceXS, ui::SpaceXS, ui::SpaceXS);
-    l->setSpacing(3); // labels add their own leading gap (theme stylesheet)
+    l->setSpacing(ui::SpaceM);
     for (auto x : widgets)
         l->addWidget(x ? x : groupGap());
     l->addStretch();

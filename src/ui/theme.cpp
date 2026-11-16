@@ -15,6 +15,7 @@
 #include <QDockWidget>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QFormLayout>
 #include <QHash>
 #include <QIconEngine>
 #include <QLabel>
@@ -31,9 +32,15 @@
 
 namespace nova::ui {
 void settingsMenu(QToolButton *button, QWidget *content) {
+    if (auto form = qobject_cast<QFormLayout *>(content->layout())) {
+        form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        for (int row = 0; row < form->rowCount(); ++row)
+            if (auto item = form->itemAt(row, QFormLayout::LabelRole); item && item->widget())
+                item->widget()->setMinimumWidth(SettingsLabelWidth);
+    }
     for (auto field : content->findChildren<QAbstractSpinBox *>()) {
         field->setAlignment(Qt::AlignRight);
-        field->setMinimumWidth(80);
+        field->setMinimumWidth(SettingsValueWidth);
     }
     auto menu = new QMenu(button);
     auto action = new QWidgetAction(menu);
@@ -223,6 +230,7 @@ QString styleSheet(const Tokens &t) {
         "QToolBar#commands{border-bottom:1px solid @border}"
         "QToolBar#toolOptions{border-bottom:1px solid @border;background:@window}"
         "QToolBar#toolOptions QLabel{color:@muted;padding-left:2px}"
+        "QToolBar#toolOptions QMenu QLabel{padding-left:0}"
         // The options bar is chrome, not a well: its scroll rows show the toolbar fill.
         "QToolBar#toolOptions QScrollArea,QToolBar#toolOptions QScrollArea>QWidget,"
         "QToolBar#toolOptions QScrollArea>QWidget>QWidget{background:transparent}"

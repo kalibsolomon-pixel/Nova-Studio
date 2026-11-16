@@ -326,6 +326,32 @@ class Phase3BGallery : public QObject {
         preset(window, "essentials");
         captureModal("17-light-batch", [&] { EditorTestAccess::batch(window); });
         setTheme(window, true);
+        // Review every supported tool-strip position with a real editing document.
+        // The floating strip is a separate native window, so capture it separately.
+        preset(window, "texture");
+        window.resize(1280, 900);
+        const std::pair<const char *, const char *> placements[] = {
+            {"left", "20-tools-left"}, {"right", "21-tools-right"}, {"top", "22-tools-top"},
+            {"above-colours", "23-tools-above-colours"}, {"above-assets", "24-tools-above-assets"},
+            {"floating", "25-tools-floating-context"}};
+        for (const auto &[id, name] : placements) {
+            auto action = window.findChild<QAction *>(QString("toolPlacement-") + id);
+            QVERIFY(action);
+            action->trigger();
+            QTest::qWait(80);
+            auto box = window.findChild<QToolBar *>("toolBox");
+            QVERIFY(box);
+            if (box->parentWidget()->objectName() == "toolsDockHost") {
+                QVERIFY2(box->parentWidget()->rect().contains(box->geometry()), "strip exceeds its dock host");
+                for (auto button : box->findChildren<QToolButton *>())
+                    if (button->objectName().startsWith("toolGroup-"))
+                        QVERIFY2(!button->visibleRegion().isEmpty(), qPrintable(button->objectName()));
+            }
+            capture(window, name);
+        }
+        if (auto tools = window.findChild<QDockWidget *>("toolsDock"))
+            capture(*tools, "26-tools-floating");
+        window.findChild<QAction *>("toolPlacement-left")->trigger();
         window.close();
         QTest::qWait(100);
         if (window.isVisible()) {

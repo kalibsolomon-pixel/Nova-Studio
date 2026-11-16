@@ -72,6 +72,14 @@ selected face priority.
 
 Use `ui::font(Type)` in code, or a stylesheet role on a label.
 
+Tool options use 6px gaps, reducing to 4px below `OptionsCompactWidth` (900 logical
+pixels) so short forms remain compact. Secondary settings menus share
+`SettingsLabelWidth` (104) and `SettingsValueWidth` (80), right-aligned numbers and
+the same title treatment. Hosted tool strips size both the dock host and flow
+viewport from their wrapped rows; the native toolbar's empty layout hint is not
+the content height. Gallery captures 20–26 cover all six supported positions and
+the separate floating window.
+
 ## Spacing and shape
 
 - **Spacing:** `SpaceXS 2 · SpaceS 4 · SpaceM 6 · SpaceL 8 · SpaceXL 12 · Space2XL 16 · Space3XL 24` (px).

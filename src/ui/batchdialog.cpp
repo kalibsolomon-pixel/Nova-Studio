@@ -11,7 +11,7 @@
 #include <QFormLayout>
 #include <QFutureWatcher>
 #include <QGridLayout>
-#include <QGroupBox>
+#include <QFrame>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -70,8 +70,18 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     split->setProperty("role", "gutter");
     root->addWidget(split, 1);
     // ---------------------------------------------------------------- targets
-    auto targetsBox = new QGroupBox("1 · Targets");
-    auto tv = new QVBoxLayout(targetsBox);
+    const auto section = [](const QString &text) {
+        auto panel = new QFrame;
+        panel->setProperty("role", "card");
+        auto layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+        layout->setSpacing(ui::SpaceL);
+        auto heading = new QLabel(text);
+        heading->setFont(ui::font(ui::Type::Strong));
+        layout->addWidget(heading);
+        return std::pair{panel, layout};
+    };
+    auto [targetsBox, tv] = section("1 · Targets");
     scope = new QComboBox;
     scope->setObjectName("batchScope");
     scope->setAccessibleName("Target scope");
@@ -210,8 +220,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     });
     split->addWidget(targetsBox);
     // ---------------------------------------------------------------- pipeline
-    auto pipeBox = new QGroupBox("2 · Operation stack");
-    auto pv = new QVBoxLayout(pipeBox);
+    auto [pipeBox, pv] = section("2 · Operation stack");
     auto presetRow = new QHBoxLayout;
     presetBox = new QComboBox;
     presetBox->setObjectName("batchPresets");
@@ -311,8 +320,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     showStepChrome();
     split->addWidget(pipeBox);
     // ---------------------------------------------------------------- preview / output
-    auto outBox = new QGroupBox("3 · Preview, output and run");
-    auto ov = new QVBoxLayout(outBox);
+    auto [outBox, ov] = section("3 · Preview, output and run");
     auto sampleWidget = new QWidget;
     samples = new QGridLayout(sampleWidget);
     samples->setContentsMargins(0, 0, 0, 0);

@@ -2,17 +2,17 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed round: 13
+## Latest completed round: 14
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| opencode/glm-5.3-flash-free | 8 | 8 | 7 | 7 | 7 | 8 | 8 | 7 |
-| opencode/longcat-2.5-free | 7 | 7 | 7 | 7 | 6 | 7 | 7 | 7 |
-| t3-hub/k3.1-pro,thinking | 7 | 8 | 7 | 7 | 7 | 7 | 7 | 7 |
+| opencode/glm-5.3-flash-free | 7 | 7 | 6 | 6 | 7 | 7 | 7 | 7 |
+| opencode/longcat-2.5-free | 7 | 7 | 6 | 7 | 6 | 6 | 6 | 6 |
+| t3-hub/k3.1-pro,thinking | 7 | 7 | 7 | 6 | 6 | 6 | 8 | 7 |
 
-**Acceptance remains unmet.** All three reviewers gave 7/10 overall.
+**Acceptance remains unmet.** Overall ratings are 6–7/10. GLM-5.3 on z.ai could not view images and is not scored.
 
-Round 13 included 13 logical-pixel working text and 12-pixel captions, filename-focused tabs, matching settings-menu titles, disabled onion labels with their fields, larger frame tiles and elided paths. Changes for the next review: consistent dock-body surfaces; compact texture layouts give colour controls more vertical room; uniform asset selection fills with accurate thumbnail colours; overlapping UV labels are suppressed and use theme tokens. Paint colours and artwork were not changed to satisfy UI-colour suggestions.
+Round 14 included consistent dock-body surfaces, more vertical room for colour controls, uniform asset selection fills and non-overlapping UV labels. The next review also covers every supported editing-toolbar placement: left, right, top, above Colours, above Assets and floating. Batch headings now sit inside their sections; Welcome loses its inset gutter; option spacing and popup label columns use consistent geometry. Paint colours and artwork were not changed to satisfy UI-colour suggestions.
 
 ## Round history
 
@@ -32,6 +32,7 @@ Round 13 included 13 logical-pixel working text and 12-pixel captions, filename-
 | 11 | paths, menu headings and timeline groups | opencode/glm-5.3-flash-free: 7; opencode/longcat-2.5-free: 7; zai-coding-plan/glm-5.3-flash: 7 |
 | 12 | readable states and compact layouts | GLM free: 7; LongCat free: 8; GLM z.ai: 7; Kimi: 7 |
 | 13 | readable working text and focused welcome | GLM free: 7; LongCat free: 7; Kimi: 7 |
+| 14 | consistent panels and readable UV labels | GLM free: 7; LongCat free: 6; Kimi: 7; GLM z.ai: unable to view images |
 
 ## Verification
 
@@ -42,5 +43,27 @@ Round 13 included 13 logical-pixel working text and 12-pixel captions, filename-
 - Later font, frame-size, path and Welcome-layout changes: four targeted GUI suites passed. Subsequent surface/UV changes: workspace, UV, animation and tool-options checks passed; final gallery and persistence checks are recorded separately in the task evidence.
 - Token contrast calculations: dark secondary text on window 7.24:1; light secondary 5.80:1; light selected-row text 10.31:1. These do not establish whole-app accessibility compliance.
 - Performance was not measured.
+
+## Screenshot evidence
+
+| Surface | Before | Current |
+| --- | --- | --- |
+| Welcome | [Before](screenshots/before-01-welcome-dark.png) | [Current](screenshots/01-welcome-dark.png) |
+| Editor | [Before](screenshots/before-02-general-dark-1280.png) | [Current](screenshots/02-general-dark-1280.png) |
+| Batch | [Before](screenshots/before-11-batch-dark.png) | [Current](screenshots/11-batch-dark.png) |
+| Light theme | [Before](screenshots/before-17-light-texture.png) | [Current](screenshots/17-light-texture.png) |
+
+Editing-toolbar positions: [left](screenshots/20-tools-left.png),
+[right](screenshots/21-tools-right.png), [top](screenshots/22-tools-top.png),
+[above Colours](screenshots/23-tools-above-colours.png),
+[above Assets](screenshots/24-tools-above-assets.png),
+[floating context](screenshots/25-tools-floating-context.png), and
+[floating detail](screenshots/26-tools-floating.png).
+
+The toolbar transition check now also verifies that the wrapped strip fits its dock
+host after moving from the top. The host and flow viewport follow the actual rows;
+this prevents tools on a second row from being clipped. Placement checks passed at
+normal, 150% and 200% scaling. Round 15 reviews these six positions independently;
+its scores do not replace the whole-application acceptance requirement.
 
 Evidence remains under `build/ui-polish`: baseline, latest captures, scores and review JSON. This record is provisional until the next council completes.

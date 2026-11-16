@@ -107,6 +107,11 @@ class ToolPlacementTests : public QObject {
         QTRY_VERIFY(box->isVisible());
         QApplication::processEvents();
         const QRect strip(box->mapTo(&window, QPoint()), box->size());
+        if (box->wrapping())
+            QTRY_VERIFY2(box->parentWidget()->rect().contains(box->geometry()),
+                         qPrintable(QString("strip %1,%2 %3x%4 exceeds host %5x%6")
+                                        .arg(box->x()).arg(box->y()).arg(box->width()).arg(box->height())
+                                        .arg(box->parentWidget()->width()).arg(box->parentWidget()->height())));
         QList<QRect> placed;
         for (const auto &name : names) {
             auto w = window.findChild<QWidget *>(name);
@@ -257,6 +262,9 @@ class ToolPlacementTests : public QObject {
         auto options = window->findChild<QToolBar *>("toolOptions");
         QTRY_VERIFY(box->geometry().top() >= options->geometry().bottom()); // its own row below
         capture(*window, "05-top");
+        window->findChild<QAction *>("toolPlacement-above-colours")->trigger();
+        checkAboveColours(*window);
+        checkEveryItemReachable(*window);
         window->findChild<QAction *>("toolPlacement-above-assets")->trigger();
         auto tools = Access::dock(*window, "toolsDock"), assets = Access::dock(*window, "assets");
         QTRY_VERIFY(tools->isVisible());

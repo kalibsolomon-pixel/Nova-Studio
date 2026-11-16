@@ -61,7 +61,7 @@ class EditorTabs : public QTabWidget {
     QBoxLayout *welcomeKeys = nullptr;
     void resizeEvent(QResizeEvent *event) override {
         QTabWidget::resizeEvent(event);
-        welcome->setGeometry(rect().adjusted(8, 8, -8, -8));
+        welcome->setGeometry(rect());
         if (logo)
             logo->setVisible(welcome->height() >= 320);
         // Narrow centre areas stack the actions instead of scrolling sideways.

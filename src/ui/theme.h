@@ -82,6 +82,8 @@ constexpr int MenuArrowWidth = 10;           // drop-down segment of split butto
 constexpr int MenuArrowGap = SpaceXS;        // space between a button's icon and its arrow
 constexpr int PanelPadding = SpaceXL;        // dock titles, dialog sections, control panels
 constexpr int PanelPaddingV = 7;             // dock title rows
+constexpr int SettingsLabelWidth = 104, SettingsValueWidth = 80;
+constexpr int OptionsCompactWidth = 900;     // tighter option gaps below this viewport width
 constexpr int ToolStripPaddingV = SpaceM, ToolStripPaddingH = SpaceS; // around the tool strip
 constexpr int ToolStripSeparatorMargin = SpaceM; // separator inset along the tool strip
 constexpr int GutterWidth = 4;               // backdrop gap between docked panels
