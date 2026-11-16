@@ -124,6 +124,9 @@ look, add a role to `styleSheet()` and document it here.
 ## Editor states
 
 With no pack and no document, the welcome screen offers Create, Open and Recent packs.
+Up to four recent packs show their folder name and full-path tooltip in a native,
+keyboard-activated list. View all retains the existing Recent Projects menu.
+Command search labels these entries by pack name and still matches their full paths.
 Editing docks and toolbars, including the path/workspace command bar, are hidden.
 The menu bar and keyboard commands remain available. Their packed layout is retained separately and
 restored when a pack or document opens; saving preferences during welcome saves that
@@ -147,7 +150,9 @@ scroll area's bottom edge.
 Unchecked indicators have a stronger outline (calculated 3.28:1 on the dark popup,
 3.09:1 on the light panel). Spin-button zones are 24 pixels wide. Material glyphs
 use regular outline weight for clearer compact actions. Batch sections use whitespace
-and headings; list wells and fields retain their own boundaries.
+and headings; list wells and fields retain their own boundaries. Short target lists
+and empty operation stacks keep a bounded height; a populated stack gives its
+space back to the list and parameter editor.
 
 The editing toolbar supports left/right rails, a top row, positions above Colours
 and Assets, and a floating window. Narrow panel placements use a regular grid
@@ -155,7 +160,8 @@ of up to four columns with the grip at the leading edge and colour wells in the 
 retain a single row. The colour wells share the 30px tool target. Moving above
 a tabbed dock preserves its peers, their visual order and visibility, and preserves space for
 the editing panel below. Side-column widths survive movement to the top row below Tool Options.
-The grip's keyboard menu exposes all six positions.
+The grip's keyboard menu exposes all six positions. Split buttons group tool
+variants without extra separators; rules separate Effects and the colour wells.
 
 ## Checking a change
 

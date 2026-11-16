@@ -2,14 +2,28 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 21
+## Latest completed combined review: 23
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| opencode/glm-5.3-flash-free | 8 | 8 | 7 | 7 | 8 | 8 | 8 | 8 |
-| opencode/longcat-2.5-free | 7 | 8 | 7 | 7 | 7 | 7 | 7 | 7 |
+| opencode/glm-5.3-flash-free | 7 | 7 | 6 | 7 | 7 | 7 | 8 | 7 |
+| opencode/longcat-2.5-free | 7 | 7 | 7 | 6 | 7 | 7 | 6 | 7 |
+| Kimi | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
 
-**Acceptance remains unmet.** Overall ratings are 7–8/10. GLM and LongCat reviewed all seventeen screenshots, covering the whole application and every toolbar placement, within five minutes. Kimi reached the cap and was cancelled without a score. This round includes padded frame cards, complete command rows, slider/value pairs, stronger unchecked indicators, regular icon outlines and flatter Batch sections. Both reviews still question toolbar layout costs; those costs are evaluated without removing supported placements. LongCat also identified a reproducible change in dock-tab order when placing tools above Colours; the follow-up preserves the user's order. Secondary text and light field borders already use stronger tokens than the reviews' estimated colours. Decorative filler, automatic tool hiding and empty shortcut badges were not applied.
+**Acceptance remains unmet.** All three reviewers gave 7/10 overall and
+completed within five minutes. All seventeen screenshots cover the application
+and all six toolbar placements. Reviewers continue to question panel-toolbar
+density, animation grouping, typography, icon consistency and light-theme
+control separation. Suggestions to remove toolbar placements conflict with
+the requirement to preserve all six. Claims that the floating default covers
+the artwork conflict with the captures. The panel tools use a 4x2 grid with a
+separate grip. Shared styling is already applied to Batch. These observations
+remain distinct from reproduced implementation defects.
+
+This pass names recent packs in command search while retaining full
+path matching and the existing activation action. It removes four redundant
+toolbar separators. A change that hid the empty Recent colours section was
+withdrawn: it broke the Texture workspace's Colours-dock visibility check.
 
 ## Toolbar placement reviews: rounds 15–19
 
@@ -85,9 +99,12 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 19 | six toolbar placements, separate top row and aligned panel grid | GLM free: 8; LongCat free: 7; Kimi: 7 |
 | 20 | whole application, complete command rows and padded frame tiles | GLM free: 7; LongCat free: 8; Kimi: 7 |
 | 21 | whole application and all six toolbar placements, sliders and stronger indicators/icons | GLM free: 8; LongCat free: 7; Kimi: five-minute limit |
+| 22 | whole application and all six toolbar placements, recent-pack list and compact Batch | GLM free: 7; LongCat free: 7; Kimi: five-minute limit |
+| 23 | whole application and all six toolbar placements, named recent-pack commands and fewer tool separators | GLM free: 7; LongCat free: 7; Kimi: 7 |
 
 ## Verification
 
+- Current uncommitted checkpoint: the complete regression run passed 65/67 suites in 455.55 seconds. `phase3b-workspace` and `texture-pixels` failed. An independent `texture-pixels` rerun passed all 14 checks in 16.80 seconds, but the full-run failure remains unexplained. The workspace failure reproduces in `presetsArrangePanelsWithoutChangingDocuments`: Colours is the selected tab with expected dock geometry, but its visible region is empty. Re-raising it after layout activation did not help; that attempted fix and diagnostic logging were removed. This checkpoint is not validated for push.
 - Native Qt gallery: dark/light, welcome/editor, selection, animation, models, batch, palette and settings. Gallery/test windows use the secondary portrait display.
 - Targeted workspace, tool-placement (including 150% and 200%) and tool-options checks: 6/6 passed.
 - Regression run before the latest border/spacing pass: 66/66 passed with MCP explicitly excluded.
@@ -95,6 +112,7 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 - Later font, frame-size, path and Welcome-layout changes: four targeted GUI suites passed. Subsequent surface/UV changes: workspace, UV, animation and tool-options checks passed; final gallery and persistence checks are recorded separately in the task evidence.
 - Token contrast calculations: dark secondary text on window 7.24:1; light secondary 5.80:1; light selected-row text 10.31:1. These do not establish whole-app accessibility compliance.
 - A later complete regression run passed 67/67 suites in 435.44 seconds. The subsequent two-row panel grid, combined top row and floating default passed focused placement checks; the combined top row also passed compact, normal and large window checks at 150% and 200%. The final native gallery passed 4/4 checks.
+- Welcome-list activation, full-path command matching, editor GUI, batch, placement and search checks passed in five focused suites (31.22 seconds). Toolbar scaling checks passed at 150% and 200% (2/2, 6.90 seconds). The native gallery passed 4/4 checks including populated Batch.
 - Performance was not measured.
 - Following round 19, the search suite passed with a regression check for complete result rows and keyboard scrolling.
 - Latest complete regression attempt: 66/67 suites passed in 445.43 seconds. Fabric runtime's Unicode boundary fixture failed because the default TEMP path was too long. The unchanged suite passed all 26 checks in 16.39 seconds with process-local TEMP/TMP set to the existing `build/t`; production runtime code was not changed.
@@ -128,4 +146,4 @@ The top placement retains a dedicated row below Tool Options. Panel placements
 use two rows of four tools beside the grip at normal widths. Floating defaults
 to the lower canvas margin after layout settles.
 
-Evidence remains under `build/ui-polish`: baseline, latest captures, scores and review JSON. This record is provisional until the next council completes.
+Evidence remains under `build/ui-polish`: baseline, latest captures, scores, review JSON and regression diagnostics. Design acceptance and the workspace regression remain open.

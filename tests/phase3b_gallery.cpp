@@ -7,6 +7,7 @@
 #include "modelpanel.h"
 #include "timeline.h"
 #include "window.h"
+#include "settings.h"
 #include <QtTest>
 #include <QtWidgets>
 
@@ -128,7 +129,8 @@ class Phase3BGallery : public QObject {
         }
     }
     // Capture whichever modal dialog the callback opens, then close it.
-    void captureModal(const QString &name, std::function<void()> open) {
+    void captureModal(const QString &name, std::function<void()> open,
+                      std::function<void(QDialog &)> afterCapture = {}) {
         auto timer = new QTimer(this);
         timer->setInterval(40);
         auto elapsed = std::make_shared<QElapsedTimer>();
@@ -139,6 +141,8 @@ class Phase3BGallery : public QObject {
                 timer->stop();
                 timer->deleteLater();
                 capture(*dialog, name);
+                if (afterCapture)
+                    afterCapture(*dialog);
                 dialog->reject();
             } else if (elapsed->elapsed() > 8000) {
                 timer->stop();
@@ -178,6 +182,10 @@ class Phase3BGallery : public QObject {
         qApp->setProperty("settingsFile", temporary.filePath("gallery.ini"));
     }
     void welcome() {
+        Preferences initial;
+        initial.reopenLast = false;
+        initial.recentProjects = {pack};
+        QVERIFY(Settings(qApp->property("settingsFile").toString()).save(initial));
         QElapsedTimer timer;
         timer.start();
         Window window({}, {}, timer);
@@ -305,7 +313,19 @@ class Phase3BGallery : public QObject {
         QTest::qWait(600);
         capture(window, "12-problems-dark");
         // Batch processing dialog.
-        captureModal("11-batch-dark", [&] { EditorTestAccess::batch(window); });
+        captureModal("11-batch-dark", [&] { EditorTestAccess::batch(window); }, [&](QDialog &dialog) {
+            auto add = dialog.findChild<QToolButton *>("batchAddStep");
+            QVERIFY(add && add->menu());
+            for (auto category : add->menu()->actions())
+                if (category->menu())
+                    for (auto operation : category->menu()->actions())
+                        if (operation->text() == "Invert") {
+                            operation->trigger();
+                            capture(dialog, "11-batch-populated-dark");
+                            return;
+                        }
+            QFAIL("Invert operation not found");
+        });
         // Settings / preferences (3-B).
         if (auto preferences = window.findChild<QAction *>("preferencesCommand"))
             captureModal("13-settings-dark", [&] { preferences->trigger(); });

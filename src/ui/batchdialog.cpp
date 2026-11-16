@@ -144,7 +144,8 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     nf->addRow("", recover);
     tv->addWidget(nativeBox);
     nativeBox->hide();
-    tv->addWidget(targets, 1);
+    tv->addWidget(targets);
+    tv->addStretch(1);
     // Only the controls a mode actually uses stay enabled: native mode writes the
     // .nvdoc in place (originals go to the transaction folder), so PNG folder/pattern
     // apply only to PNG export, and the PNG backup folder never applies.
@@ -308,13 +309,15 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     editorScroll->setWidget(editor);
     editorScroll->setMinimumHeight(220);
     pv->addWidget(editorScroll, 1);
-    // With no steps the empty state offers Add operation; the editor and edit bar arrive with the first step.
     // With no steps the empty state offers Add operation; the editor and edit bar arrive
     // with the first step. syncSteps() calls this after every rebuild of the list.
-    showStepChrome = [editorScroll, stepBar, emptyState, list = steps] {
+    pv->addStretch(1);
+    showStepChrome = [editorScroll, stepBar, emptyState, pv, list = steps] {
         editorScroll->setVisible(list->count() > 0);
         stepBar->setVisible(list->count() > 0);
         emptyState->setVisible(list->count() == 0);
+        list->setMaximumHeight(list->count() == 0 ? 220 : QWIDGETSIZE_MAX);
+        pv->setStretch(pv->count() - 1, list->count() == 0 ? 1 : 0);
     };
     showStepChrome();
     split->addWidget(pipeBox);
@@ -408,7 +411,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     status = new QLabel;
     status->setObjectName("batchStatus");
     status->setWordWrap(true);
-    status->setMinimumHeight(status->fontMetrics().lineSpacing() * 3);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing());
     status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ov->addWidget(status);
     split->addWidget(outBox);
@@ -424,7 +427,7 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     runRow->addWidget(runButton);
     root->addSpacing(ui::SpaceS);
     root->addLayout(runRow);
-    resize(1120, 600);
+    resize(1120, 540);
 
     connect(scope, &QComboBox::currentIndexChanged, this, [this] {
         updating = true;
@@ -614,6 +617,7 @@ void BatchDialog::resolve() {
         auto item = new QListWidgetItem(f, targets);
         item->setToolTip(f);
     }
+    targets->setMaximumHeight(std::clamp(targets->count(), 3, 10) * ui::RowHeight + 2 * ui::SpaceS);
     int natives = 0;
     if (nativeMode())
         for (const auto &f : resolved)

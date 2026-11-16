@@ -53,12 +53,67 @@ class ModelTab : public QWidget {
     int face = -1;
 };
 
+class RecentPackDelegate final : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto &t = ui::current();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hover = option.state & QStyle::State_MouseOver;
+        const auto rect = option.rect.adjusted(0, ui::SpaceXS, 0, -ui::SpaceXS);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        p->setBrush(selected ? t.accentMuted : hover ? t.raised : t.window);
+        p->setPen(option.state & QStyle::State_HasFocus ? QPen(t.accent) : QPen(Qt::NoPen));
+        p->drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), ui::RadiusS, ui::RadiusS);
+        const int icon = ui::IconSize;
+        ui::lineIcon("folder").paint(p, QRect(rect.left() + ui::SpaceXL, rect.center().y() - icon / 2, icon, icon));
+        const auto text = rect.adjusted(ui::SpaceXL + icon + ui::SpaceXL, ui::SpaceL, -ui::SpaceXL, -ui::SpaceL);
+        const int line = QFontMetrics(option.font).lineSpacing();
+        p->setFont(ui::font(ui::Type::Strong));
+        p->setPen(t.text);
+        p->drawText(text.adjusted(0, 0, 0, -(text.height() - line)), Qt::AlignVCenter,
+                    QFontMetrics(p->font()).elidedText(index.data(Qt::UserRole + 1).toString(), Qt::ElideRight, text.width()));
+        p->setFont(option.font);
+        p->setPen(t.muted);
+        p->drawText(text.adjusted(0, line + ui::SpaceXS, 0, 0), Qt::AlignVCenter,
+                    QFontMetrics(option.font).elidedText(QDir::toNativeSeparators(index.data(Qt::UserRole).toString()),
+                                                        Qt::ElideMiddle, text.width()));
+        p->restore();
+    }
+};
 class EditorTabs : public QTabWidget {
     QScrollArea *welcome;
     QLabel *logo = nullptr;
     QVBoxLayout *welcomeLayout = nullptr;
     QBoxLayout *welcomeActions = nullptr;
     QBoxLayout *welcomeKeys = nullptr;
+    QWidget *recentSection = nullptr;
+    QMenu *recentMenu = nullptr;
+    QListWidget *recentPacks = nullptr;
+    QLabel *noRecent = nullptr;
+    QPushButton *allRecent = nullptr;
+    bool recentRefreshQueued = false;
+    void rebuildRecent() {
+        recentRefreshQueued = false;
+        recentPacks->clear();
+        for (auto action : recentMenu->actions()) {
+            if (action->isSeparator() || recentPacks->count() == 4)
+                continue;
+            const auto path = action->text();
+            const auto name = QFileInfo(path).fileName();
+            auto item = new QListWidgetItem(name + '\n' + QDir::toNativeSeparators(path), recentPacks);
+            item->setData(Qt::UserRole, path);
+            item->setData(Qt::UserRole + 1, name);
+            item->setToolTip("Open pack: " + QDir::toNativeSeparators(path));
+            item->setSizeHint({0, 2 * recentPacks->fontMetrics().lineSpacing() + 2 * ui::SpaceL + 2 * ui::SpaceXS});
+        }
+        const int count = recentPacks->count();
+        recentPacks->setVisible(count > 0);
+        noRecent->setVisible(count == 0);
+        allRecent->setEnabled(count > 0);
+        recentPacks->setFixedHeight(count * (2 * recentPacks->fontMetrics().lineSpacing() + 2 * ui::SpaceL + 2 * ui::SpaceXS));
+    }
     void resizeEvent(QResizeEvent *event) override {
         QTabWidget::resizeEvent(event);
         welcome->setGeometry(rect());
@@ -72,6 +127,8 @@ class EditorTabs : public QTabWidget {
         welcomeKeys->parentWidget()->setVisible(welcome->width() >= 320);
         const int margin = narrow ? ui::SpaceL : ui::Space3XL;
         welcomeLayout->setContentsMargins(margin, margin, margin, margin);
+        if (recentSection)
+            recentSection->setFixedWidth(std::min(520, std::max(1, welcome->width() - 2 * margin - ui::ScrollBarWidth)));
     }
     // Quiet, theme-aware close buttons replace the style's red close glyph.
     void tabInserted(int index) override {
@@ -92,6 +149,11 @@ class EditorTabs : public QTabWidget {
         });
     }
     bool eventFilter(QObject *object, QEvent *event) override {
+        if (object == recentMenu && (event->type() == QEvent::ActionAdded || event->type() == QEvent::ActionRemoved ||
+                                     event->type() == QEvent::ActionChanged) && !recentRefreshQueued) {
+            recentRefreshQueued = true;
+            QTimer::singleShot(0, this, [this] { rebuildRecent(); });
+        }
         // Middle-click closes a document tab, as in browsers and most editors.
         if (object == tabBar() && event->type() == QEvent::MouseButtonRelease) {
             auto mouse = static_cast<QMouseEvent *>(event);
@@ -159,15 +221,45 @@ class EditorTabs : public QTabWidget {
         }
         actions->addStretch();
         layout->addLayout(actions);
-        layout->addSpacing(ui::SpaceL);
-        auto row = new QHBoxLayout;
-        row->addStretch();
-        auto button = new QPushButton("Recent packs");
-        button->setMenu(recent);
-        button->setObjectName("welcomeRecent");
-        row->addWidget(button);
-        row->addStretch();
-        layout->addLayout(row);
+        layout->addSpacing(ui::Space3XL);
+        recentSection = new QWidget;
+        recentSection->setMaximumWidth(520);
+        recentSection->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto recentLayout = new QVBoxLayout(recentSection);
+        recentLayout->setContentsMargins(0, 0, 0, 0);
+        recentLayout->setSpacing(ui::SpaceS);
+        auto recentHeader = new QHBoxLayout;
+        auto recentTitle = new QLabel("Recent packs");
+        recentTitle->setFont(ui::font(ui::Type::Strong));
+        recentHeader->addWidget(recentTitle);
+        recentHeader->addStretch();
+        allRecent = new QPushButton("View all");
+        allRecent->setMenu(recent);
+        allRecent->setObjectName("welcomeRecent");
+        recentHeader->addWidget(allRecent);
+        recentLayout->addLayout(recentHeader);
+        recentPacks = new QListWidget;
+        recentPacks->setObjectName("welcomeRecentPacks");
+        recentPacks->setAccessibleName("Recent packs");
+        recentPacks->setFrameShape(QFrame::NoFrame);
+        recentPacks->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        recentPacks->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        recentPacks->setMouseTracking(true);
+        recentPacks->setItemDelegate(new RecentPackDelegate(recentPacks));
+        recentLayout->addWidget(recentPacks);
+        noRecent = ui::hint("No recent packs yet.");
+        recentLayout->addWidget(noRecent);
+        layout->addWidget(recentSection, 0, Qt::AlignHCenter);
+        recentMenu = recent;
+        recent->installEventFilter(this);
+        connect(recentPacks, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+            for (auto action : recentMenu->actions())
+                if (action->text() == item->data(Qt::UserRole).toString()) {
+                    action->trigger();
+                    break;
+                }
+        });
+        rebuildRecent();
         layout->addSpacing(ui::Space2XL);
         // Shortcut hints as keycaps, matching the command palette.
         auto keys = new QWidget;
@@ -444,6 +536,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     recentMenu = recent;
     for (const auto &path : preferences.recentProjects) {
         auto a = recent->addAction(path);
+        a->setProperty("recentPackPath", path);
         connect(a, &QAction::triggered, this, [this, path] {
             pathText->setText(path);
             emit pathText->returnPressed();
@@ -1747,6 +1840,7 @@ void Window::updateRecent() {
     recentMenu->clear();
     for (const auto &path : preferences.recentProjects.mid(0, 10)) {
         auto a = recentMenu->addAction(path);
+        a->setProperty("recentPackPath", path);
         connect(a, &QAction::triggered, this, [this, path] {
             pathText->setText(path);
             emit pathText->returnPressed();

@@ -294,7 +294,8 @@ class SearchDelegate : public QStyledItemDelegate {
     }
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override {
         auto size = QStyledItemDelegate::sizeHint(option, index);
-        return {size.width(), option.fontMetrics.height() + 2 * ui::SpaceL + 2 +
+        // Compact rows: about ten results show before the list scrolls.
+        return {size.width(), option.fontMetrics.height() + 2 * ui::SpaceM + 2 +
                                   headerHeight(index, option.fontMetrics)};
     }
 
@@ -545,6 +546,12 @@ SearchIndex Window::searchIndex() {
         const auto bare = [](QString text) { return text.section(" (", 0, 0).remove(QChar(0x2026)).remove("...").trimmed(); };
         if (bare(tip) != bare(entry.title))
             entry.description = tip;
+        const auto recentPath = action->property("recentPackPath").toString();
+        if (!recentPath.isEmpty()) {
+            entry.title = "Open pack: " + QFileInfo(recentPath).fileName();
+            entry.description = QDir::toNativeSeparators(recentPath);
+            entry.keywords += QStringList{"recent", "resource pack", recentPath};
+        }
         entry.unavailable = unavailableReason(action, chain);
         if (entry.category == "Workspace" || entry.category == "Setting")
             entry.current = action->isCheckable() && action->isChecked();

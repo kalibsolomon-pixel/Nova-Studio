@@ -453,10 +453,8 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
     setToolButtonStyle(Qt::ToolButtonIconOnly);
     exclusive = new QActionGroup(this);
     for (const auto &info : toolInfos()) {
-        // Functional groups: draw | select | transform | shapes & fill | colour.
-        if (!groups.contains(info.group) && (info.group == "Select" || info.group == "Transform" ||
-                                              info.group == "Shapes" || info.group == "Colour"))
-            addSeparator();
+        // Each split button already groups its variants. Keep rules only around
+        // the Effects and colour controls so the tool choices scan as one cluster.
         auto a = new QAction(info.name, this);
         a->setObjectName("tool-" + info.id);
         a->setCheckable(true);
