@@ -2,7 +2,22 @@
 
 Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
 
-## Latest completed combined review: 32
+## Final review: 33 (iteration closed by the user)
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| zai-coding-plan/glm-5.3-flash | 7 | 7 | 8 | 7 | 7 | 7 | 6 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 6 | 7 | 7 |
+
+The four free OpenCode reviewers (GLM free, LongCat, MiniMax, Inkling) stalled at start-up
+and were cancelled at the five-minute limit. **The council's 9/10 bar was not reached.**
+The user ended the iteration after this round, satisfied with the result. Open suggestions
+that recur across rounds and could guide later work: tighter grouping on the tool options
+row, a less sparse Batch layout, a stable home for the 3D Preview across workspaces, a
+shorter Layers dock in the Model workspace (two sizing attempts were withdrawn), and
+stronger light-theme surface separation.
+
+## Combined review: 32
 
 | Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -287,6 +302,7 @@ Round 14 included consistent dock-body surfaces, more vertical room for colour c
 | 30 | framed artboard, accent-faded disabled checks | GLM free: 7; GLM z.ai: 8; LongCat: 8; MiniMax: 6; Inkling: 7; Terra: 7 |
 | 31 | firmer light hairlines, larger rail triangles, amber unsaved status | GLM free: 7; GLM z.ai: 8; MiniMax: 7; Inkling: 7; Terra: 7; LongCat: five-minute limit |
 | 32 | rimmed palette swatches, Process frames icon | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 33 | selection-filled active rail tool (final) | GLM z.ai: 7; Terra: 7; GLM free, LongCat, MiniMax, Inkling: stalled, cancelled |
 
 ## Verification
 
@@ -328,4 +344,4 @@ in every workspace, after Reset Workspace and after restoring layouts saved with
 other position, and that every tool is reachable by pointer and keyboard in compact,
 normal and large windows at 100%, 150% and 200% scaling.
 
-Evidence remains under `build/ui-polish`: baseline, latest captures, scores, review JSON and regression diagnostics. Design acceptance and the workspace regression remain open.
+Local evidence (untracked) remains under `build/ui-polish`: the round-0 baseline, the final captures, `scores.json` and the per-round charts. The full regression suite passes 66/66 with MCP excluded; the council's 9/10 bar was not reached before the user closed the iteration.
