@@ -81,8 +81,10 @@ void MaterialIconsTest::initTestCase() {
 void MaterialIconsTest::mapsValidatedGlyphs() {
     const QColor ink("#dee1eb"), disabled("#7c8291");
     QFont font(QStringLiteral("Material Symbols Outlined"));
-    font.setWeight(QFont::Normal);
     font.setPixelSize(32);
+    // The design system's icon spec: regular outlines at the drawn optical size.
+    font.setVariableAxis(QFont::Tag("wght"), 400);
+    font.setVariableAxis(QFont::Tag("opsz"), 32);
     const QFontMetricsF metrics(font);
     const QRect rect(0, 0, 32, 32);
     for (const auto &entry : icons) {

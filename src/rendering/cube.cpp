@@ -26,6 +26,7 @@ Cube::Cube(Metrics *m, QWidget *p) : QOpenGLWidget(p), metrics(m) {
             R"json({"elements":[{"from":[0,0,0],"to":[16,16,16],"faces":{"north":{"texture":"nova:active"},"south":{"texture":"nova:active"},"west":{"texture":"nova:active"},"east":{"texture":"nova:active"},"up":{"texture":"nova:active"},"down":{"texture":"nova:active"}}}]})json")
             .object();
     genericMesh = mc::mesh(model);
+    updateEmptyState(); // nothing is open yet
 }
 Cube::~Cube() {
     cleanup();
@@ -63,6 +64,7 @@ void Cube::setDocument(std::shared_ptr<Document> doc) {
     document = std::move(doc);
     playbackPreview = {};
     fullUpload = true;
+    updateEmptyState();
     if (!document && texture && context() && context()->isValid()) {
         makeCurrent();
         glDeleteTextures(1, &texture);
@@ -97,7 +99,18 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
         materialImages.insert(QString{}, fallback);
     alphaCache.clear();
     selectedFace = -1;
+    updateEmptyState();
     update();
+}
+void Cube::updateEmptyState() {
+    const bool empty = !document && !modelMesh;
+    if (!emptyLabel) {
+        emptyLabel = ui::emptyState("Open a texture or model to preview it in 3D", this, "cube");
+        emptyLabel->setObjectName("previewEmpty");
+        emptyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
+    emptyLabel->setGeometry(rect());
+    emptyLabel->setVisible(empty);
 }
 // The notice is a child label over the GL view rather than QPainter output in paintGL:
 // painter output there reached only grabFramebuffer(), never the on-screen widget.
@@ -116,10 +129,10 @@ void Cube::setNotice(const QString &text) {
         noticeLabel->setWordWrap(false); // placeNotice() wraps within the line budget
         noticeLabel->setTextFormat(Qt::PlainText);
         noticeLabel->setAttribute(Qt::WA_TransparentForMouseEvents); // orbiting still works under it
-        const auto &t = ui::current();
-        noticeLabel->setStyleSheet(QString("QLabel#previewNotice{background:rgb(39,42,54);color:rgb(222,225,235);"
-                                           "border:1px solid %1;border-left:3px solid %1;padding:%2px %3px}")
-                                       .arg(t.warning.name()).arg(ui::SpaceS).arg(ui::SpaceL));
+        noticeLabel->setProperty("role", "notice"); // tinted warning banner from the theme
+        // Padding lives on the label so placeNotice() budgets the same frame with or
+        // without the application stylesheet.
+        noticeLabel->setContentsMargins(ui::SpaceL, ui::SpaceS, ui::SpaceL, ui::SpaceS);
     }
     noticeLabel->setAccessibleName(text);
     noticeLabel->setVisible(!text.isEmpty());
@@ -183,6 +196,7 @@ void Cube::changeEvent(QEvent *event) {
 void Cube::resizeEvent(QResizeEvent *event) {
     QOpenGLWidget::resizeEvent(event);
     placeNotice();
+    updateEmptyState();
 }
 void Cube::setMaterialImage(const QString &asset, const QImage &image) {
     if (image.isNull() || materialImages.value(asset).cacheKey() == image.cacheKey())
@@ -386,14 +400,16 @@ void Cube::initializeGL() {
 void Cube::paintGL() {
     QElapsedTimer timer;
     timer.start();
-    glClearColor(19.f / 255, 22.f / 255, 30.f / 255, 1);
+    // Models read against the same surround as textures.
+    const QColor clear = ui::current().canvas;
+    glClearColor(clear.redF(), clear.greenF(), clear.blueF(), 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if ((!document && !modelMesh) || !program || !program->isLinked() || !buffer.isCreated()) {
         QPainter p(this);
-        p.setPen(palette().color(QPalette::Text));
+        p.setPen(ui::current().muted);
         p.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignCenter | Qt::TextWordWrap,
                    document ? "3D preview unavailable. Your texture remains editable."
-                            : "Open a texture or Minecraft model");
+                            : "Open a texture or model to preview it in 3D");
         return;
     }
     if (geometryDirty)

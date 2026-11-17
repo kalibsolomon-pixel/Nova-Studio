@@ -30,7 +30,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     targets->setAccessibleName("Model or item definition");
     v->setContentsMargins(ui::SpaceL, ui::SpaceM, ui::SpaceL, ui::SpaceM);
     v->setSpacing(ui::SpaceM);
-    v->addWidget(ui::sectionTitle("Model"));
+    v->addWidget(ui::sectionTitle("Minecraft version"));
     auto resources = new QPushButton("Resource stack…");
     resources->setObjectName("resourceStack");
     resources->setToolTip("Choose resource packs below this one for fallback textures and models");
@@ -263,7 +263,9 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     faces = new QListWidget;
     faces->setObjectName("modelFaces");
     faces->setAccessibleName("Model faces");
-    faces->setMaximumHeight(90);
+    faces->setProperty("role", "inset");
+    // Six faces (a full block) show as whole rows; more faces scroll.
+    faces->setFixedHeight(6 * ui::InsetRowHeight + 8);
     v->addWidget(faces);
     faceInfo = new QLabel;
     faceInfo->setWordWrap(true);
@@ -772,6 +774,12 @@ void ModelPanel::rebuild() {
             cube->setModel({});
             showFallback("Generic cube: not a Minecraft model. Choose a model to preview it.",
                          "The texture is drawn on all six faces of a plain cube.");
+        } else if (!document) {
+            // Nothing open: a quiet empty state rather than a warning about a missing model.
+            cube->setModel({});
+            cube->setNotice({});
+            diagnostics->setText("Open a texture to preview it in 3D.");
+            diagnostics->setToolTip({});
         } else {
             // Texture only: one flat, double-sided square. Never a cube that could be
             // mistaken for the texture's real model.
@@ -918,7 +926,14 @@ void ModelPanel::rebuild() {
     cube->setContextTransform(QMatrix4x4());
     syncing = true;
     for (const auto &face : mesh->faces)
-        faces->addItem(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
+        {
+            // Face first; the element names the part and the model path is shared, so it is shown once.
+            const auto element = face.element.section(" / ", -1);
+            auto item = new QListWidgetItem(QString("%1  ·  %2%3").arg(face.name, element,
+                                                face.rotation ? QString("  ·  %1°").arg(face.rotation) : QString()));
+            item->setToolTip(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
+            faces->addItem(item);
+        }
     syncing = false;
     QStringList paths = library->dependencies(asset) + library->dependents(asset) +
                         library->dependents(activeAsset);

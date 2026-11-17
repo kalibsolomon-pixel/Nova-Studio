@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "window.h"
-#include "tool_placement.h"
+#include "workspace_layout.h"
 #include "service.h"
 #include "branding.h"
 #include "fabric_testing.h"
@@ -16,6 +16,32 @@
 #include <QtWidgets>
 namespace nova {
 namespace {
+// Long asset names shorten their stem and keep the whole extension chain, so siblings
+// such as "material_a.png" and "material_a.png.mcmeta" stay distinguishable.
+class AssetNameDelegate : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+  protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        // Asset thumbnails retain their document colours when selected.
+        if (!option->icon.isNull())
+            option->icon.addPixmap(option->icon.pixmap(option->decorationSize, QIcon::Normal), QIcon::Selected);
+        const auto &metrics = option->fontMetrics;
+        const int room = option->rect.width() - option->decorationSize.width() - 4 * ui::SpaceS;
+        if (room <= 0 || metrics.horizontalAdvance(option->text) <= room)
+            return;
+        const int dot = option->text.indexOf('.', 1);
+        if (dot < 0)
+            return;
+        const auto suffix = option->text.mid(dot);
+        const int stemRoom = room - metrics.horizontalAdvance(suffix);
+        if (stemRoom < 3 * metrics.horizontalAdvance(QChar(0x2026)))
+            return; // too narrow: the view's own elision takes over
+        option->text = metrics.elidedText(option->text.left(dot), Qt::ElideRight, stemRoom) + suffix;
+    }
+};
 class ModelTab : public QWidget {
   public:
     explicit ModelTab(std::shared_ptr<mc::ModelEdit> document) : doc(std::move(document)) {
@@ -27,14 +53,88 @@ class ModelTab : public QWidget {
     int face = -1;
 };
 
+class RecentPackDelegate final : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto &t = ui::current();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hover = option.state & QStyle::State_MouseOver;
+        const auto rect = option.rect.adjusted(0, ui::SpaceXS, 0, -ui::SpaceXS);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        p->setBrush(selected ? t.accentMuted : hover ? t.raised : t.window);
+        p->setPen(option.state & QStyle::State_HasFocus ? QPen(t.accent) : QPen(Qt::NoPen));
+        p->drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), ui::RadiusS, ui::RadiusS);
+        const int icon = ui::IconSize;
+        ui::lineIcon("folder").paint(p, QRect(rect.left() + ui::SpaceXL, rect.center().y() - icon / 2, icon, icon));
+        const auto text = rect.adjusted(ui::SpaceXL + icon + ui::SpaceXL, ui::SpaceL, -ui::SpaceXL, -ui::SpaceL);
+        const int line = QFontMetrics(option.font).lineSpacing();
+        p->setFont(ui::font(ui::Type::Strong));
+        p->setPen(t.text);
+        p->drawText(text.adjusted(0, 0, 0, -(text.height() - line)), Qt::AlignVCenter,
+                    QFontMetrics(p->font()).elidedText(index.data(Qt::UserRole + 1).toString(), Qt::ElideRight, text.width()));
+        p->setFont(option.font);
+        p->setPen(t.muted);
+        p->drawText(text.adjusted(0, line + ui::SpaceXS, 0, 0), Qt::AlignVCenter,
+                    QFontMetrics(option.font).elidedText(index.data(Qt::UserRole + 2).toString(), Qt::ElideMiddle,
+                                                        text.width()));
+        p->restore();
+    }
+};
 class EditorTabs : public QTabWidget {
     QScrollArea *welcome;
     QLabel *logo = nullptr;
+    QVBoxLayout *welcomeLayout = nullptr;
+    QBoxLayout *welcomeActions = nullptr;
+    QBoxLayout *welcomeKeys = nullptr;
+    QWidget *recentSection = nullptr;
+    QMenu *recentMenu = nullptr;
+    QListWidget *recentPacks = nullptr;
+    QLabel *noRecent = nullptr;
+    QPushButton *allRecent = nullptr;
+    bool recentRefreshQueued = false;
+    void rebuildRecent() {
+        recentRefreshQueued = false;
+        recentPacks->clear();
+        for (auto action : recentMenu->actions()) {
+            if (action->isSeparator() || recentPacks->count() == 4)
+                continue;
+            const auto path = action->text();
+            const auto name = QFileInfo(path).fileName();
+            // The home folder reads as "~", so the part of the path that differs stays visible.
+            auto shown = QDir::toNativeSeparators(path);
+            const auto home = QDir::toNativeSeparators(QDir::homePath());
+            if (shown.startsWith(home + QDir::separator(), Qt::CaseInsensitive))
+                shown = '~' + shown.mid(home.size());
+            auto item = new QListWidgetItem(name + '\n' + shown, recentPacks);
+            item->setData(Qt::UserRole, path);
+            item->setData(Qt::UserRole + 1, name);
+            item->setData(Qt::UserRole + 2, shown);
+            item->setToolTip("Open pack: " + QDir::toNativeSeparators(path));
+            item->setSizeHint({0, 2 * recentPacks->fontMetrics().lineSpacing() + 2 * ui::SpaceL + 2 * ui::SpaceXS});
+        }
+        const int count = recentPacks->count();
+        recentPacks->setVisible(count > 0);
+        noRecent->setVisible(count == 0);
+        allRecent->setEnabled(count > 0);
+        recentPacks->setFixedHeight(count * (2 * recentPacks->fontMetrics().lineSpacing() + 2 * ui::SpaceL + 2 * ui::SpaceXS));
+    }
     void resizeEvent(QResizeEvent *event) override {
         QTabWidget::resizeEvent(event);
-        welcome->setGeometry(rect().adjusted(8, 8, -8, -8));
+        welcome->setGeometry(rect());
         if (logo)
             logo->setVisible(welcome->height() >= 320);
+        // Narrow centre areas stack the actions instead of scrolling sideways.
+        const bool narrow = welcome->width() < 400;
+        welcomeActions->setDirection(narrow ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        welcomeKeys->setDirection(welcome->width() < 600 ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+        // Shortcut hints are secondary: very narrow areas drop them rather than scroll.
+        welcomeKeys->parentWidget()->setVisible(welcome->width() >= 320);
+        const int margin = narrow ? ui::SpaceL : ui::Space3XL;
+        welcomeLayout->setContentsMargins(margin, margin, margin, margin);
+        if (recentSection)
+            recentSection->setFixedWidth(std::min(520, std::max(1, welcome->width() - 2 * margin - ui::ScrollBarWidth)));
     }
     // Quiet, theme-aware close buttons replace the style's red close glyph.
     void tabInserted(int index) override {
@@ -55,6 +155,11 @@ class EditorTabs : public QTabWidget {
         });
     }
     bool eventFilter(QObject *object, QEvent *event) override {
+        if (object == recentMenu && (event->type() == QEvent::ActionAdded || event->type() == QEvent::ActionRemoved ||
+                                     event->type() == QEvent::ActionChanged) && !recentRefreshQueued) {
+            recentRefreshQueued = true;
+            QTimer::singleShot(0, this, [this] { rebuildRecent(); });
+        }
         // Middle-click closes a document tab, as in browsers and most editors.
         if (object == tabBar() && event->type() == QEvent::MouseButtonRelease) {
             auto mouse = static_cast<QMouseEvent *>(event);
@@ -81,57 +186,130 @@ class EditorTabs : public QTabWidget {
         welcome->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         auto body = new QWidget;
         welcome->setWidget(body);
-        auto layout = new QVBoxLayout(body);
-        layout->setContentsMargins(4, 4, 4, 4);
-        layout->addStretch();
+        auto layout = welcomeLayout = new QVBoxLayout(body);
+        layout->setContentsMargins(ui::Space3XL, ui::Space3XL, ui::Space3XL, ui::Space3XL);
+        layout->setSpacing(0);
+        layout->addStretch(3);
         logo = new QLabel;
         logo->setObjectName("welcomeLogo");
-        logo->setPixmap(logoIcon().pixmap(QSize(80, 80), devicePixelRatioF()));
+        logo->setPixmap(logoIcon().pixmap(QSize(72, 72), devicePixelRatioF()));
         logo->setAlignment(Qt::AlignCenter);
         logo->setAccessibleName("Nova Studio logo");
         layout->addWidget(logo);
+        layout->addSpacing(ui::Space2XL);
         auto title = new QLabel("Nova Studio");
+        title->setObjectName("welcomeTitle");
+        title->setProperty("role", "display");
         title->setAlignment(Qt::AlignCenter);
         title->setWordWrap(true);
-        auto font = title->font();
-        font.setPointSize(18);
-        title->setFont(font);
         layout->addWidget(title);
-        auto caption = new QLabel("Minecraft Java resource packs");
+        layout->addSpacing(ui::SpaceS);
+        auto caption = new QLabel("Create and edit Minecraft Java Edition resource packs");
+        caption->setProperty("role", "hint");
         caption->setAlignment(Qt::AlignCenter);
         caption->setWordWrap(true);
         layout->addWidget(caption);
+        layout->addSpacing(ui::Space3XL);
         Q_UNUSED(folder);
+        auto actions = welcomeActions = new QBoxLayout(QBoxLayout::LeftToRight);
+        actions->setSpacing(ui::SpaceL);
+        actions->addStretch();
         for (auto action : {create, open}) {
-            auto row = new QHBoxLayout;
-            row->addStretch();
             auto button = new QPushButton(action == create ? "Create pack…" : "Open pack…");
             button->setToolTip(action->text());
             button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            button->setMinimumWidth(136);
             button->setObjectName(action == create ? "welcomeCreate" : "welcomeOpen");
-            row->addWidget(button);
-            row->addStretch();
-            layout->addLayout(row);
+            if (action == create)
+                ui::setPrimary(button);
+            actions->addWidget(button, 0, Qt::AlignHCenter);
             connect(button, &QPushButton::clicked, action, &QAction::trigger);
         }
-        auto row = new QHBoxLayout;
-        row->addStretch();
-        auto button = new QPushButton("Recent Projects");
-        button->setMenu(recent);
-        button->setObjectName("welcomeRecent");
-        row->addWidget(button);
-        row->addStretch();
-        layout->addLayout(row);
-        layout->addStretch();
+        actions->addStretch();
+        layout->addLayout(actions);
+        layout->addSpacing(ui::Space3XL);
+        recentSection = new QWidget;
+        recentSection->setMaximumWidth(520);
+        recentSection->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto recentLayout = new QVBoxLayout(recentSection);
+        recentLayout->setContentsMargins(0, 0, 0, 0);
+        recentLayout->setSpacing(ui::SpaceS);
+        auto recentHeader = new QHBoxLayout;
+        auto recentTitle = new QLabel("Recent packs");
+        recentTitle->setFont(ui::font(ui::Type::Strong));
+        recentHeader->addWidget(recentTitle);
+        recentHeader->addStretch();
+        allRecent = new QPushButton("View all");
+        allRecent->setProperty("role", "link");
+        allRecent->setMenu(recent);
+        allRecent->setObjectName("welcomeRecent");
+        recentHeader->addWidget(allRecent);
+        recentLayout->addLayout(recentHeader);
+        recentPacks = new QListWidget;
+        recentPacks->setObjectName("welcomeRecentPacks");
+        recentPacks->setAccessibleName("Recent packs");
+        recentPacks->setFrameShape(QFrame::NoFrame);
+        recentPacks->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        recentPacks->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        recentPacks->setMouseTracking(true);
+        recentPacks->setItemDelegate(new RecentPackDelegate(recentPacks));
+        recentLayout->addWidget(recentPacks);
+        noRecent = ui::hint("No recent packs yet.");
+        recentLayout->addWidget(noRecent);
+        layout->addWidget(recentSection, 0, Qt::AlignHCenter);
+        recentMenu = recent;
+        recent->installEventFilter(this);
+        connect(recentPacks, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+            for (auto action : recentMenu->actions())
+                if (action->text() == item->data(Qt::UserRole).toString()) {
+                    action->trigger();
+                    break;
+                }
+        });
+        rebuildRecent();
+        layout->addSpacing(ui::Space2XL);
+        // Shortcut hints as keycaps, matching the command palette.
+        auto keys = new QWidget;
+        keys->setObjectName("welcomeShortcuts");
+        keys->setMaximumWidth(640);
+        // Each hint is one group; narrow areas stack the groups instead of scrolling.
+        auto keyRow = welcomeKeys = new QBoxLayout(QBoxLayout::LeftToRight, keys);
+        keyRow->setContentsMargins(0, 0, 0, 0);
+        keyRow->setSpacing(ui::Space3XL);
+        const std::pair<QStringList, const char *> hints[] = {
+            {{"Ctrl", "N"}, "New pack"}, {{"Ctrl", "Shift", "O"}, "Open pack"}, {{"Ctrl", "K"}, "Search"}};
+        for (const auto &[combo, what] : hints) {
+            auto group = new QWidget;
+            auto groupRow = new QHBoxLayout(group);
+            groupRow->setContentsMargins(0, 0, 0, 0);
+            groupRow->setSpacing(ui::SpaceS);
+            for (const auto &key : combo) {
+                auto cap = new QLabel(key);
+                cap->setProperty("role", "keycap");
+                groupRow->addWidget(cap);
+            }
+            auto label = new QLabel(what);
+            label->setProperty("role", "hint");
+            groupRow->addSpacing(ui::SpaceS);
+            groupRow->addWidget(label);
+            keyRow->addWidget(group, 0, Qt::AlignHCenter);
+        }
+        layout->addWidget(keys, 0, Qt::AlignHCenter);
+        layout->addStretch(4);
         connect(this, &QTabWidget::currentChanged, this,
                 [this] { welcome->setVisible(count() == 0); });
     }
 };
+// Tabs prioritise the filename. Export state stays in the Inspector and tooltip.
+QString documentTabText(const Document &doc, bool dirty) {
+    return QFileInfo(doc.path).fileName() + (dirty ? "  ●" : "");
+}
 } // namespace
 
 Window::Window(QString p, QString output, QElapsedTimer time)
     : project(p.isEmpty() ? QString() : QDir(p).absolutePath()), telemetry(std::move(output)),
       started(time) {
+    ui::prepareApplication();
     QElapsedTimer setup;
     setup.start();
     metrics.samples["application_init"].append(qApp->property("applicationInitMs").toDouble());
@@ -169,8 +347,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             const auto &doc = canvas->document;
             if (canvas == current() || doc->id() != id)
                 continue;
-            tabs->setTabText(i, QFileInfo(doc->path).fileName() + (documentDirty(*doc) ? " ●" : "") +
-                                (doc->nativeDocument() && doc->exportModified() ? " ↑PNG" : ""));
+            tabs->setTabText(i, documentTabText(*doc, documentDirty(*doc)));
             canvas->update();
         }
     });
@@ -196,7 +373,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     logo->setAccessibleName("Nova Studio logo");
     brandLayout->addWidget(logo);
     auto brandName = new QLabel("Nova Studio");
-    brandName->setStyleSheet("font-weight:600");
+    brandName->setProperty("role", "strong");
     brandLayout->addWidget(brandName);
     appBar->addWidget(brand);
     // Undo / Redo exist once: the application bar and Edit menu share them.
@@ -366,6 +543,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     recentMenu = recent;
     for (const auto &path : preferences.recentProjects) {
         auto a = recent->addAction(path);
+        a->setProperty("recentPackPath", path);
         connect(a, &QAction::triggered, this, [this, path] {
             pathText->setText(path);
             emit pathText->returnPressed();
@@ -435,15 +613,17 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     }
     panelsMenu = new QMenu("&Panels", this);
     panelsMenu->setObjectName("panelsMenu");
-    pathText = new QLineEdit(project);
+    pathText = ui::pathField(project);
     pathText->setMinimumWidth(120);
-    pathText->setMaximumWidth(460);
+    pathText->setMaximumWidth(560);
     pathText->setObjectName("projectPath");
     pathText->setAccessibleName("Resource pack folder");
     pathText->setPlaceholderText("Resource pack folder…");
     pathText->setToolTip("Resource pack folder · type a path and press Enter, or use Open Resource Pack (Ctrl+Shift+O)");
     auto open = new QAction("Go", this);
     open->setObjectName("openTypedProject");
+    open->setProperty("novaIcon", "go");
+    open->setIcon(ui::lineIcon("go"));
     open->setToolTip("Open the folder typed in the project field");
     connect(open, &QAction::triggered, pathText, &QLineEdit::returnPressed);
     connect(pathText, &QLineEdit::returnPressed, this, [this] {
@@ -541,6 +721,9 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     tree->setHeaderHidden(true);
     tree->setUniformRowHeights(true);
     tree->setIconSize({18, 18});
+    tree->setIndentation(14); // deep packs keep room for file names
+    tree->setTextElideMode(Qt::ElideMiddle);
+    tree->setItemDelegate(new AssetNameDelegate(tree)); // "animat….png.mcmeta" keeps its extensions
     tree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tree->setSelectionMode(QAbstractItemView::SingleSelection);
     grid = new QListView;
@@ -557,6 +740,22 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
     grid->setLayoutMode(QListView::Batched);
     grid->setBatchSize(100);
+    // With no pack open the tree says so instead of showing an empty well.
+    auto noPack = ui::emptyState("No resource pack open\n\nCreate or open a pack to browse its textures, "
+                                 "models and metadata.", nullptr, "folder");
+    noPack->setObjectName("assetsEmptyState");
+    noPack->setAttribute(Qt::WA_TransparentForMouseEvents);
+    (new QVBoxLayout(tree->viewport()))->addWidget(noPack);
+    const auto updateNoPack = [this, noPack] {
+        noPack->setVisible(project.isEmpty() && proxy->rowCount() == 0);
+        // The folder row (parent button and breadcrumb) only means something inside a pack.
+        if (auto up = findChild<QWidget *>("assetParent"))
+            up->setVisible(!project.isEmpty());
+    };
+    connect(proxy, &QAbstractItemModel::modelReset, noPack, updateNoPack);
+    connect(proxy, &QAbstractItemModel::rowsInserted, noPack, updateNoPack);
+    connect(proxy, &QAbstractItemModel::rowsRemoved, noPack, updateNoPack);
+    QTimer::singleShot(0, noPack, updateNoPack);
     browser = new QStackedWidget;
     browser->addWidget(tree);
     browser->addWidget(grid);
@@ -719,8 +918,15 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             c->update();
         }
     });
-    auto center = new QPushButton("Center canvas");
+    // Joins the zoom icons in the inspector's View row.
+    auto center = new QPushButton;
     center->setObjectName("centerCanvas");
+    center->setProperty("role", "icon");
+    center->setProperty("novaIcon", "center");
+    center->setIcon(ui::lineIcon("center"));
+    center->setIconSize({ui::IconSize, ui::IconSize});
+    center->setToolTip("Center canvas");
+    center->setAccessibleName("Center canvas");
     connect(center, &QPushButton::clicked, this, [this] {
         if (current())
             current()->center();
@@ -731,7 +937,9 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     auto inspectorScroll = new QScrollArea;
     inspectorScroll->setWidgetResizable(true);
     inspectorScroll->setFrameShape(QFrame::NoFrame);
+    inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // content wraps to the dock
     inspectorScroll->setWidget(inspector);
+    ui::addScrollFade(inspectorScroll);
     inspectorDock->setWidget(inspectorScroll);
     addDockWidget(Qt::RightDockWidgetArea, inspectorDock);
     layersDock = new QDockWidget("Layers", this);
@@ -741,6 +949,14 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     layersScroll->setWidgetResizable(true); layersScroll->setFrameShape(QFrame::NoFrame);
     layersScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     layersScroll->setWidget(layersPanel); layersDock->setWidget(layersScroll);
+    // The list scrolls itself; the dock never shrinks past the opacity row, two rows and
+    // the command strip, so those commands cannot be pushed out of view.
+    {
+        const auto margins = layersPanel->layout()->contentsMargins();
+        const int gap = layersPanel->layout()->spacing();
+        layersScroll->setMinimumHeight(margins.top() + margins.bottom() + 2 * gap + ui::ControlHeight +
+                                       2 * ui::RowHeight + 2 + ui::ControlHeight + ui::SpaceS);
+    }
     addDockWidget(Qt::RightDockWidgetArea, layersDock);
     splitDockWidget(inspectorDock, layersDock, Qt::Vertical);
     // Build editor widgets before the OpenGL preview exists: reparenting widgets into
@@ -794,6 +1010,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     auto modelScroll = new QScrollArea;
     modelScroll->setWidgetResizable(true); modelScroll->setFrameShape(QFrame::NoFrame);
     modelScroll->setWidget(modelPanel); modelsDock->setWidget(modelScroll);
+    ui::addScrollFade(modelScroll);
     addDockWidget(Qt::RightDockWidgetArea, modelsDock);
     tabifyDockWidget(inspectorDock, modelsDock); inspectorDock->raise();
     buildResourceTools(panelsMenu);
@@ -814,6 +1031,16 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     metrics.record("theme_apply", stage);
     metrics.record("ui_construction", setup);
     restore();
+    // Tabbed panels list their tabs above the content. The tab names the panel, so a
+    // tabbed dock drops its own title row; single and floating docks keep theirs.
+    setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
+    for (auto dock : findChildren<QDockWidget *>()) {
+        connect(dock, &QDockWidget::topLevelChanged, this, &Window::refreshDockTitles);
+        connect(dock, &QDockWidget::dockLocationChanged, this, &Window::refreshDockTitles);
+        connect(dock, &QDockWidget::visibilityChanged, this, &Window::refreshDockTitles);
+    }
+    connect(this, &QMainWindow::tabifiedDockWidgetActivated, this, &Window::refreshDockTitles);
+    refreshDockTitles();
     if (qApp->arguments().contains("--no-preview"))
         previewDock->hide();
     if (qApp->arguments().contains("--float-preview"))
@@ -869,6 +1096,7 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         safetyTimer->start();
     if (!fresh)
         QTimer::singleShot(800, this, &Window::recoverSession);
+    syncWelcomeLayout();
 }
 Window::~Window() {
     if (mcpService)
@@ -1100,13 +1328,35 @@ void Window::removeDocumentTab(int index) {
 }
 
 Canvas *Window::current() const { return dynamic_cast<Canvas *>(tabs->currentWidget()); }
+void Window::refreshDockTitles() {
+    // Deferred and coalesced: dock signals arrive in bursts while the layout settles.
+    if (property("dockTitlesPending").toBool())
+        return;
+    setProperty("dockTitlesPending", true);
+    QTimer::singleShot(0, this, [this] {
+        setProperty("dockTitlesPending", false);
+        for (auto dock : findChildren<QDockWidget *>()) {
+            auto title = dock->titleBarWidget();
+            const bool ours = title && title->property("novaTabbedTitle").toBool();
+            if (title && !ours)
+                continue; // docks with their own title bar (the tool strip) are left alone
+            bool tabbed = false;
+            if (!dock->isFloating())
+                for (auto sibling : tabifiedDockWidgets(dock))
+                    tabbed |= !sibling->isHidden();
+            if (tabbed && !ours) {
+                auto blank = new QWidget(dock);
+                blank->setProperty("novaTabbedTitle", true);
+                dock->setTitleBarWidget(blank);
+            } else if (!tabbed && ours) {
+                dock->setTitleBarWidget(nullptr);
+                title->deleteLater();
+            }
+        }
+    });
+}
 void Window::applyTheme() {
-    if (qApp->style()->objectName().compare("fusion", Qt::CaseInsensitive) != 0)
-        qApp->setStyle("Fusion");
-    const auto tokens = ui::tokens(dark, preferences.accent);
-    ui::setCurrent(tokens);
-    qApp->setPalette(ui::palette(tokens));
-    qApp->setStyleSheet(ui::styleSheet(tokens));
+    ui::apply(ui::tokens(dark, preferences.accent));
     if (themeAction && themeAction->isChecked() != dark) {
         QSignalBlocker block(themeAction);
         themeAction->setChecked(dark);
@@ -1117,6 +1367,7 @@ void Window::applyTheme() {
     metrics.record("theme_icons", icons);
 }
 void Window::indexProject() {
+    syncWelcomeLayout();
     if (reconciliationTimer) {
         if (project.isEmpty())
             reconciliationTimer->stop();
@@ -1352,13 +1603,15 @@ void Window::refresh() {
     viewportStage.start();
     if (canvas) {
         cube->setDocument(canvas->document);
-        tabs->setTabText(
-            tabs->indexOf(canvas),
-            QFileInfo(canvas->document->path).fileName() +
-                (documentDirty(*canvas->document) ? " ●" : "") +
-                (canvas->document->nativeDocument() && canvas->document->exportModified() ? " ↑PNG"
-                                                                                          : ""));
-        tabs->setTabToolTip(tabs->indexOf(canvas), canvas->document->path);
+        tabs->setTabText(tabs->indexOf(canvas), documentTabText(*canvas->document, documentDirty(*canvas->document)));
+        // The badges explain themselves on hover.
+        tabs->setTabToolTip(tabs->indexOf(canvas),
+                            canvas->document->path +
+                                (canvas->document->nativeDocument() && canvas->document->exportModified()
+                                     ? QString("\nPNG ↑ — the Minecraft PNG is older than this document "
+                                               "(Update Minecraft PNG, Ctrl+Alt+E)")
+                                     : QString()) +
+                                (documentDirty(*canvas->document) ? QString("\n● — unsaved changes") : QString()));
         if (auto save = findChild<QAction *>("saveCommand"))
             save->setText("Save");
         if (auto saveAs = findChild<QAction *>("saveAsCommand"))
@@ -1422,6 +1675,7 @@ void Window::refresh() {
     }
     if (canvas && canvas->document->animated())
         metrics.record("animation_viewport_refresh", viewportStage);
+    syncWelcomeLayout();
 }
 void Window::action(const QString &name) {
     // Reset to Vanilla history when the asset browser has focus (baseline projects only).
@@ -1593,6 +1847,7 @@ void Window::updateRecent() {
     recentMenu->clear();
     for (const auto &path : preferences.recentProjects.mid(0, 10)) {
         auto a = recentMenu->addAction(path);
+        a->setProperty("recentPackPath", path);
         connect(a, &QAction::triggered, this, [this, path] {
             pathText->setText(path);
             emit pathText->returnPressed();
@@ -1614,17 +1869,13 @@ void Window::restore() {
                           : QString("essentials");
     bool ok = false;
     if (!preferences.layout.isEmpty()) {
-        // An unknown tool position falls back to the left edge; the rest of the layout stays.
         ok = applyLayout(preferences.layout);
         metrics.count("layout_restored", ok ? 1 : 0);
     }
     if (!ok && name != "essentials")
         applyPreset(name, false);
-    else if (!ok) {
-        if (toolPlacement)
-            toolPlacement->place(ToolPlacement::LeftEdge);
+    else if (!ok)
         restoreState(defaultLayout, 1);
-    }
     preset = name;
     // The restored arrangement is this workspace's baseline once it has settled.
     QTimer::singleShot(0, this, [this, name] {
@@ -1656,11 +1907,9 @@ void Window::keepOnScreen() {
         if (dock && dock->isFloating())
             if (const auto target = Settings::visibleGeometry(dock->geometry(), available); target != dock->geometry())
                 dock->setGeometry(target);
-    if (toolPlacement)
-        toolPlacement->keepReachable();
 }
 // Screens added, removed, resized or rescaled (DPI): keep the window and floating
-// panels, including a floating tool strip, on an available screen.
+// panels on an available screen.
 void Window::watchScreens() {
     auto check = [this] {
         metrics.count("screen_change_rechecks", 1);
@@ -1690,10 +1939,8 @@ void Window::resetWorkspace() {
     for (auto bar : {static_cast<QToolBar *>(toolBox), static_cast<QToolBar *>(toolOptions), appBar})
         if (bar)
             bar->show();
-    // Product default: every workspace forgets the user's arrangement, tools on the left.
+    // Product default: every workspace forgets the user's arrangement.
     preferences.presetLayouts.clear();
-    if (toolPlacement)
-        toolPlacement->place(ToolPlacement::LeftEdge);
     applyPreset("essentials", false);
     statusBar()->showMessage("Workspace reset to Essentials");
 }

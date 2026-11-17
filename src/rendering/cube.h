@@ -42,6 +42,8 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     QString noticeText;
     QLabel *noticeLabel = nullptr; // child widget: shown on screen and in grabs
     void placeNotice();
+    QLabel *emptyLabel = nullptr; // "nothing to preview" state, also a child widget
+    void updateEmptyState();
     const mc::Mesh &scene() const { return modelMesh ? *modelMesh : genericMesh; }
     int vertexCount = 0;
     void uploadGeometry();

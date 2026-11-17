@@ -1,10 +1,61 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "timeline.h"
 #include "metrics.h"
+#include "theme.h"
 #include <QtWidgets>
 #include <algorithm>
 #include <array>
 namespace nova {
+namespace {
+class FrameDelegate final : public QStyledItemDelegate {
+  public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    static QSize cardSize(int thumbnail, const QFont &font) {
+        return {std::max(120, thumbnail + 4 * ui::SpaceL),
+                thumbnail + 4 * ui::SpaceL + 2 * QFontMetrics(font).lineSpacing() + ui::SpaceS};
+    }
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override {
+        return cardSize(option.decorationSize.height(), option.font);
+    }
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const auto &t = ui::current();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        const auto background = qvariant_cast<QBrush>(index.data(Qt::BackgroundRole));
+        const QRect card = option.rect.adjusted(ui::SpaceS, ui::SpaceS, -ui::SpaceS, -ui::SpaceS);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        p->setPen(QPen(selected ? t.accent : Qt::transparent, selected ? 2 : 1));
+        p->setBrush(selected ? QBrush(t.accentMuted) : hovered ? QBrush(t.raised) : background);
+        p->drawRoundedRect(QRectF(card).adjusted(1, 1, -1, -1), ui::RadiusM, ui::RadiusM);
+        // The outline stays outside the content padding; selection never tints artwork.
+        const auto thumbnail = qvariant_cast<QPixmap>(index.data(Qt::DecorationRole));
+        const auto size = thumbnail.size().scaled(option.decorationSize, Qt::KeepAspectRatio);
+        const QRect image(card.center().x() - size.width() / 2, card.top() + ui::SpaceL, size.width(), size.height());
+        p->setRenderHint(QPainter::SmoothPixmapTransform, false);
+        p->drawPixmap(image, thumbnail);
+        const auto lines = index.data(Qt::DisplayRole).toString().split('\n');
+        const int line = QFontMetrics(option.font).lineSpacing();
+        const QRect metadata(card.left() + ui::SpaceL, image.bottom() + 1 + ui::SpaceL,
+                             card.width() - 2 * ui::SpaceL, line);
+        auto caption = option.font;
+        caption.setPointSizeF(ui::TypeCaption);
+        p->setFont(caption);
+        p->setPen(selected ? t.selectionText : t.muted);
+        p->drawText(metadata, Qt::AlignCenter, lines.value(0));
+        p->setFont(option.font);
+        p->setPen(t.text);
+        p->drawText(metadata.translated(0, line + ui::SpaceS), Qt::AlignCenter,
+                    QFontMetrics(option.font).elidedText(lines.value(1), Qt::ElideRight, metadata.width()));
+        if (option.state & QStyle::State_HasFocus) {
+            p->setBrush(Qt::NoBrush);
+            p->setPen(QPen(t.accent, 1, Qt::DotLine));
+            p->drawRoundedRect(QRectF(card).adjusted(3, 3, -3, -3), ui::RadiusS, ui::RadiusS);
+        }
+        p->restore();
+    }
+};
+}
 int TimelineModel::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : int(entries.size()); }
 QUuid TimelineModel::frameAt(int row) const { return row >= 0 && row < int(entries.size()) ? entries[size_t(row)].frame : QUuid{}; }
 QVariant TimelineModel::data(const QModelIndex &index, int role) const {
@@ -13,12 +64,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const {
     auto frame = std::find_if(frames.begin(), frames.end(), [&](const auto &f) { return f.first == entry.frame; });
     if (frame == frames.end()) return {};
     const int ticks = entry.ticks ? entry.ticks : defaultTicks;
-    if (role == Qt::DisplayRole) return QString("%1%2 · %3t\n%4")
-        .arg(cursor == index.row() ? "▶ " : "").arg(index.row() + 1).arg(ticks).arg(frame->second);
+    if (role == Qt::DisplayRole) return QString("%1%2 · %3 %4\n%5")
+        .arg(cursor == index.row() ? "▶ " : "").arg(index.row() + 1).arg(ticks).arg(ticks == 1 ? "tick" : "ticks")
+        .arg(frame->second);
     if (role == Qt::ToolTipRole) return QString("Entry %1 → %2\n%3 ticks = %4 ms%5\nDrag to reorder playback references")
         .arg(index.row() + 1).arg(frame->second).arg(ticks).arg(qint64(ticks) * 50).arg(entry.ticks ? "" : " (default)");
     if (role == Qt::UserRole) return entry.frame;
-    if (role == Qt::BackgroundRole && entry.frame == document->activeFrame()) return QBrush(QColor(90, 70, 150, 95));
+    if (role == Qt::BackgroundRole && entry.frame == document->activeFrame()) return QBrush(ui::current().accentMuted);
     if (role == Qt::DecorationRole) {
         QElapsedTimer timer;
         timer.start();
@@ -26,7 +78,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const {
         const QString key = QString::number(image.cacheKey()) + ':' + QString::number(thumbnailSize);
         if (auto cached = thumbnails.object(key)) return *cached;
         QPixmap pixmap(thumbnailSize, thumbnailSize);
-        pixmap.fill(QColor(48, 48, 52));
+        pixmap.fill(ui::current().checkerDark);
         QPainter painter(&pixmap);
         const auto size = image.size().scaled(thumbnailSize, thumbnailSize, Qt::KeepAspectRatio);
         const QRect target((thumbnailSize - size.width()) / 2, (thumbnailSize - size.height()) / 2, size.width(), size.height());
@@ -89,29 +141,44 @@ void TimelineModel::setCursor(int value) {
 }
 TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(parent), session(s), playback(this) {
     setObjectName("animationTimeline");
+    setAttribute(Qt::WA_StyledBackground); // one panel fill behind every row, like the other docks
     setMinimumWidth(240);
-    auto layout = new QVBoxLayout(this); layout->setContentsMargins(6, 4, 6, 4); layout->setSpacing(4);
+    auto layout = new QVBoxLayout(this);
+    layout->setContentsMargins(ui::SpaceXL, ui::SpaceS, ui::SpaceXL, ui::SpaceS); layout->setSpacing(ui::SpaceS);
     auto scrollRow = [this, layout](QHBoxLayout *row) {
         auto content = new QWidget; content->setLayout(row); row->setContentsMargins(0, 0, 0, 0);
         auto scroll = new QScrollArea; scroll->setFrameShape(QFrame::NoFrame); scroll->setWidget(content);
-        scroll->setWidgetResizable(false); scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setWidgetResizable(true); scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded); scroll->setMinimumWidth(0);
-        content->adjustSize(); scroll->setFixedHeight(content->sizeHint().height() + 17);
+        content->adjustSize(); content->setMinimumWidth(content->sizeHint().width());
+        scroll->setFixedHeight(content->sizeHint().height() + ui::ScrollBarWidth);
         layout->addWidget(scroll);
     };
     auto controls = new QHBoxLayout;
-    auto button = [&](const QString &text, const QString &name, std::function<void()> callback) {
+    // Transport controls are icon buttons; frame commands pair an icon with their label.
+    auto button = [&](const QString &text, const QString &name, std::function<void()> callback,
+                      const QString &icon = {}, bool iconOnly = false) {
         auto b = new QToolButton; b->setText(text); b->setObjectName(name); b->setToolTip(text);
+        b->setAccessibleName(text);
+        if (!icon.isEmpty()) {
+            b->setProperty("novaIcon", icon);
+            b->setIcon(ui::lineIcon(icon));
+            b->setIconSize({ui::IconSize, ui::IconSize});
+            b->setToolButtonStyle(iconOnly ? Qt::ToolButtonIconOnly : Qt::ToolButtonTextBesideIcon);
+        }
         controls->addWidget(b); connect(b, &QToolButton::clicked, this, callback); return b;
     };
-    button("|◀", "animationFirst", [this] { navigate(0, true); });
-    button("◀", "animationPrevious", [this] { navigate(-1); });
+    button("First frame", "animationFirst", [this] { navigate(0, true); }, "first", true);
+    button("Previous frame", "animationPrevious", [this] { navigate(-1); }, "previous", true);
     auto play = button("Play", "animationPlay", [this] {
         if (playback.playing()) playback.pause(); else { emit beforeContextChange(); playback.play(); }
-    });
-    button("Stop", "animationStop", [this] { playback.stop(); });
-    button("▶", "animationNext", [this] { navigate(1); });
-    button("▶|", "animationLast", [this] { navigate(-1, true); });
+    }, "play", true);
+    button("Stop", "animationStop", [this] { playback.stop(); }, "stop", true);
+    button("Next frame", "animationNext", [this] { navigate(1); }, "next", true);
+    button("Last frame", "animationLast", [this] { navigate(-1, true); }, "last", true);
+    controls->addSpacing(ui::SpaceS); // a hairline separates transport, playback and frame groups
+    { auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); controls->addWidget(rule); }
+    controls->addSpacing(ui::SpaceS);
     auto loop = new QCheckBox("Loop"); loop->setChecked(true); controls->addWidget(loop);
     loop->setObjectName("animationLoop");
     connect(loop, &QCheckBox::toggled, &playback, &PlaybackController::setLoop);
@@ -119,18 +186,24 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     speed->setObjectName("animationSpeed");
     speed->setToolTip("Preview speed only; exported ticks are unchanged"); controls->addWidget(speed);
     connect(speed, &QComboBox::currentIndexChanged, this, [this](int i) { playback.setSpeed(std::array{.25, .5, 1., 2., 4.}[size_t(i)]); });
-    controls->addSpacing(6);
-    button("+ Frame", "addFrame", [this] { frameCommand(FrameCommand::Add); });
-    button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); });
-    button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); });
+    controls->addSpacing(ui::SpaceS); // a hairline separates transport, playback and frame groups
+    { auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); controls->addWidget(rule); }
+    controls->addSpacing(ui::SpaceS);
+    button("Frame", "addFrame", [this] { frameCommand(FrameCommand::Add); }, "add");
+    button("Duplicate", "duplicateFrame", [this] { frameCommand(FrameCommand::Duplicate); }, "duplicate");
+    button("Delete", "deleteFrame", [this] { frameCommand(FrameCommand::Delete); }, "delete");
     controls->addStretch();
-    button("Properties…", "animationProperties", [this] { emit propertiesRequested(); });
+    button("Properties…", "animationProperties", [this] { emit propertiesRequested(); }, "settings");
     scrollRow(controls);
     model = new TimelineModel(this);
     view = new QListView; view->setObjectName("frameTimeline"); view->setModel(model);
+    view->setItemDelegate(new FrameDelegate(view));
     view->setViewMode(QListView::IconMode); view->setFlow(QListView::LeftToRight); view->setWrapping(false);
-    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true); view->setGridSize({102, 98});
-    view->setIconSize({56, 56}); view->setMinimumHeight(105); view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    view->setResizeMode(QListView::Adjust); view->setUniformItemSizes(true);
+    view->setGridSize(FrameDelegate::cardSize(72, view->font()));
+    view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // one row of frames scrolls sideways
+    view->setIconSize({72, 72}); view->setMinimumHeight(view->gridSize().height() + ui::ScrollBarWidth);
+    view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     view->setDragDropMode(QAbstractItemView::InternalMove); view->setDefaultDropAction(Qt::MoveAction);
     view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel); view->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(view, 1);
@@ -141,34 +214,91 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     auto timingRow = new QHBoxLayout;
     sources = new QComboBox; sources->setObjectName("sourceFrameSelector"); sources->setMinimumContentsLength(8);
     sources->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    timingRow->addWidget(new QLabel("Source")); timingRow->addWidget(sources);
+    // Field labels are muted so the values lead; each names exactly what it sets.
+    auto fieldLabel = [](const QString &text) { auto l = new QLabel(text); l->setProperty("role", "hint"); return l; };
+    // Groups in the settings rows are split by the same hairline as the transport row.
+    const auto divider = [](QHBoxLayout *row) {
+        row->addSpacing(ui::SpaceL);
+        auto rule = new QFrame; rule->setProperty("role", "vrule"); rule->setFixedSize(1, ui::IconSize); row->addWidget(rule);
+        row->addSpacing(ui::SpaceL);
+    };
+    timingRow->setSpacing(ui::SpaceS);
+    timingRow->addWidget(fieldLabel("Source frame")); timingRow->addWidget(sources);
+    divider(timingRow);
     duration = new QSpinBox; duration->setObjectName("entryDuration"); duration->setRange(0, INT_MAX);
-    duration->setSpecialValueText("Default"); duration->setSuffix(" t"); duration->setKeyboardTracking(false);
-    timingRow->addWidget(new QLabel("Entry")); timingRow->addWidget(duration);
+    duration->setSpecialValueText("Default"); duration->setSuffix(" ticks"); duration->setKeyboardTracking(false);
+    timingRow->addWidget(fieldLabel("Entry duration")); timingRow->addWidget(duration);
+    timingRow->addSpacing(ui::SpaceXL);
     defaultTime = new QSpinBox; defaultTime->setObjectName("defaultDuration"); defaultTime->setRange(1, INT_MAX);
-    defaultTime->setSuffix(" t"); defaultTime->setKeyboardTracking(false);
-    timingRow->addWidget(new QLabel("Default")); timingRow->addWidget(defaultTime);
-    timing = new QLabel("1 tick = 50 ms"); timingRow->addWidget(timing);
+    defaultTime->setSuffix(" ticks"); defaultTime->setKeyboardTracking(false);
+    // The unit reads as a word, singular for one tick.
+    for (auto spin : {duration, defaultTime}) {
+        const auto unit = [spin](int v) { spin->setSuffix(v == 1 ? " tick" : " ticks"); };
+        connect(spin, &QSpinBox::valueChanged, spin, unit);
+        unit(spin->value());
+    }
+    timingRow->addWidget(fieldLabel("Default duration")); timingRow->addWidget(defaultTime);
+    timing = new QLabel("1 tick = 50 ms"); timing->setProperty("role", "hint");
+    timingRow->insertWidget(timingRow->indexOf(duration) + 1, timing);
+    divider(timingRow);
     interpolate = new QCheckBox("Interpolate"); interpolate->setObjectName("animationInterpolate"); timingRow->addWidget(interpolate);
     timingRow->addStretch();
-    auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(56); zoom->setMaximumWidth(100);
+    auto zoom = new QSlider(Qt::Horizontal); zoom->setRange(32, 112); zoom->setValue(72); zoom->setMaximumWidth(100);
     zoom->setObjectName("timelineZoom");
-    zoom->setToolTip("Timeline thumbnail size"); timingRow->addWidget(zoom); scrollRow(timingRow);
+    zoom->setToolTip("Timeline thumbnail size");
+    auto zoomIcon = new QLabel; zoomIcon->setPixmap(ui::lineIcon("zoom-in").pixmap(ui::IconSize, ui::IconSize));
+    zoomIcon->setToolTip(zoom->toolTip()); timingRow->addWidget(zoomIcon);
+    timingRow->addWidget(zoom); scrollRow(timingRow);
     connect(zoom, &QSlider::valueChanged, this, [this](int size) {
-        model->setThumbnailSize(size); view->setIconSize({size, size}); view->setGridSize({std::max(102, size + 16), size + 42});
+        model->setThumbnailSize(size); view->setIconSize({size, size});
+        view->setGridSize(FrameDelegate::cardSize(size, view->font()));
+        view->setMinimumHeight(view->gridSize().height() + ui::ScrollBarWidth);
     });
-    auto onionRow = new QHBoxLayout;
-    auto onion = new QCheckBox("Onion skin"); onion->setObjectName("onionEnabled"); onionRow->addWidget(onion);
-    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setPrefix("Previous "); previous->setObjectName("onionPrevious"); onionRow->addWidget(previous);
-    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setPrefix("Next "); next->setObjectName("onionNext"); onionRow->addWidget(next);
-    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity"); onionRow->addWidget(opacity);
-    auto tint = new QCheckBox("Tint"); tint->setChecked(true); onionRow->addWidget(tint);
+    auto onionSettings = new QToolButton;
+    onionSettings->setText("Onion skin"); onionSettings->setObjectName("onionSettings");
+    onionSettings->setToolTip("Onion skin: show adjacent frames while drawing");
+    auto onionBody = new QWidget;
+    auto onionForm = new QFormLayout(onionBody);
+    onionForm->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+    onionForm->setHorizontalSpacing(ui::SpaceXL); onionForm->setVerticalSpacing(ui::SpaceL);
+    auto onion = new QCheckBox("Show adjacent frames"); onion->setObjectName("onionEnabled"); onionForm->addRow(onion);
+    auto previous = new QSpinBox; previous->setRange(0, 8); previous->setValue(1); previous->setObjectName("onionPrevious"); onionForm->addRow("Previous frames", ui::sliderField(previous, "Onion skin previous frames"));
+    auto next = new QSpinBox; next->setRange(0, 8); next->setValue(1); next->setObjectName("onionNext"); onionForm->addRow("Next frames", ui::sliderField(next, "Onion skin next frames"));
+    auto opacity = new QSpinBox; opacity->setRange(1, 100); opacity->setValue(25); opacity->setSuffix("%"); opacity->setObjectName("onionOpacity");
+    auto opacityField = ui::sliderField(opacity, "Onion skin opacity");
+    onionForm->addRow("Opacity", opacityField);
+    auto tint = new QCheckBox("Tint adjacent frames"); tint->setChecked(true); onionForm->addRow(tint);
+    const auto syncOnionControls = [=](bool enabled) {
+        for (QWidget *control : std::initializer_list<QWidget *>{previous->parentWidget(), next->parentWidget(), opacityField, tint}) {
+            control->setEnabled(enabled);
+            if (auto label = onionForm->labelForField(control))
+                label->setEnabled(enabled);
+        }
+    };
+    connect(onion, &QCheckBox::toggled, this, syncOnionControls);
+    syncOnionControls(onion->isChecked());
+    ui::settingsMenu(onionSettings, onionBody);
+    previous->setToolTip("Onion skin: earlier frames shown"); next->setToolTip("Onion skin: later frames shown");
+    opacity->setToolTip("Onion skin opacity");
     tint->setObjectName("onionTint");
     auto updateOnion = [=, this] { emit onionChanged(onion->isChecked(), previous->value(), next->value(), opacity->value(), tint->isChecked()); };
     connect(onion, &QCheckBox::toggled, this, updateOnion); connect(previous, &QSpinBox::valueChanged, this, updateOnion);
     connect(next, &QSpinBox::valueChanged, this, updateOnion); connect(opacity, &QSpinBox::valueChanged, this, updateOnion); connect(tint, &QCheckBox::toggled, this, updateOnion);
-    onionRow->addStretch(); auto scope = new QPushButton("Process frames…"); scope->setObjectName("processAnimationFrames"); onionRow->addWidget(scope);
-    connect(scope, &QPushButton::clicked, this, [this] { emit scopeOperationRequested(); }); scrollRow(onionRow);
+    controls->insertWidget(controls->count() - 2, onionSettings);
+    auto frameRule = new QFrame; frameRule->setProperty("role", "vrule");
+    frameRule->setFixedSize(1, ui::IconSize);
+    controls->insertSpacing(controls->indexOf(onionSettings), ui::SpaceS);
+    controls->insertWidget(controls->indexOf(onionSettings), frameRule);
+    controls->insertSpacing(controls->indexOf(onionSettings), ui::SpaceS);
+    auto scope = new QToolButton; scope->setText("Process frames…"); scope->setObjectName("processAnimationFrames");
+    // An icon beside the text, like the other frame commands on this row.
+    scope->setProperty("novaIcon", "effects"); scope->setIcon(ui::lineIcon("effects"));
+    scope->setIconSize({ui::IconSize, ui::IconSize}); scope->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    controls->insertWidget(controls->count() - 1, scope);
+    connect(scope, &QToolButton::clicked, this, [this] { emit scopeOperationRequested(); });
+    connect(onion, &QCheckBox::toggled, this, [onionSettings](bool on) {
+        onionSettings->setText(on ? "Onion skin: on" : "Onion skin");
+    });
     connect(defaultTime, &QSpinBox::valueChanged, this, [this](int ticks) { if (!syncing && document) { auto state = document->animationState(); state.defaultTicks = ticks; apply(state, "Default Frame Timing"); } });
     connect(interpolate, &QCheckBox::toggled, this, [this](bool on) { if (!syncing && document) { auto state = document->animationState(); state.interpolate = on; apply(state, "Animation Interpolation"); } });
     connect(duration, &QSpinBox::valueChanged, this, [this](int ticks) {
@@ -184,7 +314,10 @@ TimelinePanel::TimelinePanel(DocumentSession *s, QWidget *parent) : QWidget(pare
     });
     connect(&playback, &PlaybackController::displayed, this, [this](const QImage &, int entry) { model->setCursor(entry); view->scrollTo(model->index(entry)); });
     connect(&playback, &PlaybackController::stopped, this, [this] { model->setCursor(-1); });
-    connect(&playback, &PlaybackController::statusChanged, this, [this, play] { play->setText(playback.playing() ? "Pause" : "Play"); });
+    connect(&playback, &PlaybackController::statusChanged, this, [this, play] { play->setText(playback.playing() ? "Pause" : "Play");
+        play->setToolTip(play->text());
+        play->setProperty("novaIcon", playback.playing() ? "pause" : "play");
+        play->setIcon(ui::lineIcon(play->property("novaIcon").toString())); });
 }
 void TimelinePanel::setDocument(std::shared_ptr<Document> doc) {
     if (document == doc && (!doc || syncedSerial == doc->changeSerial())) return;

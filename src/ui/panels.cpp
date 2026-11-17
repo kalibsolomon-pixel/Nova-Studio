@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "panels.h"
+#include "theme.h"
 #include <QColorDialog>
 #include <QComboBox>
 #include <QFileDialog>
@@ -20,6 +21,49 @@
 #include <QVBoxLayout>
 
 namespace nova {
+namespace {
+// A colour-channel slider: its track previews the colours the channel reaches, and the
+// handle carries the current colour, as in dedicated paint tools.
+class ChannelSlider : public QSlider {
+    QGradientStops stops;
+    QColor handle;
+
+  public:
+    ChannelSlider() : QSlider(Qt::Horizontal) {}
+    void setTrack(QGradientStops s, QColor c) {
+        stops = std::move(s);
+        handle = c;
+        update();
+    }
+
+  protected:
+    void paintEvent(QPaintEvent *) override {
+        const auto &t = ui::current();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const qreal radius = 7;
+        const QRectF track(radius, height() / 2.0 - 3, width() - 2 * radius, 6);
+        QLinearGradient fill(track.topLeft(), track.topRight());
+        fill.setStops(stops.isEmpty() ? QGradientStops{{0, t.raised}, {1, t.raised}} : stops);
+        p.setPen(QPen(t.borderStrong, 1));
+        p.setBrush(fill);
+        p.drawRoundedRect(track, 3, 3);
+        const qreal span = std::max(1, maximum() - minimum());
+        const QPointF centre(track.left() + (value() - minimum()) / span * track.width(), height() / 2.0);
+        p.setPen(QPen(QColor(0, 0, 0, 110), 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(centre, radius, radius);
+        p.setPen(QPen(Qt::white, 2));
+        p.setBrush(handle.isValid() ? handle : t.accent);
+        p.drawEllipse(centre, radius - 1.5, radius - 1.5);
+        if (hasFocus()) {
+            p.setPen(QPen(t.accent, 1.5));
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(centre, radius + 1.5, radius + 1.5);
+        }
+    }
+};
+} // namespace
 // Compact palette swatches; click = foreground, right-click = background,
 // double-click = edit (user palettes), context menu for removal.
 class SwatchGrid : public QWidget {
@@ -49,11 +93,17 @@ class SwatchGrid : public QWidget {
         const int cols = columns();
         for (int i = 0; i < int(colors.size()); ++i) {
             const QRect r((i % cols) * cell, (i / cols) * cell, cell - 1, cell - 1);
-            p.fillRect(r, QColor(60, 60, 60));
-            p.fillRect(r.adjusted(0, 0, -r.width() / 2, -r.height() / 2), QColor(90, 90, 90));
-            p.fillRect(r.adjusted(r.width() / 2, r.height() / 2, 0, 0), QColor(90, 90, 90));
+            p.fillRect(r, ui::current().checkerDark);
+            p.fillRect(r.adjusted(0, 0, -r.width() / 2, -r.height() / 2), ui::current().checkerLight);
+            p.fillRect(r.adjusted(r.width() / 2, r.height() / 2, 0, 0), ui::current().checkerLight);
             p.fillRect(r, QColor::fromRgba(colors[size_t(i)]));
         }
+        // A faint rim keeps swatches close to the panel colour visible as cells.
+        QColor rim = ui::current().text;
+        rim.setAlpha(40);
+        p.setPen(rim);
+        for (int i = 0; i < int(colors.size()); ++i)
+            p.drawRect(QRect((i % cols) * cell, (i / cols) * cell, cell - 2, cell - 2));
     }
     void mousePressEvent(QMouseEvent *e) override {
         const int i = indexAt(e->position().toPoint());
@@ -87,9 +137,9 @@ namespace {
 QIcon swatchIcon(QRgb c, int size = 30) {
     QPixmap pm(size, size);
     QPainter p(&pm);
-    p.fillRect(pm.rect(), QColor(70, 70, 70));
-    p.fillRect(QRect(0, 0, size / 2, size / 2), QColor(110, 110, 110));
-    p.fillRect(QRect(size / 2, size / 2, size / 2, size / 2), QColor(110, 110, 110));
+    p.fillRect(pm.rect(), ui::current().checkerDark);
+    p.fillRect(QRect(0, 0, size / 2, size / 2), ui::current().checkerLight);
+    p.fillRect(QRect(size / 2, size / 2, size / 2, size / 2), ui::current().checkerLight);
     p.fillRect(pm.rect(), QColor::fromRgba(c));
     p.setPen(Qt::black);
     p.drawRect(pm.rect().adjusted(0, 0, -1, -1));
@@ -100,8 +150,8 @@ QIcon swatchIcon(QRgb c, int size = 30) {
 ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget(parent), state(s), store(p) {
     setObjectName("colorPanel");
     auto v = new QVBoxLayout(this);
-    v->setContentsMargins(8, 8, 8, 8);
-    v->setSpacing(6);
+    v->setContentsMargins(ui::SpaceXL, ui::SpaceL, ui::SpaceXL, ui::SpaceL);
+    v->setSpacing(ui::SpaceM);
     auto top = new QHBoxLayout;
     fg = new QToolButton;
     fg->setObjectName("foregroundSwatch");
@@ -111,41 +161,50 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     bg->setObjectName("backgroundSwatch");
     bg->setIconSize({22, 22});
     bg->setToolTip("Background colour (click to choose)");
-    auto swap = new QToolButton;
-    swap->setText("⇄");
-    swap->setToolTip("Swap colours (X)");
-    auto reset = new QToolButton;
-    reset->setText("◩");
-    reset->setToolTip("Default black/white (D)");
+    auto swap = ui::iconButton("swap-colors", "Swap colours (X)");
+    auto reset = ui::iconButton("reset-colors", "Default black/white (D)");
     top->addWidget(fg);
     top->addWidget(bg);
     top->addWidget(swap);
     top->addWidget(reset);
     top->addStretch();
+    v->addLayout(top);
+    // Hex shares its row with the slider model, as in other colour pickers; the field keeps
+    // room for the longest code (#AARRGGBB), so the palette below stays in view.
+    auto hexRow = new QHBoxLayout;
+    hexRow->setSpacing(ui::SpaceL);
+    auto hexLabel = new QLabel("Hex");
+    hexLabel->setProperty("role", "hint");
+    hexRow->addWidget(hexLabel);
     hex = new QLineEdit;
     hex->setObjectName("colorHex");
     hex->setToolTip("Hexadecimal colour: #RRGGBB or #AARRGGBB");
-    hex->setMaximumWidth(110);
-    top->addWidget(hex);
-    v->addLayout(top);
+    hex->setMinimumWidth(hex->fontMetrics().horizontalAdvance("#AARRGGBB") + 2 * ui::SpaceL + 2 * ui::SpaceS);
+    hexRow->addWidget(hex, 1);
+    model = new QComboBox;
+    model->addItems({"HSV", "HSL"});
+    model->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    model->setMinimumContentsLength(4);
+    model->setToolTip("Hue/saturation model for the sliders (encoded sRGB)");
+    model->setAccessibleName("Colour slider model");
+    hexRow->addWidget(model);
+    v->addLayout(hexRow);
     auto grid2 = new QGridLayout;
     grid2->setHorizontalSpacing(4);
     grid2->setVerticalSpacing(2);
-    model = new QComboBox;
-    model->addItems({"HSV", "HSL"});
-    model->setToolTip("Hue/saturation model for the sliders (encoded sRGB)");
-    grid2->addWidget(model, 0, 0, 1, 3);
     const char *names[3] = {"H", "S", "V"};
     for (int i = 0; i < 3; ++i) {
         auto l = new QLabel(names[i]);
         l->setObjectName(QString("channelLabel%1").arg(i));
-        slider[i] = new QSlider(Qt::Horizontal);
+        l->setProperty("role", "hint");
+        slider[i] = new ChannelSlider;
         channel[i] = new QSpinBox;
+        channel[i]->setButtonSymbols(QAbstractSpinBox::NoButtons); // compact value field; wheel and keys step
         slider[i]->setRange(0, i == 0 ? 359 : 100);
         channel[i]->setRange(0, i == 0 ? 359 : 100);
-        grid2->addWidget(l, i + 1, 0);
-        grid2->addWidget(slider[i], i + 1, 1);
-        grid2->addWidget(channel[i], i + 1, 2);
+        grid2->addWidget(l, i, 0);
+        grid2->addWidget(slider[i], i, 1);
+        grid2->addWidget(channel[i], i, 2);
         connect(slider[i], &QSlider::valueChanged, channel[i], &QSpinBox::setValue);
         connect(channel[i], &QSpinBox::valueChanged, slider[i], &QSlider::setValue);
         connect(channel[i], &QSpinBox::valueChanged, this, [this] {
@@ -156,14 +215,26 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
                                             : ops::fromHsl({h, a, b}, alpha->value()));
         });
     }
-    auto rgbRow = new QHBoxLayout;
+    // R G / B A as a two-by-two grid, so no field is squeezed at common dock widths.
+    auto rgbRow = new QGridLayout;
+    rgbRow->setHorizontalSpacing(ui::SpaceS);
+    rgbRow->setVerticalSpacing(ui::SpaceS);
+    rgbRow->setColumnStretch(1, 1);
+    rgbRow->setColumnStretch(3, 1);
+    rgbRow->setColumnMinimumWidth(2, ui::SpaceL + 10);
+    auto channelLabel = [](const char *text) {
+        auto l = new QLabel(text);
+        l->setProperty("role", "hint");
+        return l;
+    };
     const char *rgbNames[3] = {"R", "G", "B"};
     for (int i = 0; i < 3; ++i) {
         rgb[i] = new QSpinBox;
         rgb[i]->setRange(0, 255);
+        rgb[i]->setButtonSymbols(QAbstractSpinBox::NoButtons);
         rgb[i]->setObjectName(QString("rgb%1").arg(rgbNames[i]));
-        rgbRow->addWidget(new QLabel(rgbNames[i]));
-        rgbRow->addWidget(rgb[i]);
+        rgbRow->addWidget(channelLabel(rgbNames[i]), i / 2, (i % 2) * 2);
+        rgbRow->addWidget(rgb[i], i / 2, (i % 2) * 2 + 1);
         connect(rgb[i], &QSpinBox::valueChanged, this, [this] {
             if (!updating)
                 push(qRgba(rgb[0]->value(), rgb[1]->value(), rgb[2]->value(), alpha->value()));
@@ -171,27 +242,35 @@ ColorPanel::ColorPanel(ToolState *s, PaletteStore *p, QWidget *parent) : QWidget
     }
     alpha = new QSpinBox;
     alpha->setRange(0, 255);
+    alpha->setButtonSymbols(QAbstractSpinBox::NoButtons);
     alpha->setObjectName("rgbA");
-    rgbRow->addWidget(new QLabel("A"));
-    rgbRow->addWidget(alpha);
+    rgbRow->addWidget(channelLabel("A"), 1, 2);
+    rgbRow->addWidget(alpha, 1, 3);
     connect(alpha, &QSpinBox::valueChanged, this, [this](int a) {
         if (!updating)
             push(qRgba(qRed(state->foreground), qGreen(state->foreground), qBlue(state->foreground), a));
     });
-    grid2->addLayout(rgbRow, 4, 0, 1, 3);
+    grid2->addLayout(rgbRow, 3, 0, 1, 3);
     v->addLayout(grid2);
-    v->addWidget(new QLabel("Recent"));
+    v->addSpacing(ui::SpaceS);
+    v->addWidget(ui::sectionTitle("Recent"));
     recentRow = new QWidget;
     auto rl = new QHBoxLayout(recentRow);
     rl->setContentsMargins(0, 0, 0, 0);
     rl->setSpacing(2);
     v->addWidget(recentRow);
+    v->addSpacing(ui::SpaceS);
+    v->addWidget(ui::sectionTitle("Palette"));
     auto pRow = new QHBoxLayout;
     paletteBox = new QComboBox;
     paletteBox->setObjectName("paletteSelector");
+    // Long palette names elide instead of widening the panel past its dock.
+    paletteBox->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    paletteBox->setMinimumContentsLength(8);
     paletteBox->setToolTip("Active palette (also used by palette lock and Map to Palette)");
     auto menuButton = new QToolButton;
-    menuButton->setText("☰");
+    menuButton->setProperty("novaIcon", "menu");
+    menuButton->setIcon(ui::lineIcon("menu"));
     menuButton->setObjectName("paletteMenu");
     menuButton->setToolTip("Palette commands");
     menuButton->setPopupMode(QToolButton::InstantPopup);
@@ -440,6 +519,10 @@ void ColorPanel::rebuildRecent() {
         connect(b, &QToolButton::clicked, this, [this, c] { state->setForeground(c); });
         layout->addWidget(b);
     }
+    if (state->recent.isEmpty()) { // use the full row before wrapping the hint
+        layout->addWidget(ui::hint("Paint colours appear here."));
+        return;
+    }
     static_cast<QHBoxLayout *>(layout)->addStretch();
 }
 void ColorPanel::pull() {
@@ -448,7 +531,7 @@ void ColorPanel::pull() {
     fg->setIcon(swatchIcon(c, 30));
     bg->setIcon(swatchIcon(state->background, 22));
     if (!hex->hasFocus())
-        hex->setText(ops::colorName(c));
+        hex->setText(qAlpha(c) == 255 ? QColor::fromRgba(c).name(QColor::HexRgb).toUpper() : ops::colorName(c));
     // Keep the hue when the colour is grey so dragging saturation is stable.
     if (model->currentIndex() == 0) {
         const auto h = ops::toHsv(c);
@@ -468,6 +551,24 @@ void ColorPanel::pull() {
     rgb[2]->setValue(qBlue(c));
     alpha->setValue(qAlpha(c));
     updating = false;
+    // Channel tracks: hue sweeps the spectrum; the others run from 0 to 100% of the current colour.
+    const bool hsv = model->currentIndex() == 0;
+    const double h = channel[0]->value() / 360.0, a = channel[1]->value() / 100.0, b = channel[2]->value() / 100.0;
+    const auto colour = [hsv](double hue, double sat, double level) {
+        return hsv ? QColor::fromHsvF(float(hue), float(sat), float(level))
+                   : QColor::fromHslF(float(hue), float(sat), float(level));
+    };
+    QGradientStops hue, saturation, level;
+    for (int i = 0; i <= 6; ++i)
+        hue.append({i / 6.0, colour(std::min(i / 6.0, 0.9999), 1, hsv ? 1 : 0.5)});
+    saturation = {{0, colour(h, 0, b)}, {1, colour(h, 1, b)}};
+    level = hsv ? QGradientStops{{0, colour(h, a, 0)}, {1, colour(h, a, 1)}}
+                : QGradientStops{{0, colour(h, a, 0)}, {0.5, colour(h, a, 0.5)}, {1, colour(h, a, 1)}};
+    const QColor current = QColor::fromRgb(qRed(c), qGreen(c), qBlue(c));
+    const QGradientStops tracks[3] = {hue, saturation, level};
+    for (int i = 0; i < 3; ++i)
+        if (auto track = dynamic_cast<ChannelSlider *>(slider[i]))
+            track->setTrack(tracks[i], current);
 }
 void ColorPanel::push(QRgb c) {
     state->foreground = c;
@@ -508,7 +609,7 @@ void HistoryPanel::refresh() {
     }
     if (document) {
         for (int i = 0; i < list->count(); ++i)
-            list->item(i)->setForeground(i > document->historyCursor() ? QColor(130, 130, 140)
+            list->item(i)->setForeground(i > document->historyCursor() ? ui::current().disabled
                                                                        : palette().color(QPalette::Text));
         list->setCurrentRow(document->historyCursor());
     }

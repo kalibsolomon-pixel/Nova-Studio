@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "tools.h"
+#include <QFormLayout>
 #include "theme.h"
 #include <QActionGroup>
 #include <QBuffer>
@@ -176,6 +177,40 @@ void ToolState::applyBrushPreset(Tool t, const QJsonObject &p) {
 
 // ---------------------------------------------------------------- tool box
 namespace {
+// A rail button whose menu holds more tools. As in Photoshop, a small triangle in the
+// bottom-right corner marks it instead of a separate arrow segment, so every rail button is
+// the same square. Press and hold, right-click, Alt+Down or the menu key opens the menu.
+class ToolGroupButton : public QToolButton {
+  public:
+    using QToolButton::QToolButton;
+
+  protected:
+    void paintEvent(QPaintEvent *e) override {
+        QToolButton::paintEvent(e);
+        if (!menu())
+            return;
+        const auto &t = ui::current();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(!isEnabled() ? t.disabled : isChecked() ? t.accent : t.muted);
+        const QPointF corner = QRectF(rect()).bottomRight() - QPointF(ui::SpaceXS + 1, ui::SpaceXS + 1);
+        const qreal size = 6;
+        p.drawPolygon(QPolygonF{corner, corner - QPointF(size, 0), corner - QPointF(0, size)});
+    }
+    void contextMenuEvent(QContextMenuEvent *e) override {
+        if (!menu())
+            return QToolButton::contextMenuEvent(e);
+        showMenu();
+    }
+    void keyPressEvent(QKeyEvent *e) override {
+        if (menu() && (e->key() == Qt::Key_Menu || (e->key() == Qt::Key_Down && e->modifiers() & Qt::AltModifier))) {
+            showMenu();
+            return;
+        }
+        QToolButton::keyPressEvent(e);
+    }
+};
 // Foreground/background chip at the foot of the tool strip (fast colour access).
 class ColorChip : public QWidget {
     ToolState *state;
@@ -184,7 +219,7 @@ class ColorChip : public QWidget {
     std::function<void()> requested;
     ColorChip(ToolState *s, QWidget *parent) : QWidget(parent), state(s) {
         setObjectName("toolColorChip");
-        setFixedSize(34, 34);
+        setFixedSize(ui::ToolHitTarget, ui::ToolHitTarget);
         setCursor(Qt::PointingHandCursor);
         setToolTip("Foreground / background colour\nClick, Enter or Space: Colours panel · X swaps · D resets");
         setAccessibleName("Foreground and background colours");
@@ -216,8 +251,8 @@ class ColorChip : public QWidget {
             p.setPen(palette().color(QPalette::WindowText));
             p.drawRect(r.adjusted(0, 0, -1, -1));
         };
-        swatch(QRect(13, 13, 19, 19), state->background);
-        swatch(QRect(2, 2, 19, 19), state->foreground);
+        swatch(QRect(11, 11, 14, 14), state->background);
+        swatch(QRect(4, 4, 14, 14), state->foreground);
         if (hasFocus()) {
             p.setPen(QPen(ui::current().accent, 1));
             p.drawRect(rect().adjusted(0, 0, -1, -1));
@@ -228,187 +263,22 @@ class ColorChip : public QWidget {
             requested();
     }
 };
-// Lays the strip's widgets out left to right and starts a new row when the next one
-// does not fit; separators at the start of a row are dropped. Its minimum height is the
-// height of all rows for its current width, so the panel holding it grows by a row
-// rather than clipping. Child order is tab order.
-// A widget's laid-out size: its size hint, or its fixed/minimum size when it has no hint
-// (the colour chip is a fixed-size widget without a layout).
-QSize itemSize(const QWidget *w) {
-    auto s = w->sizeHint();
-    if (!s.isValid())
-        s = w->minimumSize();
-    return s.expandedTo(w->minimumSize());
-}
-class FlowStrip : public QWidget {
-    int rows = 0, lastHeight = -1;
-    int arrange(int width, bool apply) {
-        int y = 0;
-        rows = 0;
-        QList<QWidget *> row;
-        int x = 0, rowHeight = 0;
-        auto flush = [&] {
-            if (row.isEmpty())
-                return;
-            if (apply)
-                for (auto w : std::as_const(row)) {
-                    const auto s = itemSize(w);
-                    w->move(w->x(), y + (rowHeight - s.height()) / 2);
-                }
-            y += rowHeight + ui::ToolbarSpacing;
-            ++rows;
-            row.clear();
-            x = rowHeight = 0;
-        };
-        for (auto w : std::as_const(items)) {
-            if (suppressed.contains(w)) // its action is hidden
-                continue;
-            const bool rule = rules.contains(w);
-            const auto s = itemSize(w);
-            const int extra = rule ? 2 * ui::SeparatorMarginMinor : 0;
-            if (!row.isEmpty() && x + s.width() + extra > width)
-                flush();
-            if (rule && row.isEmpty()) { // no separator at the start of a row
-                if (apply)
-                    w->hide();
-                continue;
-            }
-            if (apply) {
-                w->setGeometry(x + extra / 2, 0, s.width(), s.height());
-                w->show();
-            }
-            row << w;
-            x += s.width() + extra + ui::ToolbarSpacing;
-            rowHeight = std::max(rowHeight, s.height());
-        }
-        flush();
-        return std::max(0, y - ui::ToolbarSpacing);
-    }
-
-  public:
-    QList<QWidget *> items, rules, suppressed;
-    std::function<void(int)> heightChanged;
-    explicit FlowStrip(QWidget *parent) : QWidget(parent) {
-        setObjectName("toolStripFlow");
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    }
-    int rowCount() const { return rows; }
-    int oneRowWidth() const {
-        int x = 0;
-        for (auto w : items)
-            x += itemSize(w).width() + (rules.contains(w) ? 2 * ui::SeparatorMarginMinor : 0) + ui::ToolbarSpacing;
-        return std::max(0, x - ui::ToolbarSpacing);
-    }
-    int widestItem() const {
-        int widest = 0;
-        for (auto w : items)
-            widest = std::max(widest, itemSize(w).width());
-        return widest;
-    }
-    bool hasHeightForWidth() const override { return true; }
-    int heightForWidth(int width) const override { return const_cast<FlowStrip *>(this)->arrange(width, false); }
-    int currentWidth() const {
-        if (width() > 0)
-            return width();
-        return parentWidget() && parentWidget()->width() > 0 ? parentWidget()->width() : oneRowWidth();
-    }
-    // A small preferred width so the toolbar never moves the strip itself into its overflow menu.
-    QSize sizeHint() const override { return {widestItem(), heightForWidth(currentWidth())}; }
-    QSize minimumSizeHint() const override { return sizeHint(); }
-    void relayout() {
-        const int height = arrange(width(), true);
-        if (height != lastHeight) {
-            lastHeight = height;
-            if (heightChanged)
-                heightChanged(height);
-        }
-    }
-    void resizeEvent(QResizeEvent *e) override {
-        QWidget::resizeEvent(e);
-        relayout();
-    }
-};
 } // namespace
-
-void ToolBox::setWrapping(bool wrap) {
-    if (wrap == wrapping())
-        return;
-    if (wrap) {
-        auto strip = new FlowStrip(this);
-        wrappedActions = QWidget::actions();
-        for (auto a : std::as_const(wrappedActions)) {
-            if (a == spacerItem) { // only meaningful in a vertical strip
-                removeAction(a);
-                continue;
-            }
-            if (a->isSeparator()) {
-                removeAction(a);
-                auto rule = new QFrame(strip);
-                rule->setObjectName("toolStripRule");
-                rule->setProperty("role", "vrule");
-                rule->setFixedSize(1, ui::ToolIconSize);
-                strip->items << rule;
-                strip->rules << rule;
-                continue;
-            }
-            auto widgetAction = qobject_cast<QWidgetAction *>(a);
-            QWidget *w = widgetAction ? widgetAction->defaultWidget() : nullptr;
-            const bool visible = a->isVisible();
-            removeAction(a); // releases the widget from the toolbar
-            if (!w)
-                continue;
-            w->setParent(strip);
-            w->setVisible(visible);
-            strip->items << w;
-            if (!visible)
-                strip->suppressed << w;
-        }
-        flow = strip;
-        // The toolbar is exactly as tall as the rows (plus its padding and bottom rule).
-        strip->heightChanged = [this](int rows) {
-            setFixedHeight(rows + 2 * ui::ToolStripPaddingV + 1);
-        };
-        strip->show();
-        placeFlow();
-    } else {
-        auto strip = static_cast<FlowStrip *>(flow);
-        for (auto w : std::as_const(strip->items))
-            if (!strip->rules.contains(w))
-                w->setParent(nullptr); // handed back to their actions below
-        delete strip; // and its separators
-        flow = nullptr;
-        setMinimumHeight(0);
-        setMaximumHeight(QWIDGETSIZE_MAX);
-        for (auto a : std::as_const(wrappedActions))
-            addAction(a);
-        wrappedActions.clear();
-    }
-}
-void ToolBox::placeFlow() {
-    if (!flow)
-        return;
-    flow->setGeometry(ui::ToolStripPaddingH, ui::ToolStripPaddingV, std::max(1, width() - 2 * ui::ToolStripPaddingH),
-                      std::max(1, height() - 2 * ui::ToolStripPaddingV - 1));
-    static_cast<FlowStrip *>(flow)->relayout();
-}
-void ToolBox::resizeEvent(QResizeEvent *e) {
-    QToolBar::resizeEvent(e);
-    placeFlow();
-}
-int ToolBox::singleRowWidth() const { return flow ? static_cast<FlowStrip *>(flow)->oneRowWidth() : 0; }
 
 ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), state(s) {
     setObjectName("toolBox");
     setOrientation(Qt::Vertical);
-    setMovable(true);
+    // A fixed rail on the left edge, as in other pixel editors: the tools never move, so
+    // muscle memory and every workspace agree on where they are.
+    setMovable(false);
+    setFloatable(false);
+    setAllowedAreas(Qt::LeftToolBarArea);
     setIconSize({ui::ToolIconSize, ui::ToolIconSize});
     setToolButtonStyle(Qt::ToolButtonIconOnly);
     exclusive = new QActionGroup(this);
     for (const auto &info : toolInfos()) {
-        // Functional groups: draw | select | transform | shapes & fill | colour.
-        if (!groups.contains(info.group) && (info.group == "Select" || info.group == "Transform" ||
-                                              info.group == "Shapes" || info.group == "Colour"))
-            addSeparator();
+        // Each split button already groups its variants. Keep rules only around
+        // the Effects and colour controls so the tool choices scan as one cluster.
         auto a = new QAction(info.name, this);
         a->setObjectName("tool-" + info.id);
         a->setCheckable(true);
@@ -422,7 +292,7 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
         connect(a, &QAction::triggered, this, [this, t = info.tool] { state->setTool(t); });
         auto &button = groups[info.group];
         if (!button) {
-            button = new QToolButton(this);
+            button = new ToolGroupButton(this);
             button->setObjectName("toolGroup-" + info.group);
             button->setPopupMode(QToolButton::DelayedPopup);
             button->setAutoRaise(true);
@@ -432,25 +302,27 @@ ToolBox::ToolBox(ToolState *s, QWidget *parent) : QToolBar("Tools", parent), sta
         }
         button->menu()->addAction(a);
     }
-    for (auto button : std::as_const(groups)) {
-        if (button->menu()->actions().size() > 1)
-            button->setPopupMode(QToolButton::MenuButtonPopup);
-        else
+    for (auto button : std::as_const(groups))
+        if (button->menu()->actions().size() < 2)
             button->setMenu(nullptr);
-    }
     addSeparator();
-    effectsButton = new QToolButton(this);
+    effectsButton = new ToolGroupButton(this);
     effectsButton->setObjectName("effectsButton");
-    effectsButton->setText("fx");
+    effectsButton->setText("Effects");
+    effectsButton->setProperty("novaIcon", "effects");
+    effectsButton->setIcon(ui::lineIcon("effects"));
+    effectsButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     effectsButton->setToolTip("Effects: adjustments, filters, shading and generators");
     effectsButton->setPopupMode(QToolButton::InstantPopup);
     effectsButton->setAutoRaise(true);
     effectsButton->setAccessibleName("Effects");
     addWidget(effectsButton);
+    addSeparator();
     auto spacer = new QWidget(this);
-    spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    spacer->setFixedHeight(ui::SpaceS);
+    spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     spacerItem = addWidget(spacer);
-    // The spacer only pushes the chip to the foot of a vertical strip.
+    // Keep colour wells close to the tools in a vertical strip too.
     connect(this, &QToolBar::orientationChanged, this,
             [this](Qt::Orientation o) { spacerItem->setVisible(o == Qt::Vertical); });
     auto chip = new ColorChip(state, this);
@@ -482,6 +354,10 @@ QSpinBox *spin(const QString &tip, int lo, int hi, int value, const QString &suf
     s->setAccessibleName(tip);
     s->setSuffix(suffix);
     s->setKeyboardTracking(false);
+    // Options-bar fields are compact value fields (wheel, arrow keys or typing), as in
+    // other creative tools' option bars; step buttons would push the row off screen.
+    s->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    s->setAlignment(Qt::AlignRight);
     return s;
 }
 // Pages are created directly under their stacked widget: building a parentless
@@ -490,7 +366,41 @@ QWidget *pageParent = nullptr;
 // Options row sized to its controls (the former fixed 58 px row wasted a third
 // of its height). A horizontal scroll bar appears only when the window is too
 // narrow, and the row grows by exactly its height while it is shown.
+// Fades the trailing edge of a scrolled options row into the bar, so a row that
+// continues past the window edge reads as scrollable rather than clipped.
+class EdgeFade : public QWidget {
+  public:
+    using QWidget::QWidget;
+    void paintEvent(QPaintEvent *) override {
+        QPainter p(this);
+        QLinearGradient fade(0, 0, width(), 0);
+        QColor clear = ui::current().window;
+        clear.setAlpha(0);
+        fade.setColorAt(0, clear);
+        fade.setColorAt(1, ui::current().window);
+        p.fillRect(rect(), fade);
+    }
+};
 class OptionsRow : public QScrollArea {
+    EdgeFade *fade = nullptr;
+    void settleHeight() {
+        setFixedHeight(sizeHint().height());
+        if (auto stack = qobject_cast<QStackedWidget *>(parentWidget()); stack && stack->currentWidget() == this)
+            stack->setFixedHeight(height());
+    }
+    void placeFade() {
+        if (!fade) {
+            fade = new EdgeFade(this);
+            fade->setAttribute(Qt::WA_TransparentForMouseEvents);
+            connect(horizontalScrollBar(), &QScrollBar::valueChanged, this, [this] { placeFade(); });
+            connect(horizontalScrollBar(), &QScrollBar::rangeChanged, this, [this] { placeFade(); });
+        }
+        const auto bar = horizontalScrollBar();
+        fade->setVisible(bar->isVisible() && bar->value() < bar->maximum());
+        fade->setGeometry(viewport()->geometry().right() - 40, viewport()->y(), 41, viewport()->height());
+        fade->raise();
+    }
+
   public:
     using QScrollArea::QScrollArea;
     QSize sizeHint() const override {
@@ -498,11 +408,33 @@ class OptionsRow : public QScrollArea {
         return {QScrollArea::sizeHint().width(), (widget() ? widget()->sizeHint().height() : 28) + bar};
     }
     QSize minimumSizeHint() const override { return {80, sizeHint().height()}; }
+    // The leading tool name is a courtesy: it steps aside before the row would need to scroll.
+    void fitToolName(int width) {
+        auto name = widget() ? widget()->findChild<QLabel *>("toolOptionsName") : nullptr;
+        if (!name)
+            return;
+        const bool shown = name->isVisibleTo(widget());
+        const int extra = shown ? 0 : name->sizeHint().width() + 2 * ui::SpaceM + 2 * ui::GroupGap + 1;
+        const bool fits = widget()->sizeHint().width() + extra <= width;
+        if (shown != fits) {
+            name->setVisible(fits);
+            // The gap after the name goes with it.
+            const auto layout = widget()->layout();
+            const int at = layout->indexOf(name);
+            if (at >= 0 && at + 1 < layout->count() && layout->itemAt(at + 1)->widget())
+                layout->itemAt(at + 1)->widget()->setVisible(fits);
+            widget()->adjustSize();
+        }
+    }
     void resizeEvent(QResizeEvent *e) override {
+        if (widget() && widget()->layout())
+            widget()->layout()->setSpacing(e->size().width() < ui::OptionsCompactWidth ? ui::SpaceS : ui::SpaceM);
+        fitToolName(e->size().width());
         const bool before = horizontalScrollBar()->isVisible();
         QScrollArea::resizeEvent(e);
+        placeFade();
         if (before != horizontalScrollBar()->isVisible() || height() != sizeHint().height())
-            QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
+            QTimer::singleShot(0, this, [this] { settleHeight(); });
     }
     // Pages pre-built during idle time sit hidden in the stacked widget, which never
     // resizes them, and scrollbar children report isVisible() == false while their page
@@ -511,13 +443,19 @@ class OptionsRow : public QScrollArea {
     // the height after the page reaches the screen, when the scrollbar state is real.
     void showEvent(QShowEvent *e) override {
         QScrollArea::showEvent(e);
-        QTimer::singleShot(0, this, [this] { setFixedHeight(sizeHint().height()); });
+        fitToolName(width());
+        QTimer::singleShot(0, this, [this] { settleHeight(); });
     }
 };
 // Extra whitespace, rather than another rule, separates related option groups.
 QWidget *groupGap() {
     auto gap = new QWidget;
-    gap->setFixedWidth(ui::GroupGap);
+    auto layout = new QHBoxLayout(gap);
+    layout->setContentsMargins(ui::GroupGap, 0, ui::GroupGap, 0);
+    auto rule = new QFrame;
+    rule->setProperty("role", "vrule");
+    rule->setFixedSize(1, ui::IconSize);
+    layout->addWidget(rule);
     return gap;
 }
 QWidget *row(std::initializer_list<QWidget *> widgets) {
@@ -529,7 +467,7 @@ QWidget *row(std::initializer_list<QWidget *> widgets) {
     scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto w = new QWidget;
     auto l = new QHBoxLayout(w);
-    l->setContentsMargins(ui::SpaceS, ui::SpaceXS, ui::SpaceS, ui::SpaceXS);
+    l->setContentsMargins(ui::SpaceXS, ui::SpaceXS, ui::SpaceXS, ui::SpaceXS);
     l->setSpacing(ui::SpaceM);
     for (auto x : widgets)
         l->addWidget(x ? x : groupGap());
@@ -592,13 +530,26 @@ void ToolOptionsBar::showFor(Tool t) {
         page = "pick";
     pages->setCurrentIndex(ensurePage(page));
     reload();
+    // Hidden pages may need scrollbars, but must not make the active page taller.
+    pages->setFixedHeight(pages->currentWidget()->sizeHint().height());
 }
+namespace {
+// Every options row opens with the active tool's name, so the row always says what it edits.
+QLabel *toolName() {
+    auto name = new QLabel;
+    name->setObjectName("toolOptionsName");
+    return name;
+}
+} // namespace
 QWidget *ToolOptionsBar::paintPage() {
     auto name = new QLabel;
     name->setObjectName("paintToolName");
     auto shape = new QComboBox;
     shape->setObjectName("brushShape");
     shape->addItems(ops::brushShapeNames());
+    // Pickers size to a short label, not their longest item, so the row fits 1280 px.
+    shape->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    shape->setMinimumContentsLength(7);
     shape->setToolTip("Brush shape (Custom uses the stamp captured from a selection)");
     auto size = spin("Brush size ([ / ] to change)", 1, ops::Brush::MaxSize, 1, " px");
     size->setObjectName("brushSize");
@@ -616,20 +567,37 @@ QWidget *ToolOptionsBar::paintPage() {
     auto symmetry = new QComboBox;
     symmetry->setObjectName("symmetry");
     symmetry->addItems(ops::symmetryNames());
+    symmetry->setItemText(0, "No symmetry"); // the closed picker names its setting
+    symmetry->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    symmetry->setMinimumContentsLength(8);
     symmetry->setToolTip("Symmetry painting (guides shown on the canvas)");
     auto radial = spin("Radial segments", 2, 32, 6);
     radial->setObjectName("radialCount");
-    auto palette = new QCheckBox("Palette lock");
+    // Lock toggles are compact icon checkboxes; their names live in tooltips and for assistive tech.
+    auto palette = new QCheckBox;
+    palette->setIcon(ui::lineIcon("palette"));
+    palette->setProperty("novaIcon", "palette");
+    palette->setAccessibleName("Palette lock");
+    palette->setProperty("role", "toggle");
+    palette->setIconSize({ui::IconSize, ui::IconSize});
     auto stampColors = new QCheckBox("Stamp colours");
     stampColors->setObjectName("stampSourceColors");
     stampColors->setToolTip("Use source RGBA colours; off recolours stamp coverage with the foreground. Palette lock maps source colours.");
     palette->setObjectName("paletteLock");
-    palette->setToolTip("Snap stroke colours to the nearest colour of the active palette");
-    auto lockAlpha = new QCheckBox("Lock alpha");
-    lockAlpha->setToolTip("Paint only over existing pixels, preserving their transparency");
+    palette->setToolTip("Palette lock: snap stroke colours to the nearest colour of the active palette");
+    auto lockAlpha = new QCheckBox;
+    lockAlpha->setIcon(ui::lineIcon("opacity"));
+    lockAlpha->setProperty("novaIcon", "opacity");
+    lockAlpha->setAccessibleName("Lock alpha");
+    lockAlpha->setProperty("role", "toggle");
+    lockAlpha->setIconSize({ui::IconSize, ui::IconSize});
+    lockAlpha->setToolTip("Lock alpha: paint only over existing pixels, preserving their transparency");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");
-    auto presets = new QPushButton("Presets ▾");
+    // A menu command like Brush settings beside it: frameless text with a drop-down arrow.
+    auto presets = new QToolButton;
+    presets->setText("Presets");
+    presets->setPopupMode(QToolButton::InstantPopup);
     presets->setObjectName("brushPresets");
     presets->setToolTip("Save or apply brush presets");
     auto menu = new QMenu(presets);
@@ -644,9 +612,25 @@ QWidget *ToolOptionsBar::paintPage() {
     });
     auto toleranceLabel = label("Tolerance");
     toleranceLabel->setObjectName("replaceToleranceLabel");
-    auto w = row({name, nullptr, shape, label("Size"), size, label("Height"), height, nullptr, label("Opacity"), opacity,
-                  label("Hardness"), hardness, label("Spacing"), spacing, label("Smooth"), smoothing, nullptr, symmetry,
-                  radial, nullptr, palette, stampColors, lockAlpha, toleranceLabel, tolerance, nullptr, presets});
+    auto settings = new QToolButton;
+    settings->setText("Brush settings");
+    settings->setObjectName("brushSettings");
+    settings->setToolTip("Brush height, edge hardness, spacing and stroke smoothing");
+    auto formBody = new QWidget;
+    auto form = new QFormLayout(formBody);
+    form->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+    form->setHorizontalSpacing(ui::SpaceXL);
+    form->setVerticalSpacing(ui::SpaceL);
+    form->addRow("Height", ui::sliderField(height, "Height"));
+    form->addRow("Hardness", ui::sliderField(hardness, "Hardness"));
+    form->addRow("Spacing", ui::sliderField(spacing, "Spacing"));
+    form->addRow("Smoothing", ui::sliderField(smoothing, "Smoothing"));
+    height->setFixedWidth(ui::SettingsValueWidth);
+    form->itemAt(0, QFormLayout::FieldRole)->setAlignment(Qt::AlignRight);
+    ui::settingsMenu(settings, formBody);
+    auto w = row({name, nullptr, shape, label("Size"), size, label("Opacity"), opacity,
+                  settings, nullptr, symmetry, radial, nullptr, palette, stampColors, lockAlpha,
+                  toleranceLabel, tolerance, nullptr, presets});
     auto brush = [this] { return &state->brush(state->tool); };
     connect(stampColors, &QCheckBox::toggled, this, [=, this](bool value) { if (!updating) { brush()->sourceColors = value; state->touch(); } });
     connect(shape, &QComboBox::currentIndexChanged, this, [=, this](int i) {
@@ -674,9 +658,11 @@ QWidget *ToolOptionsBar::selectPage() {
     ml->setSpacing(2);
     auto group = new QActionGroup(modes);
     const QStringList names = {"Replace", "Add (Shift)", "Subtract (Alt)", "Intersect (Shift+Alt)"};
-    const QStringList glyphs = {"▣", "＋", "－", "∩"};
+    const QStringList icons = {"select-replace", "select-add", "select-subtract", "select-intersect"};
     for (int i = 0; i < 4; ++i) {
-        auto a = new QAction(glyphs[i], group);
+        auto a = new QAction(names[i].section(" (", 0, 0), group);
+        a->setProperty("novaIcon", icons[i]);
+        a->setIcon(ui::lineIcon(icons[i]));
         a->setCheckable(true);
         a->setToolTip("Selection mode: " + names[i]);
         a->setObjectName("selectMode" + QString::number(i));
@@ -700,7 +686,7 @@ QWidget *ToolOptionsBar::selectPage() {
     alpha->setObjectName("includeAlpha");
     auto snap = spin("Snap rectangle/ellipse selections to a grid of N pixels", 1, 64, 1, " px");
     snap->setObjectName("selectSnap");
-    auto w = row({label("Mode"), modes, nullptr, label("Tolerance"), tolerance, metric, composite, alpha, nullptr,
+    auto w = row({toolName(), nullptr, label("Mode"), modes, nullptr, label("Tolerance"), tolerance, metric, composite, alpha, nullptr,
                   label("Grid"), snap});
     connect(snap, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->snap = v; state->touch(); } });
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
@@ -748,7 +734,7 @@ QWidget *ToolOptionsBar::shapePage() {
     numeric->setObjectName("shapeParameters");
     connect(numeric,&QPushButton::clicked,state,&ToolState::shapeSettingsRequested);
     snap->setObjectName("shapeSnap");
-    auto w = row({kind, filled, smooth, nullptr, label("Thickness"), thickness, label("Radius"), radius, label("Sides"), sides,
+    auto w = row({toolName(), nullptr, kind, filled, smooth, nullptr, label("Thickness"), thickness, label("Radius"), radius, label("Sides"), sides,
                   label("Inner"), inner, nullptr, label("Rotate"), rotation, flipH, flipV, centre, nullptr, label("Opacity"),
                   opacity, label("Grid"), snap, nullptr, numeric});
     connect(snap, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->snap = v; state->touch(); } });
@@ -816,7 +802,7 @@ QWidget *ToolOptionsBar::fillPage() {
     composite->setToolTip("Match colours on the visible image; only the selected layer changes");
     auto opacity = spin("Opacity", 0, 255, 255);
     opacity->setObjectName("fillOpacity");
-    auto w = row({modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
+    auto w = row({toolName(), nullptr, modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
     connect(metric, &QComboBox::currentIndexChanged, this, [this](int i) { if (!updating) { state->metric = ops::Distance(i); state->touch(); } });
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
@@ -830,7 +816,7 @@ QWidget *ToolOptionsBar::gradientPage() {
     auto steps = spin("Discrete steps (0 = smooth)", 0, 64, 0);
     auto dither = new QCheckBox("Ordered dither");
     auto opacity = spin("Opacity", 0, 255, 255);
-    auto w = row({label("Foreground → background"), type, label("Steps"), steps, dither, label("Opacity"), opacity});
+    auto w = row({toolName(), nullptr, label("Foreground → background"), type, label("Steps"), steps, dither, label("Opacity"), opacity});
     connect(type, &QComboBox::currentTextChanged, this, [this](const QString &v) { if (!updating) { state->gradientType = v; state->touch(); } });
     connect(steps, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->gradientSteps = v; state->touch(); } });
     connect(dither, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->gradientDither = v; state->touch(); } });
@@ -865,7 +851,7 @@ QWidget *ToolOptionsBar::transformPage() {
     flipV->setObjectName("transformFlipV");
     auto hidden = new QCheckBox("Include hidden");
     hidden->setObjectName("transformHidden");
-    auto w = row({label("Selected layers"), hidden, nullptr, label("Scale"), sx, sy, label("Rotate"), angle,
+    auto w = row({toolName(), nullptr, label("Selected layers"), hidden, nullptr, label("Scale"), sx, sy, label("Rotate"), angle,
                   resampling, flipH, flipV, nullptr, apply, cancel, reset, hint});
     connect(flipH, &QCheckBox::toggled, this, [this](bool value) {
         if (!updating) {
@@ -897,7 +883,7 @@ QWidget *ToolOptionsBar::transformPage() {
 QWidget *ToolOptionsBar::pickPage() {
     auto composite = new QCheckBox("Sample all layers");
     composite->setObjectName("pickComposite");
-    auto w = row({label("Click: foreground · Shift-click / right-click: background"), composite});
+    auto w = row({toolName(), nullptr, label("Click: foreground · Shift-click / right-click: background"), composite});
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
     return w;
 }
@@ -915,6 +901,8 @@ void ToolOptionsBar::reload() {
     };
     if (auto n = page->findChild<QLabel *>("paintToolName"))
         n->setText("<b>" + toolInfo(state->tool).name + "</b>");
+    if (auto n = page->findChild<QLabel *>("toolOptionsName"))
+        n->setText("<b>" + toolInfo(state->tool).name + "</b>"); // same weight as the paint row
     if (auto c = page->findChild<QComboBox *>("brushShape"))
         c->setCurrentIndex(int(b.shape));
     set("brushSize", b.size);

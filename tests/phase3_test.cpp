@@ -3,6 +3,7 @@
 #include "diagnostics.h"
 #include "modelpanel.h"
 #include "recovery.h"
+#include "search.h"
 #include "window.h"
 #include <QtTest>
 #include <QtWidgets>
@@ -195,6 +196,37 @@ class Phase3Tests : public QObject {
         QCOMPARE(canvas->document->image, expected);
         QCOMPARE(canvas->document->nativeDocument(), native);
         Answer discard(QMessageBox::Discard);
+        QVERIFY(window.close());
+    }
+    void recentPacksOpenFromTheWelcomeList() {
+        QTemporaryDir tmp;
+        const auto pack = tmp.filePath("Recent Pack");
+        QVERIFY(fixture(pack));
+        const auto settings = tmp.filePath("recent.ini");
+        qApp->setProperty("settingsFile", settings);
+        Preferences preferences;
+        preferences.reopenLast = false;
+        preferences.recentProjects = {pack};
+        QVERIFY(Settings(settings).save(preferences));
+        QElapsedTimer timer; timer.start();
+        Window window({}, {}, timer); window.show();
+        auto list = window.findChild<QListWidget *>("welcomeRecentPacks");
+        QVERIFY(list);
+        QCOMPARE(list->count(), 1);
+        QCOMPARE(list->item(0)->data(Qt::UserRole).toString(), pack);
+        QVERIFY(list->item(0)->toolTip().contains(QDir::toNativeSeparators(pack)));
+        const auto index = window.searchIndex();
+        const auto results = index.query(pack);
+        QCOMPARE(results.size(), 1);
+        const auto &recent = index.entries[results.first().entry];
+        QCOMPARE(recent.title, QString("Open pack: Recent Pack"));
+        QCOMPARE(recent.description, QDir::toNativeSeparators(pack));
+        QCOMPARE(recent.action->property("recentPackPath").toString(), pack);
+        list->setCurrentRow(0);
+        list->setFocus();
+        QTest::keyClick(list, Qt::Key_Return);
+        QTRY_COMPARE(EditorTestAccess::project(window), pack);
+        QTRY_VERIFY(!EditorTestAccess::busy(window));
         QVERIFY(window.close());
     }
     void compactAndNormalWorkspaceGallery_data() {

@@ -9,6 +9,7 @@
 #include <QPainterPath>
 #include <QSet>
 #include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 namespace nova {
 namespace {
@@ -168,9 +169,18 @@ void Canvas::paintEvent(QPaintEvent *) {
     QElapsedTimer timer;
     timer.start();
     QPainter p(this);
-    p.fillRect(rect(), palette().color(QPalette::Base));
+    p.fillRect(rect(), ui::current().canvas);
     const QImage &image = displayed();
     QRectF target(origin(), QSizeF(document->image.size()) * zoom);
+    // A hairline frame just outside the image marks the artboard edge, even where the
+    // texture is transparent or close to the surround colour.
+    {
+        const QColor edge = ui::current().borderStrong;
+        p.fillRect(QRectF(target.left() - 1, target.top() - 1, target.width() + 2, 1), edge);
+        p.fillRect(QRectF(target.left() - 1, target.bottom(), target.width() + 2, 1), edge);
+        p.fillRect(QRectF(target.left() - 1, target.top(), 1, target.height()), edge);
+        p.fillRect(QRectF(target.right(), target.top(), 1, target.height()), edge);
+    }
     auto clip = target.intersected(rect());
     p.save();
     p.setClipRect(clip);
@@ -221,8 +231,31 @@ void Canvas::paintEvent(QPaintEvent *) {
                       QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y())})
                     p.drawRect(QRectF(point - QPointF(4, 4), QSizeF(8, 8)));
             }
-            if (selected || (zoom >= 12 && r.width() > 70)) p.drawText(r.adjusted(3,2,-2,-2), Qt::AlignTop|Qt::AlignLeft,region.label);
         }
+        // Faces can share the same UV rectangle. Give the active face priority and
+        // omit colliding labels instead of painting several names over one another.
+        QList<QRectF> labels;
+        for (bool active : {true, false})
+            for (const auto &region : uvRegions) {
+                const bool selected = uvFace == region.face;
+                const QRectF r(widgetPosition(region.bounds.topLeft()), widgetPosition(region.bounds.bottomRight()));
+                if (selected != active || !(selected || (zoom >= 12 && r.width() > 70)))
+                    continue;
+                const auto labelMetrics = p.fontMetrics();
+                const QRectF chip(r.left() + ui::SpaceL, r.top() + ui::SpaceL,
+                                  labelMetrics.horizontalAdvance(region.label) + 2 * ui::SpaceL,
+                                  labelMetrics.height() + 2 * ui::SpaceS);
+                if (std::any_of(labels.cbegin(), labels.cend(), [&](const QRectF &other) {
+                        return other.adjusted(-ui::SpaceS, -ui::SpaceS, ui::SpaceS, ui::SpaceS).intersects(chip);
+                    }))
+                    continue;
+                labels.append(chip);
+                p.setPen(QPen(theme.borderStrong, 1));
+                p.setBrush(theme.raised);
+                p.drawRoundedRect(chip, ui::RadiusS, ui::RadiusS);
+                p.setPen(theme.text);
+                p.drawText(chip, Qt::AlignCenter, region.label);
+            }
         p.restore();
     }
     const QColor accent = palette().color(QPalette::Highlight).lighter(170);
@@ -338,7 +371,6 @@ void Canvas::paintEvent(QPaintEvent *) {
         p.setPen(QPen(Qt::white, 1));
         p.drawLines(mapped);
     }
-    p.setPen(palette().color(QPalette::Text));
     QString status = QString("%1 × %2 RGBA  ·  %3%")
                          .arg(document->image.width())
                          .arg(document->image.height())
@@ -355,7 +387,23 @@ void Canvas::paintEvent(QPaintEvent *) {
         status += QString("  ·  selection %1×%2").arg(b.width()).arg(b.height());
     }
     if (document->animated()) status += playbackPreview.isNull() ? " · Editing frame" : " · Playback preview (read only)";
-    p.drawText(12, 20, status);
+    // The readout sits on its own translucent pill so it stays legible over any artwork.
+    {
+        const auto &t = ui::current();
+        const QFontMetrics fm(p.font());
+        const QRectF pill(ui::SpaceL, ui::SpaceL, fm.horizontalAdvance(status) + 2 * ui::SpaceL,
+                          fm.height() + 2 * ui::SpaceS);
+        QColor fill = t.window;
+        fill.setAlpha(230);
+        p.save();
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(t.border, 1));
+        p.setBrush(fill);
+        p.drawRoundedRect(pill.adjusted(0.5, 0.5, -0.5, -0.5), ui::RadiusM, ui::RadiusM);
+        p.setPen(t.muted);
+        p.drawText(pill, Qt::AlignCenter, status);
+        p.restore();
+    }
     metrics->record("canvas_paint_cpu", timer);
 }
 

@@ -17,7 +17,7 @@ class TimelineModel : public QAbstractListModel {
     std::shared_ptr<Document> document;
     std::vector<PlaybackEntry> entries;
     std::vector<std::pair<QUuid, QString>> frames;
-    int defaultTicks = 1, thumbnailSize = 56, cursor = -1;
+    int defaultTicks = 1, thumbnailSize = 72, cursor = -1;
     mutable QCache<QString, QPixmap> thumbnails{8 * 1024 * 1024};
   public:
     Metrics *metrics = nullptr;

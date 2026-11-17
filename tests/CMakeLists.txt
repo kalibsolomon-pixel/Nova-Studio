@@ -134,16 +134,16 @@ add_test(NAME preview-notice-scale150 COMMAND nova-preview-notice-tests)
 set_tests_properties(preview-notice-scale150 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=1.5")
 add_test(NAME preview-notice-scale200 COMMAND nova-preview-notice-tests)
 set_tests_properties(preview-notice-scale200 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=2")
-add_executable(nova-tool-placement-tests tool_placement_test.cpp)
-target_link_libraries(nova-tool-placement-tests PRIVATE nova-workspace Qt6::Test)
-add_test(NAME tool-placement COMMAND nova-tool-placement-tests)
-# The narrow-column and keyboard checks again at 150% and 200% (QT_SCALE_FACTOR).
-add_test(NAME tool-strip-wrap-scale150 COMMAND nova-tool-placement-tests
-  narrowNormalAndWideColumnsKeepEveryToolReachable keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepTargetsInside)
-set_tests_properties(tool-strip-wrap-scale150 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=1.5")
-add_test(NAME tool-strip-wrap-scale200 COMMAND nova-tool-placement-tests
-  narrowNormalAndWideColumnsKeepEveryToolReachable keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepTargetsInside)
-set_tests_properties(tool-strip-wrap-scale200 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=2")
+add_executable(nova-tool-strip-tests tool_strip_test.cpp)
+target_link_libraries(nova-tool-strip-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME tool-strip COMMAND nova-tool-strip-tests)
+# The reachability and keyboard checks again at 150% and 200% (QT_SCALE_FACTOR).
+add_test(NAME tool-strip-scale150 COMMAND nova-tool-strip-tests
+  keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepEveryToolReachable)
+set_tests_properties(tool-strip-scale150 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=1.5")
+add_test(NAME tool-strip-scale200 COMMAND nova-tool-strip-tests
+  keyboardTraversalVisitsEveryItem compactAndLargeWindowsKeepEveryToolReachable)
+set_tests_properties(tool-strip-scale200 PROPERTIES ENVIRONMENT "QT_SCALE_FACTOR=2")
 add_executable(nova-editor-gui-tests editor_gui_test.cpp)
 target_link_libraries(nova-editor-gui-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME editor-gui COMMAND nova-editor-gui-tests)

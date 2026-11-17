@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batchdialog.h"
+#include "theme.h"
 #include "core.h"
 #include "index.h"
 #include "opdialog.h"
@@ -10,7 +11,7 @@
 #include <QFormLayout>
 #include <QFutureWatcher>
 #include <QGridLayout>
-#include <QGroupBox>
+#include <QFrame>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -54,11 +55,32 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     setWindowTitle("Batch Processor");
     pipeline.name = "Untitled pipeline";
     auto root = new QVBoxLayout(this);
+    root->setContentsMargins(ui::Space2XL, ui::Space2XL, ui::Space2XL, ui::SpaceXL);
+    root->setSpacing(ui::SpaceL);
+    // A titled header states what the dialog does before its three steps.
+    auto title = new QLabel("Batch processing");
+    title->setFont(ui::font(ui::Type::Heading));
+    root->addWidget(title);
+    auto subtitle = ui::hint("Choose the textures, build an operation stack, then preview and run it. "
+                             "A dry run writes nothing.");
+    root->addWidget(subtitle);
+    root->addSpacing(ui::SpaceS);
     auto split = new QSplitter;
+    split->setHandleWidth(ui::SpaceXL);
+    split->setProperty("role", "gutter");
     root->addWidget(split, 1);
     // ---------------------------------------------------------------- targets
-    auto targetsBox = new QGroupBox("1 · Targets");
-    auto tv = new QVBoxLayout(targetsBox);
+    const auto section = [](const QString &text) {
+        auto panel = new QFrame;
+        auto layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+        layout->setSpacing(ui::SpaceL);
+        auto heading = new QLabel(text);
+        heading->setFont(ui::font(ui::Type::Strong));
+        layout->addWidget(heading);
+        return std::pair{panel, layout};
+    };
+    auto [targetsBox, tv] = section("1 · Targets");
     scope = new QComboBox;
     scope->setObjectName("batchScope");
     scope->setAccessibleName("Target scope");
@@ -68,12 +90,15 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     scopeValue->setObjectName("batchScopeValue");
     scopeValue->setAccessibleName("Scope value");
     scopeValue->setEditable(true);
+    scopeValue->setLineEdit(ui::pathField());
     count = new QLabel;
     count->setObjectName("batchTargetCount");
     targets = new QListWidget;
     targets->setObjectName("batchTargets");
     targets->setAccessibleName("Batch targets");
     targets->setUniformItemSizes(true);
+    targets->setTextElideMode(Qt::ElideMiddle);
+    targets->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     sourceMode = new QComboBox;
     sourceMode->setObjectName("batchSourceMode");
     sourceMode->setAccessibleName("Batch source");
@@ -119,7 +144,8 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     nf->addRow("", recover);
     tv->addWidget(nativeBox);
     nativeBox->hide();
-    tv->addWidget(targets, 1);
+    tv->addWidget(targets);
+    tv->addStretch(1);
     // Only the controls a mode actually uses stay enabled: native mode writes the
     // .nvdoc in place (originals go to the transaction folder), so PNG folder/pattern
     // apply only to PNG export, and the PNG backup folder never applies.
@@ -130,13 +156,14 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
                                layerScope->currentIndex() == int(batch::LayerScope::CompositeOnly);
         nativeBox->setVisible(native);
         inPlace->setEnabled(!native);
-        backup->setEnabled(!native);
+        // Each output option's fields are live only while that option is chosen.
+        backup->setEnabled(!native && inPlace->isChecked());
         if (native)
             toDirectory->setChecked(true);
-        toDirectory->setText(native ? "Write exported PNGs to a separate folder"
-                                    : "Write results to a separate folder (recommended)");
-        for (QWidget *w : std::initializer_list<QWidget *>{toDirectory, directory, pattern, overwrite})
-            w->setEnabled(!native || exporting);
+        toDirectory->setText(native ? "Separate folder for exported PNGs" : "Separate output folder");
+        toDirectory->setEnabled(!native || exporting);
+        for (QWidget *w : std::initializer_list<QWidget *>{directory, pattern, overwrite})
+            w->setEnabled((!native || exporting) && toDirectory->isChecked());
         layerNames->setEnabled(layerScope->currentIndex() == int(batch::LayerScope::Selected));
         frameList->setEnabled(frameScope->currentIndex() == int(batch::FrameScope::Selected) ||
                               frameScope->currentIndex() == int(batch::FrameScope::PlaybackEntries));
@@ -193,13 +220,12 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     });
     split->addWidget(targetsBox);
     // ---------------------------------------------------------------- pipeline
-    auto pipeBox = new QGroupBox("2 · Operation stack");
-    auto pv = new QVBoxLayout(pipeBox);
+    auto [pipeBox, pv] = section("2 · Operation stack");
     auto presetRow = new QHBoxLayout;
     presetBox = new QComboBox;
     presetBox->setObjectName("batchPresets");
     auto presetMenu = new QToolButton;
-    presetMenu->setText("Pipeline ▾");
+    presetMenu->setText("Manage");
     presetMenu->setPopupMode(QToolButton::InstantPopup);
     auto pm = new QMenu(presetMenu);
     presetMenu->setMenu(pm);
@@ -211,19 +237,35 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     steps->setAccessibleName("Operation steps");
     steps->setToolTip("Steps run top to bottom; untick to disable a step");
     pv->addWidget(steps, 1);
-    // Empty state: say how to start instead of showing a blank list.
-    auto emptySteps = new QLabel("No operations yet. Use Add ▾ below or choose a saved pipeline; "
+    // Empty state: the first step is the next action, so it is offered right here.
+    auto emptyState = new QWidget;
+    emptyState->setObjectName("batchStepsEmptyState");
+    auto emptyStack = new QVBoxLayout(emptyState);
+    emptyStack->setSpacing(ui::SpaceXL);
+    emptyStack->setContentsMargins(ui::Space3XL, ui::Space3XL, ui::Space3XL, ui::Space3XL);
+    auto emptySteps = new QLabel("No operations yet. Add one, or choose a saved pipeline above; "
                                  "steps run top to bottom.");
     emptySteps->setObjectName("batchStepsEmpty");
     emptySteps->setProperty("role", "hint");
     emptySteps->setWordWrap(true);
     emptySteps->setAlignment(Qt::AlignCenter);
-    emptySteps->setAttribute(Qt::WA_TransparentForMouseEvents);
+    emptyStack->addWidget(emptySteps);
+    auto addFirst = new QPushButton("Add operation…");
+    addFirst->setObjectName("batchAddFirstStep");
+    // Secondary: Run batch stays the dialog's single primary action.
+    emptyStack->addWidget(addFirst, 0, Qt::AlignHCenter);
+    emptyStack->addStretch();
     auto emptyLayout = new QVBoxLayout(steps->viewport());
-    emptyLayout->addWidget(emptySteps);
-    auto stepRow = new QHBoxLayout;
+    emptyLayout->addWidget(emptyState);
+    auto stepBar = new QWidget;
+    stepBar->setObjectName("batchStepBar");
+    auto stepRow = new QHBoxLayout(stepBar);
+    stepRow->setContentsMargins(0, 0, 0, 0);
     auto addButton = new QToolButton;
-    addButton->setText("Add ▾");
+    addButton->setText("Add operation");
+    addButton->setProperty("novaIcon", "add");
+    addButton->setIcon(ui::lineIcon("add"));
+    addButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     addButton->setObjectName("batchAddStep");
     addButton->setPopupMode(QToolButton::InstantPopup);
     auto addMenu = new QMenu(addButton);
@@ -243,12 +285,23 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
                 });
     }
     addButton->setMenu(addMenu);
-    auto dup = new QPushButton("Duplicate"), rem = new QPushButton("Remove"), up = new QPushButton("↑"),
-         down = new QPushButton("↓");
+    connect(addFirst, &QPushButton::clicked, addFirst,
+            [addFirst, addMenu] { addMenu->popup(addFirst->mapToGlobal(QPoint(0, addFirst->height()))); });
+    auto dup = new QPushButton("Duplicate"), rem = new QPushButton("Remove"), up = new QPushButton,
+         down = new QPushButton;
+    // Reorder buttons are icon buttons with names for assistive technology.
+    for (auto [b, icon, name] : {std::tuple{up, "up", "Move step up"}, std::tuple{down, "down", "Move step down"}}) {
+        b->setProperty("novaIcon", icon);
+        b->setIcon(ui::lineIcon(icon));
+        b->setToolTip(name);
+        b->setAccessibleName(name);
+    }
+    stepRow->setSpacing(ui::SpaceS);
     stepRow->addWidget(addButton);
+    stepRow->addStretch();
     for (auto b : {dup, rem, up, down})
         stepRow->addWidget(b);
-    pv->addLayout(stepRow);
+    pv->addWidget(stepBar);
     editor = new ParamEditor;
     editor->paletteText = context.paletteText;
     auto editorScroll = new QScrollArea;
@@ -256,86 +309,135 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
     editorScroll->setWidget(editor);
     editorScroll->setMinimumHeight(220);
     pv->addWidget(editorScroll, 1);
+    // With no steps the empty state offers Add operation; the editor and edit bar arrive
+    // with the first step. syncSteps() calls this after every rebuild of the list.
+    pv->addStretch(1);
+    showStepChrome = [editorScroll, stepBar, emptyState, pv, list = steps] {
+        editorScroll->setVisible(list->count() > 0);
+        stepBar->setVisible(list->count() > 0);
+        emptyState->setVisible(list->count() == 0);
+        list->setMaximumHeight(list->count() == 0 ? 220 : QWIDGETSIZE_MAX);
+        pv->setStretch(pv->count() - 1, list->count() == 0 ? 1 : 0);
+    };
+    showStepChrome();
     split->addWidget(pipeBox);
     // ---------------------------------------------------------------- preview / output
-    auto outBox = new QGroupBox("3 · Preview, output and run");
-    auto ov = new QVBoxLayout(outBox);
+    auto [outBox, ov] = section("3 · Preview, output and run");
     auto sampleWidget = new QWidget;
     samples = new QGridLayout(sampleWidget);
     samples->setContentsMargins(0, 0, 0, 0);
     auto refreshPreview = new QPushButton("Preview samples");
     refreshPreview->setObjectName("batchPreview");
-    ov->addWidget(refreshPreview);
+    auto previewRow = new QHBoxLayout;
+    previewRow->addWidget(refreshPreview);
+    previewRow->addStretch();
+    ov->addLayout(previewRow);
     ov->addWidget(sampleWidget);
-    toDirectory = new QRadioButton("Write results to a separate folder (recommended)");
+    toDirectory = new QRadioButton("Separate output folder");
+    toDirectory->setToolTip("Recommended: write results into a separate folder and leave originals unchanged");
     toDirectory->setChecked(true);
-    inPlace = new QRadioButton("Update originals (keeps backups, asks for confirmation)");
+    inPlace = new QRadioButton("Update originals with backups");
+    inPlace->setToolTip("Update original files after confirmation; keep a backup of each changed file");
     inPlace->setObjectName("batchInPlace");
-    directory = new QLineEdit(QFileInfo(context.root).absolutePath() + "/" + QFileInfo(context.root).fileName() +
+    directory = ui::pathField(QFileInfo(context.root).absolutePath() + "/" + QFileInfo(context.root).fileName() +
                               "-batch-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmm"));
     directory->setObjectName("batchDirectory");
-    auto browse = new QPushButton("…");
+    auto browse = new QPushButton;
+    browse->setIcon(ui::lineIcon("folder"));
+    browse->setProperty("role", "icon");
+    browse->setFixedSize(ui::ControlHeight, ui::ControlHeight);
+    browse->setToolTip("Choose output folder");
+    browse->setAccessibleName("Choose output folder");
     pattern = new QLineEdit("{path}");
     pattern->setObjectName("batchPattern");
     pattern->setToolTip("Tokens: {path} relative path, {dir} folder, {name} file name, {index} 0001…");
-    overwrite = new QCheckBox("Overwrite existing outputs (still conflict-checked)");
-    backup = new QLineEdit(directory->text() + "-originals");
+    overwrite = new QCheckBox("Replace existing output files");
+    overwrite->setToolTip("Existing output files may be replaced; path conflicts are still checked");
+    backup = ui::pathField(directory->text() + "-originals");
     backup->setObjectName("batchBackup");
+    // Each choice's settings sit under its radio, indented to the radio's label.
+    const int indent = toDirectory->style()->pixelMetric(QStyle::PM_ExclusiveIndicatorWidth, nullptr, toDirectory) +
+                       toDirectory->style()->pixelMetric(QStyle::PM_RadioButtonLabelSpacing, nullptr, toDirectory);
+    const auto dependent = [indent](const QString &text) {
+        auto label = new QLabel(text);
+        label->setIndent(indent);
+        return label;
+    };
     auto grid = new QGridLayout;
     grid->addWidget(toDirectory, 0, 0, 1, 3);
-    grid->addWidget(new QLabel("Folder"), 1, 0);
+    grid->addWidget(dependent("Folder"), 1, 0);
     grid->addWidget(directory, 1, 1);
     grid->addWidget(browse, 1, 2);
-    grid->addWidget(new QLabel("Name pattern"), 2, 0);
+    grid->addWidget(dependent("Name pattern"), 2, 0);
     grid->addWidget(pattern, 2, 1, 1, 2);
-    grid->addWidget(overwrite, 3, 0, 1, 3);
-    grid->addWidget(inPlace, 4, 0, 1, 3);
-    grid->addWidget(new QLabel("Backups"), 5, 0);
-    grid->addWidget(backup, 5, 1, 1, 2);
+    grid->addWidget(overwrite, 3, 1, 1, 2);
+    grid->setRowMinimumHeight(4, ui::SpaceL); // a gap between the two choices
+    grid->addWidget(inPlace, 5, 0, 1, 3);
+    grid->addWidget(dependent("Backups"), 6, 0);
+    grid->addWidget(backup, 6, 1, 1, 2);
     ov->addLayout(grid);
     auto runRow = new QHBoxLayout;
     dryRun = new QPushButton("Dry run");
     dryRun->setObjectName("batchDryRun");
     runButton = new QPushButton("Run batch");
     runButton->setObjectName("batchRun");
+    ui::setPrimary(runButton);
     runButton->setEnabled(false);
     cancelButton = new QPushButton("Cancel job");
     cancelButton->setObjectName("batchCancel");
     cancelButton->setEnabled(false);
-    runRow->addWidget(dryRun);
-    runRow->addWidget(runButton);
-    runRow->addWidget(cancelButton);
-    ov->addLayout(runRow);
+    cancelButton->hide(); // shown only while a job runs
     summary = new QLabel("Run a dry run to review every target before writing.");
     summary->setObjectName("batchSummary");
     summary->setWordWrap(true);
+    summary->setProperty("role", "hint");
     ov->addWidget(summary);
     progress = new QProgressBar;
     progress->setObjectName("batchProgress");
+    progress->hide(); // an idle, empty bar reads as a divider; it appears with a running job
     ov->addWidget(progress);
     results = new QTreeWidget;
     results->setObjectName("batchResults");
     results->setAccessibleName("Dry run and batch results");
-    results->setHeaderLabels({"Source", "Status", "Output / message", "Size"});
+    results->setHeaderLabels({"Source", "Status", "Output", "Size"});
+    results->headerItem()->setToolTip(2, "Output file, or the message explaining why a target was skipped");
     results->setRootIsDecorated(false);
     results->setUniformRowHeights(true);
     results->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    results->header()->setMinimumSectionSize(72);
+    results->header()->setStretchLastSection(false);
+    results->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    // Until a dry run fills it, the results table says what will appear there.
+    auto noResults = ui::emptyState("Target status and output will appear here.");
+    noResults->setObjectName("batchResultsEmpty");
+    noResults->setAttribute(Qt::WA_TransparentForMouseEvents);
+    (new QVBoxLayout(results->viewport()))->addWidget(noResults);
+    connect(results->model(), &QAbstractItemModel::rowsInserted, noResults, [noResults] { noResults->hide(); });
+    connect(results->model(), &QAbstractItemModel::modelReset, noResults, [noResults, r = results] {
+        noResults->setVisible(r->topLevelItemCount() == 0);
+    });
     results->setMinimumHeight(120);
     ov->addWidget(results, 1);
     status = new QLabel;
     status->setObjectName("batchStatus");
     status->setWordWrap(true);
-    status->setMinimumHeight(status->fontMetrics().lineSpacing() * 3);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing());
     status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ov->addWidget(status);
     split->addWidget(outBox);
     split->setSizes({260, 360, 460});
+    // One footer holds every dialog-level action; the primary action sits rightmost.
     auto close = new QPushButton("Close");
-    auto bottom = new QHBoxLayout;
-    bottom->addStretch();
-    bottom->addWidget(close);
-    root->addLayout(bottom);
-    resize(1240, 760);
+    runRow->setSpacing(ui::SpaceS);
+    runRow->addWidget(cancelButton);
+    runRow->addStretch();
+    runRow->addWidget(close);
+    runRow->addSpacing(ui::SpaceL);
+    runRow->addWidget(dryRun);
+    runRow->addWidget(runButton);
+    root->addSpacing(ui::SpaceS);
+    root->addLayout(runRow);
+    resize(1120, 540);
 
     connect(scope, &QComboBox::currentIndexChanged, this, [this] {
         updating = true;
@@ -476,6 +578,8 @@ BatchDialog::BatchDialog(BatchContext c, QWidget *parent) : QDialog(parent), con
         connect(edit, &QLineEdit::textChanged, this, &BatchDialog::invalidate);
     connect(overwrite, &QCheckBox::toggled, this, &BatchDialog::invalidate);
     connect(inPlace, &QRadioButton::toggled, this, &BatchDialog::invalidate);
+    connect(inPlace, &QRadioButton::toggled, this, [this, sync] { sync(); });
+    sync();
     connect(refreshPreview, &QPushButton::clicked, this, &BatchDialog::previewSamples);
     connect(dryRun, &QPushButton::clicked, this, &BatchDialog::runDryRun);
     connect(runButton, &QPushButton::clicked, this, &BatchDialog::start);
@@ -519,15 +623,19 @@ void BatchDialog::setPipeline(const batch::Pipeline &p) {
 void BatchDialog::resolve() {
     resolved = batch::resolveTargets(context.files, batch::Scope(scope->currentIndex()), scopeValue->currentText());
     targets->clear();
-    for (const auto &f : resolved.mid(0, 2000))
-        targets->addItem(f);
+    for (const auto &f : resolved.mid(0, 2000)) {
+        auto item = new QListWidgetItem(f, targets);
+        item->setToolTip(f);
+    }
+    targets->setMaximumHeight(std::clamp(targets->count(), 3, 10) * ui::RowHeight + 2 * ui::SpaceS);
     int natives = 0;
     if (nativeMode())
         for (const auto &f : resolved)
             if (!f.isEmpty() && QFileInfo::exists(nativeDocumentPath(context.root, context.root + '/' + f)))
                 ++natives;
-    count->setText(QString("%1 PNG texture(s)%2%3")
+    count->setText(QString("%1 PNG %2%3%4")
                        .arg(resolved.size())
+                       .arg(resolved.size() == 1 ? "texture" : "textures")
                        .arg(nativeMode() ? QString(" · %1 with native documents").arg(natives) : QString())
                        .arg(resolved.size() > 2000 ? " (first 2000 listed)" : ""));
     invalidate();
@@ -543,8 +651,8 @@ void BatchDialog::syncSteps(int select) {
         item->setCheckState(s.enabled ? Qt::Checked : Qt::Unchecked);
         steps->addItem(item);
     }
-    if (auto empty = steps->findChild<QLabel *>("batchStepsEmpty"))
-        empty->setVisible(pipeline.steps.empty());
+    if (showStepChrome)
+        showStepChrome();
     updating = false;
     steps->setCurrentRow(select);
     if (select < 0)
@@ -744,8 +852,10 @@ bool BatchDialog::startNative() {
     runButton->setEnabled(false);
     dryRun->setEnabled(false);
     cancelButton->setEnabled(true);
+    cancelButton->show();
     progress->setRange(0, int(nativePlan.items.size()));
     progress->setValue(0);
+    progress->show();
     auto shared = std::make_shared<batch::NativePlan>(nativePlan);
     auto pipe = pipeline;
     ops::Context ctx;
@@ -762,6 +872,7 @@ bool BatchDialog::startNative() {
         planned = false;
         dryRun->setEnabled(true);
         cancelButton->setEnabled(false);
+        cancelButton->hide();
         progress->setValue(progress->maximum());
         for (int i = 0; i < results->topLevelItemCount() && i < int(nativePlan.items.size()); ++i) {
             const auto &item = nativePlan.items[size_t(i)];
@@ -832,8 +943,10 @@ bool BatchDialog::start() {
     runButton->setEnabled(false);
     dryRun->setEnabled(false);
     cancelButton->setEnabled(true);
+    cancelButton->show();
     progress->setRange(0, int(currentPlan.items.size()));
     progress->setValue(0);
+    progress->show();
     auto shared = std::make_shared<batch::Plan>(currentPlan);
     auto pipe = pipeline;
     ops::Context ctx;
@@ -849,6 +962,7 @@ bool BatchDialog::start() {
         planned = false;
         dryRun->setEnabled(true);
         cancelButton->setEnabled(false);
+        cancelButton->hide();
         progress->setValue(progress->maximum());
         for (int i = 0; i < results->topLevelItemCount() && i < int(currentPlan.items.size()); ++i) {
             const auto &item = currentPlan.items[size_t(i)];

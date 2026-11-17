@@ -1,14 +1,47 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "resourcetools.h"
+#include "theme.h"
 #include <QJsonDocument>
 #include <QtConcurrent>
 #include <QtWidgets>
 namespace nova {
+namespace {
+constexpr int SeverityRole = Qt::UserRole + 1;
+// Severity reads by colour, a matching dot and its word, never colour alone. Tones come
+// from the active theme, so a theme switch re-tones existing rows.
+void toneSeverity(QTreeWidgetItem *item) {
+    const auto &t = ui::current();
+    const auto severity = mc::Severity(item->data(0, SeverityRole).toInt());
+    const QColor tone = severity == mc::Severity::Error         ? t.danger
+                        : severity == mc::Severity::Warning     ? t.warning
+                        : severity == mc::Severity::Information ? t.info
+                                                                : t.muted;
+    QPixmap pm(QSize(10, 10) * 2);
+    pm.setDevicePixelRatio(2);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    // Unsupported is not a fault: a hollow ring, so severity also reads by shape.
+    if (severity == mc::Severity::Unsupported) {
+        p.setPen(QPen(tone, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QRectF(1.75, 1.75, 6.5, 6.5));
+    } else {
+        p.setPen(Qt::NoPen);
+        p.setBrush(tone);
+        p.drawEllipse(QRectF(1, 1, 8, 8));
+    }
+    item->setForeground(0, tone);
+    item->setIcon(0, QIcon(pm));
+}
+} // namespace
 ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     setObjectName("resourceTools");
     auto v = new QVBoxLayout(this);
-    v->setContentsMargins(6, 6, 6, 6);
+    v->setContentsMargins(ui::SpaceL, ui::SpaceL, ui::SpaceL, ui::SpaceL);
+    v->setSpacing(ui::SpaceM);
     auto row = new QHBoxLayout;
+    row->setSpacing(ui::SpaceS);
     v->addLayout(row);
     scope = new QComboBox;
     scope->setObjectName("validationScope");
@@ -17,11 +50,14 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     row->addWidget(scope);
     run = new QPushButton("Validate");
     run->setObjectName("runValidation");
+    ui::setPrimary(run);
     row->addWidget(run);
     cancelButton = new QPushButton("Cancel");
     cancelButton->setEnabled(false);
     row->addWidget(cancelButton);
+    row->addStretch();
     status = new QLabel("Validate supported Minecraft resource fields and dependencies.");
+    status->setProperty("role", "hint");
     status->setWordWrap(true);
     v->addWidget(status);
     progress = new QProgressBar;
@@ -34,23 +70,32 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     problems->setHeaderLabels(
         {"Severity", "File", "Field / line", "Explanation", "Suggested action"});
     problems->setRootIsDecorated(false);
+    ui::afterEvents(problems, {QEvent::PaletteChange}, [this] {
+        for (int i = 0; i < problems->topLevelItemCount(); ++i)
+            toneSeverity(problems->topLevelItem(i));
+    });
     problems->setUniformRowHeights(true);
     problems->setAlternatingRowColors(false);
     for (int column = 2; column < 5; ++column)
         problems->hideColumn(column);
     problems->header()->setStretchLastSection(false);
     problems->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    // Enough height for a few findings before the dock gives the canvas its room.
+    problems->setMinimumHeight(problems->header()->sizeHint().height() + 4 * ui::RowHeight + 2);
     v->addWidget(problems, 1);
     detail = new QLabel;
+    detail->hide(); // appears with the first selected finding
     detail->setWordWrap(true);
     detail->setTextFormat(Qt::PlainText);
     detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
     v->addWidget(detail);
     auto actions = new QHBoxLayout;
+    actions->setSpacing(ui::SpaceS);
     v->addLayout(actions);
     auto open = new QPushButton("Open related asset");
     open->setObjectName("openProblemAsset");
     actions->addWidget(open);
+    actions->addStretch();
     repair = new QPushButton("Preview repair…");
     repair->setObjectName("previewRepair");
     actions->addWidget(repair);
@@ -182,6 +227,8 @@ void ResourceTools::populate(int offset) {
                                  d.field + (d.line ? " line " + QString::number(d.line) : ""),
                                  d.message, d.suggestion});
         item->setData(0, Qt::UserRole, i);
+        item->setData(0, SeverityRole, int(d.severity));
+        toneSeverity(item);
         item->setToolTip(3, d.message);
         item->setToolTip(4, d.suggestion);
         problems->addTopLevelItem(item);
@@ -192,7 +239,7 @@ void ResourceTools::populate(int offset) {
                 populate(end);
         });
     else {
-        problems->setColumnWidth(0, 90);
+        problems->setColumnWidth(0, problems->fontMetrics().horizontalAdvance("Unsupported") + 48); // dot, word, padding
         problems->setColumnWidth(1, 260);
         problems->setColumnWidth(2, 150);
         problems->setColumnWidth(3, 350);
@@ -208,6 +255,7 @@ void ResourceTools::select() {
     detail->setText(d.file + " " + d.field + (d.line ? " · line " + QString::number(d.line) : "") +
                     "\n" + d.message + "\n" + d.suggestion +
                     (d.affected.isEmpty() ? "" : "\nAffected: " + d.affected.join(", ")));
+    detail->show();
     repair->setEnabled(!watcher && !d.replacement.isEmpty());
 }
 void ResourceTools::fix() {

@@ -33,7 +33,7 @@ class CheckerboardThemeTests : public QObject {
         for (bool dark : {true, false}) {
             const auto t = ui::tokens(dark, "violet");
             const auto name = dark ? "dark" : "light";
-            const double edgeDark = contrast(t.base, t.checkerDark), edgeLight = contrast(t.base, t.checkerLight);
+            const double edgeDark = contrast(t.canvas, t.checkerDark), edgeLight = contrast(t.canvas, t.checkerLight);
             const double pattern = contrast(t.checkerDark, t.checkerLight);
             const double grid = contrast(over(t.pixelGrid, t.checkerLight), t.checkerLight);
             qInfo().noquote() << name << "edge" << edgeDark << edgeLight << "pattern" << pattern << "grid" << grid
@@ -83,7 +83,7 @@ class CheckerboardThemeTests : public QObject {
             auto at = [&](double x, double y) { return QColor(shot.pixel(((origin + QPointF(x, y) * 24) * dpr).toPoint())); };
             QCOMPARE(at(0.5, 0.5).rgb(), t.checkerDark.rgb());  // cell (0,0)
             QCOMPARE(at(1.5, 0.5).rgb(), t.checkerLight.rgb()); // cell (1,0)
-            QCOMPARE(QColor(shot.pixel(QPoint(4, 4) * dpr)).rgb(), t.base.rgb()); // surround
+            QCOMPARE(QColor(shot.pixel(QPoint(4, 4) * dpr)).rgb(), t.canvas.rgb()); // surround
             QCOMPARE(at(12.5, 12.5).rgb(), QColor(Qt::black).rgb());
             QCOMPARE(at(13.5, 12.5).rgb(), QColor(Qt::white).rgb());
             if (!evidence.isEmpty()) {

@@ -114,7 +114,7 @@ void Window::ensureTimeline() {
     if (current()) timeline->setDocument(current()->document);
     timeline->setViewSettings(QJsonDocument::fromJson(preferences.animationView).object());
     if (preferences.animationView.isEmpty()) QTimer::singleShot(0, this, [this] {
-        if (animationDock->isVisible()) { resizeDocks({animationDock, previewDock}, {900, 300}, Qt::Horizontal); resizeDocks({animationDock}, {275}, Qt::Vertical); }
+        if (animationDock->isVisible()) { resizeDocks({animationDock, previewDock}, {900, 300}, Qt::Horizontal); resizeDocks({animationDock}, {animationDock->minimumSizeHint().height()}, Qt::Vertical); }
     });
 }
 void Window::animationRefresh() {

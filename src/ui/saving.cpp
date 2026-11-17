@@ -276,6 +276,7 @@ void Window::updateUnsavedStatus() {
     if (!unsavedLabel) {
         unsavedLabel = new QLabel(this);
         unsavedLabel->setObjectName("unsavedStatus");
+        unsavedLabel->setProperty("role", "warning"); // the same amber as the Inspector's "Unsaved changes"
         statusBar()->addPermanentWidget(unsavedLabel);
     }
     const auto names = unsavedDocuments(false);

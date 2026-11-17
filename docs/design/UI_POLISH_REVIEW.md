@@ -1,0 +1,347 @@
+# UI polish council record
+
+Independent screenshot reviews. Reviewers receive the same captures and rubric; they do not receive other scores. Scores are subjective and are not averaged into approval. Every participating reviewer must give at least 9/10 overall.
+
+## Final review: 33 (iteration closed by the user)
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| zai-coding-plan/glm-5.3-flash | 7 | 7 | 8 | 7 | 7 | 7 | 6 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 6 | 7 | 7 |
+
+The four free OpenCode reviewers (GLM free, LongCat, MiniMax, Inkling) stalled at start-up
+and were cancelled at the five-minute limit. **The council's 9/10 bar was not reached.**
+The user ended the iteration after this round, satisfied with the result. Open suggestions
+that recur across rounds and could guide later work: tighter grouping on the tool options
+row, a less sparse Batch layout, a stable home for the 3D Preview across workspaces, a
+shorter Layers dock in the Model workspace (two sizing attempts were withdrawn), and
+stronger light-theme surface separation.
+
+## Combined review: 32
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 6 | 7 | 7 | 6 | 7 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 7 | 7 | 7 | 8 | 7 | 7 | 7 |
+| opencode/longcat-2.5-free | 8 | 7 | 7 | 7 | 7 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 7 | 6 | 7 | 6 | 5 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 8 | 7 | 7 | 7 | 7 | 7 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** Scores have held at 6–8 for several rounds, and individual
+reviewers move by a point between rounds without matching changes in the captures. Several
+reviewers again found the active rail tool too weak; the next pass gives it the `selection`
+fill with an `accent` edge, like a selected row. Requests to box each Batch step reverse an
+earlier council request to remove those boxes, and are not taken.
+
+## Combined review: 31
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 8 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 8 | 7 | 8 | 8 | 8 | 8 |
+| opencode/minimax-m3.1-flash-free | 7 | 6 | 7 | 7 | 6 | 6 | 6 | 7 |
+| opencode/inkling-2-small-free | 7 | 7 | 6 | 7 | 7 | 6 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled.
+MiniMax rose to 7, so every scored reviewer is at 7 or 8. Concrete findings: dark palette
+swatches close to the panel colour disappear as cells, and "Process frames…" was the only
+text-only command on the Animation row. The next pass draws a faint rim around every
+swatch and gives "Process frames…" a leading icon like its neighbours.
+
+Not treated as defects: "REcent"/"PALette" casing (the captures read RECENT and PALETTE);
+a ~16px rail (icons are 20px).
+
+## Combined review: 30
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 7 | 6 | 6 | 6 | 7 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 7 | 7 | 7 | 7 | 8 | 8 |
+| opencode/longcat-2.5-free | 8 | 7 | 8 | 7 | 7 | 8 | 8 | 8 |
+| opencode/minimax-m3.1-flash-free | 7 | 6 | 6 | 7 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 8 | 7 | 7 | 7 | 6 | 7 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** Two reviewers reach 8 overall. Recurring findings: light-theme
+dock boundaries are too faint, the rail's group triangles are hard to see, and the
+"unsaved documents" status text is muted although it needs attention. The next pass
+darkens the light `border`/`borderStrong` hairlines to `#cfd2d9`/`#b8bcc5`, enlarges the corner
+triangle to 6px, and gives the unsaved status the `warning` role (the Inspector's amber).
+An attempt to shorten Layers in the Model workspace did not survive the workspace's later
+column sizing and was withdrawn.
+
+## Combined review: 29
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 6 | 6 | 6 | 6 | 6 | 5 | 6 | 6 |
+| zai-coding-plan/glm-5.3-flash | 8 | 8 | 8 | 7 | 8 | 7 | 8 | 8 |
+| opencode/longcat-2.5-free | 8 | 8 | 7 | 7 | 7 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 7 | 6 | 7 | 7 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** Reviewers disagree more this round (GLM free 6, z.ai 8). Two
+concrete findings: a disabled but checked box ("Tint adjacent frames") was drawn as a grey
+box with a dark tick, unlike every other checked box, and the texture had no visible edge
+where it is transparent or close to the surround. The next pass keeps the accent fill on
+disabled checked indicators (faded 60% towards `window`) and frames the image in a 1px
+`borderStrong` hairline.
+
+Not treated as defects: a serif "A" text tool and "~1px #8a8a93" rail icons (neither is in
+the captures; rail icons are `#c4c6ce`); the claim that the options row stays on Pencil in
+the Model workspace (the active tool is Pencil there, so its options are correct).
+
+## Combined review: 28
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 7 | 7 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 7 | 7 | 8 | 7 |
+| opencode/longcat-2.5-free | 8 | 7 | 8 | 8 | 8 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 6 | 6 |
+| opencode/inkling-2-small-free | 8 | 7 | 7 | 7 | 7 | 6 | 7 | 7 |
+| codex/gpt-6.1-terra | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** Spacing and icon scores rose. Recurring findings: the
+palette swatches were cut off at the bottom of the Colours panel, section titles were no
+brighter than the field labels under them, disabled text was hard to read, and Presets
+was the only framed menu button on the options row. The next pass puts the Hex field and
+the HSV/HSL choice on one row so the whole palette fits, draws section titles in `text`,
+raises dark `disabled` to `#7a7d89` (4.1:1), makes Presets a frameless menu command like
+Brush settings, and sizes the Animation timeline to its content when that workspace is set up.
+
+Not treated as defects: the claim that the light theme keeps a dark menu bar and rail
+(capture 17 shows both light); opacity in 0–255, which matches pixel-art tools and the
+alpha channel.
+
+## Combined review: 27
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 6 | 7 | 6 | 6 | 6 | 6 | 7 | 6 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 7 | 6 | 7 | 6 | 8 | 7 |
+| opencode/longcat-2.5-free | 8 | 7 | 7 | 7 | 7 | 7 | 6 | 7 |
+| opencode/minimax-m3.1-flash-free | 7 | 7 | 6 | 6 | 6 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 |
+| codex/gpt-6.1-terra | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+
+**Acceptance remains unmet.** First review of the fixed left rail; GPT-6.1 Terra rejoins
+at the user's request, and all six reviewers finished inside five minutes. The rail's
+split-button arrows (on grouped tools only) read as doubled, uneven controls, and the brush
+popover's Height row lacked the slider its siblings had. The next pass marks grouped tools
+with a Photoshop-style corner triangle instead of an arrow segment, so every rail button is
+the same square and the rail is narrower (press and hold, right-click, Alt+Down or the menu
+key opens the group). Every settings-popover row is now a slider with an unstepped value
+box. Batch output settings indent under their radio choice; Welcome's "View all" becomes a
+link-styled command, and recent-pack paths abbreviate the home folder to `~`.
+
+Several reviewer claims conflict with the captures and are not treated as defects: rail
+icons are `#c4c6ce` on the dark rail and `#3d414b` on the light one (not "near-invisible");
+the onion-skin Opacity slider is grey because its master switch is off.
+
+## Combined review: 26
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 6 | 6 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 8 | 7 | 8 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 6 | 6 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 7 | 7 | 7 | 8 | 6 | 7 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled.
+Every reviewer again named the six toolbar placements as the main consistency cost and
+recommended one fixed vertical rail on the left, as in Aseprite and Photoshop. The user
+then allowed a fixed position, so the next pass removes the movable strip: no grip, tools
+dock, position menu or floating window. Layouts saved with another position restore
+with the rail on the left. The light theme's selection fill moves to `#c6bcf4` so
+selected rows read against the light panels, the inspector's navigation hint shrinks
+to one line with the full shortcut list in its tooltip, and the status bar's message text
+uses the body size instead of the platform's smaller status font.
+
+## Combined review: 25
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 8 | 7 | 8 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 5 | 5 | 5 | 4 | 6 |
+| opencode/inkling-2-small-free | 8 | 8 | 7 | 7 | 8 | 7 | 7 | 8 |
+
+**Acceptance remains unmet.** LongCat exceeded the five-minute limit and was cancelled;
+Kimi K3.1 Pro returned no review. The next pass keeps Run batch as the Batch dialog's
+only primary action (Add operation becomes secondary), shows the Batch progress bar only
+while a job runs, turns the right-edge tool rail's hairline towards the canvas, and
+rewords the custom-layout status message.
+
+## Combined review: 24
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 7 | 6 | 7 | 6 | 7 | 7 |
+| zai-coding-plan/glm-5.3-flash | 7 | 8 | 8 | 7 | 7 | 7 | 7 | 7 |
+| opencode/minimax-m3.1-flash-free | 6 | 6 | 6 | 6 | 5 | 6 | 5 | 6 |
+| opencode/inkling-2-small-free | 7 | 7 | 6 | 6 | 7 | 7 | 6 | 7 |
+
+**Acceptance remains unmet.** From this round the council uses only OpenCode and Kimi
+reviewers, at the user's request. LongCat exceeded the five-minute limit and was
+cancelled; Kimi K3 returned no review. Several findings conflict with the captures
+(an "invisible" command palette, misaligned brush-settings sliders, a top tool row inside
+the document-tab band) and are recorded without being treated as defects. Suggestions
+to remove toolbar placements conflict with the requirement to keep all six. The next
+pass names the active tool at the start of every options row (it steps aside before the
+row would scroll) and gives the floating tool strip a rounded, stronger frame.
+
+## Combined review: 23
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opencode/glm-5.3-flash-free | 7 | 7 | 6 | 7 | 7 | 7 | 8 | 7 |
+| opencode/longcat-2.5-free | 7 | 7 | 7 | 6 | 7 | 7 | 6 | 7 |
+| Kimi | 7 | 8 | 7 | 7 | 7 | 7 | 8 | 7 |
+
+**Acceptance remains unmet.** All three reviewers gave 7/10 overall and
+completed within five minutes. All seventeen screenshots cover the application
+and all six toolbar placements. Reviewers continue to question panel-toolbar
+density, animation grouping, typography, icon consistency and light-theme
+control separation. Suggestions to remove toolbar placements conflict with
+the requirement to preserve all six. Claims that the floating default covers
+the artwork conflict with the captures. The panel tools use a 4x2 grid with a
+separate grip. Shared styling is already applied to Batch. These observations
+remain distinct from reproduced implementation defects.
+
+This pass names recent packs in command search while retaining full
+path matching and the existing activation action. It removes four redundant
+toolbar separators. A change that hid the empty Recent colours section was
+withdrawn: it broke the Texture workspace's Colours-dock visibility check.
+
+## Toolbar placement reviews: rounds 15–19
+
+The council reviewed left, right, top, above Colours, above Assets, and floating
+placements independently of the whole-application ratings.
+
+| Model | Hierarchy | Colour | Type | Spacing | Controls | Icons | Consistency | Overall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| GLM free | 6 | 8 | 7 | 5 | 7 | 8 | 7 | 6 |
+| Kimi | 7 | 8 | 6 | 6 | 6 | 7 | 7 | 7 |
+
+LongCat reached the five-minute limit and is unscored. The completed reviews
+agree that narrow panel placements need a deliberate grid and that the floating
+context capture must include its native tool window. Above Colours also exposes
+a layout defect: it separates Colours from its tab peers. Fixes are in progress;
+these scores do not constitute toolbar or whole-application approval.
+
+Round 16 evaluated the first grid, tab-group, medium-height layout and floating
+capture fixes. GLM free and LongCat free both rated it 7/10 overall; Kimi reached
+the five-minute limit and is unscored. The next pass keeps all nine strip controls
+in a balanced 3×3 panel grid, places rail colour wells beside the tool cluster,
+and preserves side-column widths when moving the strip. Findings that confused
+tool selection with brush shape or proposed hiding tools were not applied.
+
+Round 17 evaluated the balanced grid, nearby rail swatches and column-width fixes.
+GLM free and LongCat free both rated it 6/10 overall. Kimi reached the five-minute
+limit and is unscored. The panel grid still takes too much vertical space. Some
+review claims conflict with the actual captures (missing chevrons, a far-right
+swatch and different row counts); these remain recorded without being treated
+as verified defects. The next pass reduces the panel strip to two rows and uses
+content-specific image filenames to remove stale-path ambiguity.
+
+Round 18 used content-addressed image copies. GLM free rated it 6/10; LongCat
+free and Kimi rated it 7/10. All three identified top-row overflow. That combined
+row is being replaced with a dedicated row; the compact two-row panel grid,
+stable columns and lower-margin floating default are retained. Effects now uses
+the same inline arrow zone as grouped tools, with more inset around the strip.
+
+Round 19 reviewed the restored separate top row, inline Effects arrow, aligned
+4×2 panel grid and complete colour-panel palette row. GLM free rated it 8/10;
+LongCat free and Kimi rated it 7/10. All completed within five minutes. The
+right rail occupies its own column and the floating default clears the artwork
+in the captures; claims that these overlap content were checked and could not
+be reproduced. The grid already has four tool cells per row plus a leading
+grip column. The next pass reduces the visual size of the colour wells and
+addresses the whole application's command-palette and animation-card edges.
+
+Round 14 included consistent dock-body surfaces, more vertical room for colour controls, uniform asset selection fills and non-overlapping UV labels. The next review also covers every supported editing-toolbar placement: left, right, top, above Colours, above Assets and floating. Batch headings now sit inside their sections; Welcome loses its inset gutter; option spacing and popup label columns use consistent geometry. Paint colours and artwork were not changed to satisfy UI-colour suggestions.
+
+## Round history
+
+| Round | Focus | Overall scores |
+| --- | --- | --- |
+| 0 | baseline (before changes) | GLM-5.3 Flash (free): 6; LongCat 2.5 (free): 6; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 6; GPT-6.1 Sol: 7; GPT-6.1 Terra: 6; Claude Sonnet 5.5: 5; Claude Haiku 5.5: 5 |
+| 1 | new design system (tokens, NovaStyle, restyle) | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 7; GPT-6.1 Sol: 7; GPT-6.1 Terra: 6; Claude Sonnet 5.5: 6; Claude Haiku 5.5: 5 |
+| 2 | top dock tabs, neutral light theme, clearer panels (1152 px captures) | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 7; GPT-6.1 Sol: 7; GPT-6.1 Terra: 6; Claude Sonnet 5.5: 6; Claude Haiku 5.5: 6 |
+| 3 | one body font, colour grid, compact fields, scroll fades | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 8; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 6; Claude Haiku 5.5: 6 |
+| 4 | options bar fits, eye toggles, severity dots, inset lists | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 7; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 6; Claude Haiku 5.5: 6 |
+| 5 | filled disabled primary, icon toggles, option dividers | GLM-5.3 Flash (free): 8; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 7; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 7; Claude Haiku 5.5: 6 |
+| 6 | dock room, scroll edge, batch first step, palette groups | GLM-5.3 Flash (free): 6; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 8; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 6; Claude Haiku 5.5: 6 |
+| 7 | clean panel edges, batch footer, roomier lists | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 8; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 8; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 7; Claude Haiku 5.5: 6 |
+| 8 | colour tracks, palette headings, AA primary fill | GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 8; LongCat 2.5 (free): 6; MiniMax M3.1 Flash (free): 6; Inkling 2 Small (free): 8; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 7; Claude Haiku 5.5: 6 |
+| 9 | native editor polish | MiniMax M3.1 Flash (free): 6; GLM-5.3 Flash (free): 7; GLM-5.3 Flash (z.ai plan): 7; LongCat 2.5 (free): 7; Inkling 2 Small (free): 8; GPT-6.1 Sol: 7; GPT-6.1 Terra: 7; Claude Sonnet 5.5: 7; Claude Haiku 5.5: 7 |
+| 10 | focused welcome and compact settings | GLM-5.3 Flash (free): 7; LongCat 2.5 (free): 7; GLM-5.3 Flash (z.ai plan): 8 |
+| 11 | paths, menu headings and timeline groups | opencode/glm-5.3-flash-free: 7; opencode/longcat-2.5-free: 7; zai-coding-plan/glm-5.3-flash: 7 |
+| 12 | readable states and compact layouts | GLM free: 7; LongCat free: 8; GLM z.ai: 7; Kimi: 7 |
+| 13 | readable working text and focused welcome | GLM free: 7; LongCat free: 7; Kimi: 7 |
+| 14 | consistent panels and readable UV labels | GLM free: 7; LongCat free: 6; Kimi: 7; GLM z.ai: unable to view images |
+| 15 | six toolbar placements only | GLM free: 6; Kimi: 7; LongCat: five-minute limit |
+| 16 | six toolbar placements, grid/tab-group fixes | GLM free: 7; LongCat free: 7; Kimi: five-minute limit |
+| 17 | six toolbar placements, balanced grid and stable columns | GLM free: 6; LongCat free: 6; Kimi: five-minute limit |
+| 18 | six toolbar placements, two-row grid and combined top row | GLM free: 6; LongCat free: 7; Kimi: 7 |
+| 19 | six toolbar placements, separate top row and aligned panel grid | GLM free: 8; LongCat free: 7; Kimi: 7 |
+| 20 | whole application, complete command rows and padded frame tiles | GLM free: 7; LongCat free: 8; Kimi: 7 |
+| 21 | whole application and all six toolbar placements, sliders and stronger indicators/icons | GLM free: 8; LongCat free: 7; Kimi: five-minute limit |
+| 22 | whole application and all six toolbar placements, recent-pack list and compact Batch | GLM free: 7; LongCat free: 7; Kimi: five-minute limit |
+| 23 | whole application and all six toolbar placements, named recent-pack commands and fewer tool separators | GLM free: 7; LongCat free: 7; Kimi: 7 |
+| 24 | whole application and all six toolbar placements; OpenCode reviewers only | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit; Kimi: no review |
+| 25 | tool name on every options row, framed floating strip | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 8; LongCat: five-minute limit; Kimi: no review |
+| 26 | one primary Batch action, right-rail hairline facing the canvas | GLM free: 7; GLM z.ai: 7; MiniMax: 6; Inkling: 7; LongCat: five-minute limit |
+| 27 | fixed left tool rail, matching status text | GLM free: 6; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 8; Terra: 7 |
+| 28 | corner-triangle rail, slider popovers, indented Batch output | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 29 | whole palette in view, brighter section titles and disabled text | GLM free: 6; GLM z.ai: 8; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 30 | framed artboard, accent-faded disabled checks | GLM free: 7; GLM z.ai: 8; LongCat: 8; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 31 | firmer light hairlines, larger rail triangles, amber unsaved status | GLM free: 7; GLM z.ai: 8; MiniMax: 7; Inkling: 7; Terra: 7; LongCat: five-minute limit |
+| 32 | rimmed palette swatches, Process frames icon | GLM free: 7; GLM z.ai: 7; LongCat: 7; MiniMax: 6; Inkling: 7; Terra: 7 |
+| 33 | selection-filled active rail tool (final) | GLM z.ai: 7; Terra: 7; GLM free, LongCat, MiniMax, Inkling: stalled, cancelled |
+
+## Verification
+
+- Selection-filled active rail tool: the complete regression run (MCP excluded) passed 66/66 suites in 335.34 seconds.
+- Swatch rims and the Process frames icon: the complete regression run (MCP excluded) passed 66/66 suites in 328.82 seconds.
+- Darker light hairlines, 6px rail triangles and the amber unsaved status: the complete regression run (MCP excluded) passed 66/66 suites in 325.74 seconds.
+- Faded-accent disabled checks and the framed artboard: the complete regression run (MCP excluded) passed 66/66 suites in 323.84 seconds.
+- Hex and slider model on one row, brighter section titles and disabled text, frameless Presets: the complete regression run (MCP excluded) passed 66/66 suites in 324.41 seconds.
+- Corner-triangle rail, slider popovers and indented Batch output: the complete regression run (MCP excluded) passed 66/66 suites in 326.98 seconds.
+- Fixed tool rail checkpoint: the complete regression run (MCP excluded) passed 66/66 suites in 326.31 seconds with process-local `TEMP`/`TMP` at `build/t`, including the rewritten `tool-strip` suite at 100%, 150% and 200% scaling. The status bar's message now uses the body size, like its labels.
+- Native Qt gallery: dark/light, welcome/editor, selection, animation, models, batch, palette and settings. Gallery/test windows use the secondary portrait display.
+- Targeted workspace, tool-strip (including 150% and 200%), editor GUI and tool-options checks: 6/6 passed.
+- Regression run before the latest border/spacing pass: 66/66 passed with MCP explicitly excluded.
+- Full regression run with official MCP SDK 1.26.0: 67/67 suites passed. MCP pixel assertions now match the documented canvas token; the standalone MCP check passed 24 checks with one optional benchmark skipped.
+- Later font, frame-size, path and Welcome-layout changes: four targeted GUI suites passed. Subsequent surface/UV changes: workspace, UV, animation and tool-options checks passed; final gallery and persistence checks are recorded separately in the task evidence.
+- Token contrast calculations: dark secondary text on window 7.24:1; light secondary 5.80:1; light selected-row text 10.31:1. These do not establish whole-app accessibility compliance.
+- A later complete regression run passed 67/67 suites in 435.44 seconds. The subsequent two-row panel grid, combined top row and floating default passed focused placement checks; the combined top row also passed compact, normal and large window checks at 150% and 200%. The final native gallery passed 4/4 checks.
+- Welcome-list activation, full-path command matching, editor GUI, batch, placement and search checks passed in five focused suites (31.22 seconds). Toolbar scaling checks passed at 150% and 200% (2/2, 6.90 seconds). The native gallery passed 4/4 checks including populated Batch.
+- Performance was not measured.
+- Following round 19, the search suite passed with a regression check for complete result rows and keyboard scrolling.
+- Latest complete regression attempt: 66/67 suites passed in 445.43 seconds. Fabric runtime's Unicode boundary fixture failed because the default TEMP path was too long. The unchanged suite passed all 26 checks in 16.39 seconds with process-local TEMP/TMP set to the existing `build/t`; production runtime code was not changed.
+- Subsequent slider/value synchronization, keyboard editing, disabled onion controls, regular icon outlines and wider spin-button zones passed six focused suites in 36.24 seconds. The final gallery verifies the additional slider-track contrast changes.
+- A new complete regression run passed 67/67 suites in 440.38 seconds using process-local `TEMP`/`TMP` at the existing `build/t`. This includes the final slider-track styling. The later dock-tab-order correction passed all three placement/scaling suites in 16.74 seconds, including hidden-peer and custom-order checks. The gallery also asserts tab order across every toolbar position and passed 4/4 checks.
+
+## Screenshot evidence
+
+| Surface | Before | Current |
+| --- | --- | --- |
+| Welcome | [Before](screenshots/before-01-welcome-dark.png) | [Current](screenshots/01-welcome-dark.png) |
+| Editor | [Before](screenshots/before-02-general-dark-1280.png) | [Current](screenshots/02-general-dark-1280.png) |
+| Batch | [Before](screenshots/before-11-batch-dark.png) | [Current](screenshots/11-batch-dark.png) |
+| Light theme | [Before](screenshots/before-17-light-texture.png) | [Current](screenshots/17-light-texture.png) |
+
+Editing toolbar: [fixed left rail](screenshots/20-tools-left.png). Rounds 15–26 reviewed
+six movable placements; those captures were retired with the movable strip.
+
+`tests/tool_strip_test.cpp` checks that the rail stays a fixed vertical strip on the left
+in every workspace, after Reset Workspace and after restoring layouts saved with any
+other position, and that every tool is reachable by pointer and keyboard in compact,
+normal and large windows at 100%, 150% and 200% scaling.
+
+Local evidence (untracked) remains under `build/ui-polish`: the round-0 baseline, the final captures, `scores.json` and the per-round charts. The full regression suite passes 66/66 with MCP excluded; the council's 9/10 bar was not reached before the user closed the iteration.

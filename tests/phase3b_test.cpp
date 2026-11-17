@@ -7,6 +7,7 @@
 #include "modelpanel.h"
 #include "creation.h"
 #include "imageops.h"
+#include "theme.h"
 #include "window.h"
 #include <QtTest>
 #include <QtWidgets>
@@ -18,6 +19,9 @@ class EditorTestAccess {
     static QDockWidget *dock(Window &w, const char *name) { return w.findChild<QDockWidget *>(name); }
     static Preferences &preferences(Window &w) { return w.preferences; }
     static ModelPanel *models(Window &w) { return w.modelPanel; }
+    static void openTexture(Window &w, const QString &path) { w.openTexture(path); }
+    static QByteArray layout(Window &w) { return w.currentLayout(); }
+    static void closeTexture(Window &w) { emit w.tabs->tabCloseRequested(w.tabs->currentIndex()); }
 };
 } // namespace nova
 using namespace nova;
@@ -96,6 +100,39 @@ class Phase3BTests : public QObject {
     }
 
   private slots:
+    void welcomeRestoresEditorLayout() {
+        const auto pack = makePack(temporary.filePath("welcome-restore"));
+        auto window = open("welcome-restore.ini");
+        QVERIFY(window);
+        auto tools = window->findChild<QToolBar *>("toolBox");
+        auto options = window->findChild<QToolBar *>("toolOptions");
+        auto commands = window->findChild<QToolBar *>("commands");
+        QVERIFY(tools->isHidden());
+        QVERIFY(options->isHidden());
+        QVERIFY(commands->isHidden());
+        // Emphasised controls must keep the same UI family as ordinary labels.
+        auto create = window->findChild<QPushButton *>("welcomeCreate");
+        QVERIFY(create);
+        QCOMPARE(QFontInfo(create->font()).family(), QFontInfo(qApp->font()).family());
+        for (auto dock : window->findChildren<QDockWidget *>())
+            QVERIFY(dock->isHidden());
+        QVERIFY(!EditorTestAccess::layout(*window).isEmpty());
+        EditorTestAccess::openTexture(*window, pack + "/assets/nova/textures/block/t0.png");
+        QTRY_VERIFY(window->activeCanvas());
+        QVERIFY(tools->isVisible());
+        QVERIFY(options->isVisible());
+        QVERIFY(commands->isVisible());
+        QVERIFY(EditorTestAccess::dock(*window, "assets")->isVisible());
+        auto assetsBody = EditorTestAccess::dock(*window, "assets")->widget();
+        QCOMPARE(assetsBody->palette().color(QPalette::Window), ui::current().window);
+        QCOMPARE(assetsBody->grab().toImage().pixelColor(1, 1), ui::current().window);
+        const auto editorLayout = EditorTestAccess::layout(*window);
+        EditorTestAccess::closeTexture(*window);
+        QTRY_VERIFY(!window->activeCanvas());
+        QVERIFY(tools->isHidden());
+        QCOMPARE(EditorTestAccess::layout(*window), editorLayout);
+        QVERIFY(window->close());
+    }
     void teardownWithAnimationDoesNotRefreshDestroyedViews() {
         const auto pack = makePack(temporary.filePath("teardown"));
         auto window = open("teardown.ini", pack);
@@ -276,6 +313,9 @@ class Phase3BTests : public QObject {
         QCOMPARE(window->workspacePreset(), QString("essentials"));
         QCOMPARE(window->dockWidgetArea(EditorTestAccess::dock(*window, "preview")), Qt::BottomDockWidgetArea);
         // Reset restores Essentials and every panel.
+        const auto pack = makePack(temporary.filePath("reset-layout"));
+        EditorTestAccess::openTexture(*window, pack + "/assets/nova/textures/block/t0.png");
+        QTRY_VERIFY(window->activeCanvas());
         EditorTestAccess::dock(*window, "assets")->hide();
         EditorTestAccess::dock(*window, "layers")->setFloating(true);
         window->findChild<QAction *>("resetWorkspaceCommand")->trigger();
@@ -461,7 +501,7 @@ class Phase3BTests : public QObject {
             QVERIFY(window->findChild<QAction *>("accent-blue")->isChecked());
             QVERIFY(!window->findChild<QCheckBox *>("pixelGrid")->isChecked());
             QVERIFY(!window->findChild<QAction *>("pixelGridCommand")->isChecked());
-            QCOMPARE(qApp->palette().color(QPalette::Window), QColor("#f0f2f6"));
+            QCOMPARE(qApp->palette().color(QPalette::Window), ui::tokens(false, "blue").window);
             QVERIFY(window->close());
         }
         const auto saved = Settings(temporary.filePath("preferences/preferences.ini")).load();

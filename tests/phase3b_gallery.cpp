@@ -7,6 +7,7 @@
 #include "modelpanel.h"
 #include "timeline.h"
 #include "window.h"
+#include "settings.h"
 #include <QtTest>
 #include <QtWidgets>
 
@@ -25,6 +26,41 @@ using namespace nova;
 
 namespace {
 QString galleryDir() { return qEnvironmentVariable("NOVA_PHASE3B_GALLERY_DIR"); }
+// NOVA_GALLERY_SCREEN names a screen (QScreen::name()) to open every gallery window on,
+// keeping the owner's main display free. Unlike NOVA_TEST_SCREEN it does not shrink
+// windows to fit, so captures keep their documented sizes; grab() renders the whole
+// window even where it extends past the screen edge.
+class GalleryScreen final : public QObject {
+    QString requested;
+    bool eventFilter(QObject *object, QEvent *event) override {
+        auto widget = qobject_cast<QWidget *>(object);
+        // Polish precedes the native window: placing it then keeps Windows from shrinking a
+        // window that is larger than the portrait screen while it moves there.
+        if ((event->type() != QEvent::Polish && event->type() != QEvent::Show) || !widget || !widget->isWindow() ||
+            widget->windowType() == Qt::Desktop)
+            return false;
+        // Screens exist only once the application is fully constructed: resolve here.
+        for (auto target : QGuiApplication::screens())
+            if (target->name() == requested && widget->screen() != target) {
+                // Windows caps a window at its monitor's size unless the window states a
+                // maximum; an explicit large one keeps 1600-2560 px captures on a portrait screen.
+                if (widget->maximumWidth() >= QWIDGETSIZE_MAX)
+                    widget->setMaximumSize(8192, 8192);
+                widget->setScreen(target);
+                widget->move(target->availableGeometry().topLeft() + QPoint(12, 32));
+            }
+        return false;
+    }
+
+  public:
+    GalleryScreen(QString name, QObject *parent) : QObject(parent), requested(std::move(name)) {}
+};
+void installGalleryScreen() {
+    const auto requested = qEnvironmentVariable("NOVA_GALLERY_SCREEN");
+    if (!requested.isEmpty())
+        QCoreApplication::instance()->installEventFilter(new GalleryScreen(requested, QCoreApplication::instance()));
+}
+Q_COREAPP_STARTUP_FUNCTION(installGalleryScreen)
 void copyTree(const QString &from, const QString &to) {
     QDirIterator it(from, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -93,7 +129,8 @@ class Phase3BGallery : public QObject {
         }
     }
     // Capture whichever modal dialog the callback opens, then close it.
-    void captureModal(const QString &name, std::function<void()> open) {
+    void captureModal(const QString &name, std::function<void()> open,
+                      std::function<void(QDialog &)> afterCapture = {}) {
         auto timer = new QTimer(this);
         timer->setInterval(40);
         auto elapsed = std::make_shared<QElapsedTimer>();
@@ -104,6 +141,8 @@ class Phase3BGallery : public QObject {
                 timer->stop();
                 timer->deleteLater();
                 capture(*dialog, name);
+                if (afterCapture)
+                    afterCapture(*dialog);
                 dialog->reject();
             } else if (elapsed->elapsed() > 8000) {
                 timer->stop();
@@ -143,6 +182,10 @@ class Phase3BGallery : public QObject {
         qApp->setProperty("settingsFile", temporary.filePath("gallery.ini"));
     }
     void welcome() {
+        Preferences initial;
+        initial.reopenLast = false;
+        initial.recentProjects = {pack};
+        QVERIFY(Settings(qApp->property("settingsFile").toString()).save(initial));
         QElapsedTimer timer;
         timer.start();
         Window window({}, {}, timer);
@@ -195,6 +238,11 @@ class Phase3BGallery : public QObject {
         window.findChild<QAction *>("selectNone")->trigger();
         window.findChild<QAction *>("tool-brush")->trigger();
         capture(window, "04-texture-brush-dark");
+        if (auto settings = window.findChild<QToolButton *>("brushSettings")) {
+            settings->menu()->popup(settings->mapToGlobal(QPoint(0, settings->height())));
+            capture(*settings->menu(), "18-brush-settings-dark");
+            settings->menu()->hide();
+        }
         window.findChild<QAction *>("tool-shape")->trigger();
         capture(window, "04-texture-shape-dark");
         window.findChild<QAction *>("tool-pencil")->trigger();
@@ -234,6 +282,11 @@ class Phase3BGallery : public QObject {
             dock->raise();
         }
         capture(window, "07-animation-dark");
+        if (auto settings = window.findChild<QToolButton *>("onionSettings")) {
+            settings->menu()->popup(settings->mapToGlobal(QPoint(0, settings->height())));
+            capture(*settings->menu(), "19-onion-settings-dark");
+            settings->menu()->hide();
+        }
         // Model, UV and item display.
         preset(window, "model");
         auto panel = EditorTestAccess::panel(window);
@@ -260,7 +313,19 @@ class Phase3BGallery : public QObject {
         QTest::qWait(600);
         capture(window, "12-problems-dark");
         // Batch processing dialog.
-        captureModal("11-batch-dark", [&] { EditorTestAccess::batch(window); });
+        captureModal("11-batch-dark", [&] { EditorTestAccess::batch(window); }, [&](QDialog &dialog) {
+            auto add = dialog.findChild<QToolButton *>("batchAddStep");
+            QVERIFY(add && add->menu());
+            for (auto category : add->menu()->actions())
+                if (category->menu())
+                    for (auto operation : category->menu()->actions())
+                        if (operation->text() == "Invert") {
+                            operation->trigger();
+                            capture(dialog, "11-batch-populated-dark");
+                            return;
+                        }
+            QFAIL("Invert operation not found");
+        });
         // Settings / preferences (3-B).
         if (auto preferences = window.findChild<QAction *>("preferencesCommand"))
             captureModal("13-settings-dark", [&] { preferences->trigger(); });
@@ -281,6 +346,12 @@ class Phase3BGallery : public QObject {
         preset(window, "essentials");
         captureModal("17-light-batch", [&] { EditorTestAccess::batch(window); });
         setTheme(window, true);
+        // The fixed tool rail with a real editing document at a typical laptop size.
+        window.findChild<QAction *>("resetWorkspaceCommand")->trigger();
+        preset(window, "texture");
+        window.resize(1280, 900);
+        QTest::qWait(80);
+        capture(window, "20-tools-left");
         window.close();
         QTest::qWait(100);
         if (window.isVisible()) {

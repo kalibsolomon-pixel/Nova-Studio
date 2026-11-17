@@ -6,9 +6,9 @@
 #include "layers.h"
 #include "modelpanel.h"
 #include "theme.h"
-#include "tool_placement.h"
 #include "timeline.h"
 #include "window.h"
+#include "workspace_layout.h"
 #include "vanilla/cache.h"
 #include <QtConcurrent>
 #include <QtWidgets>
@@ -47,10 +47,13 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     auto empty = new QWidget;
     auto ev = new QVBoxLayout(empty);
     ev->setContentsMargins(0, 0, 0, 0);
-    ev->addWidget(ui::sectionTitle("No document"));
-    auto emptyHint = ui::hint("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
-                              "Model JSON opens in the Models / UV panel.");
+    // One short line, centred like the other panels' empty states; the detail is a tooltip.
+    auto emptyHint = ui::emptyState("Open a texture to inspect it", nullptr, "info");
     emptyHint->setObjectName("inspectorEmptyHint");
+    emptyHint->setToolTip("Double-click a PNG in Assets, or use File › Open Texture (Ctrl+O). "
+                          "Model JSON opens in the Models / UV panel.");
+    emptyHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred); // wraps to the dock
+    ev->addStretch();
     ev->addWidget(emptyHint);
     ev->addStretch();
     inspectorPages->addWidget(empty);
@@ -95,20 +98,20 @@ QWidget *Window::buildInspector(QCheckBox *gridBox, QPushButton *center) {
     zoomLabel->setMinimumWidth(48);
     zoomLabel->setAccessibleName("Canvas zoom");
     zoomRow->addWidget(zoomLabel);
+    zoomRow->addWidget(center);
     zoomRow->addStretch();
     pv->addWidget(zoomBox);
-    pv->addWidget(center);
     pv->addWidget(ui::sectionTitle("Active tool"));
     inspectorTool = new QLabel;
     inspectorTool->setObjectName("inspectorTool");
-    inspectorTool->setStyleSheet("font-weight:600");
+    inspectorTool->setProperty("role", "strong");
     pv->addWidget(inspectorTool);
     inspectorToolTip = ui::hint({});
     inspectorToolTip->setObjectName("inspectorToolTip");
     inspectorToolTip->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addWidget(inspectorToolTip);
-    inspectorTips = ui::hint("Right-click the canvas for editing commands. Wheel zooms; Space+drag or "
-                             "middle-drag pans. Help › Keyboard Shortcuts (Ctrl+/) lists every key.");
+    inspectorTips = ui::hint("Right-click the canvas for commands.");
+    inspectorTips->setToolTip("Wheel zooms; Space+drag or middle-drag pans. Ctrl+/ lists every shortcut.");
     inspectorTips->setObjectName("inspectorTips");
     inspectorTips->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     pv->addSpacing(ui::SpaceS);
@@ -152,7 +155,7 @@ void Window::updateInspector() {
             set("export", "Changed on disk — review before export", "error");
         else
             set("export", doc->exportModified() ? "Update available (Ctrl+Alt+E)" : "Matches editable source",
-                doc->exportModified() ? "warning" : "value");
+                doc->exportModified() ? "info" : "value");
     } else {
         set("source", {});
         set("export", {});
@@ -240,8 +243,6 @@ void Window::buildWorkspaceMenu(QMenu *view) {
     toolBox->toggleViewAction()->setText("Tool Strip");
     toolOptions->toggleViewAction()->setText("Tool Options Bar");
     panelsMenu->addAction(toolBox->toggleViewAction());
-    panelsMenu->addMenu(toolPlacement->menu());
-    panelsMenu->addAction(toolPlacement->dockWidget()->toggleViewAction());
     panelsMenu->addAction(toolOptions->toggleViewAction());
     view->addMenu(panelsMenu);
     view->addSeparator();
@@ -305,10 +306,9 @@ void Window::buildAppBar() {
     openButton->setToolTip("Open Resource Pack… (Ctrl+Shift+O)");
     pl->addWidget(openButton);
     pl->addWidget(pathText, 1);
-    auto go = new QToolButton;
-    go->setDefaultAction(findChild<QAction *>("openTypedProject"));
-    go->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    go->setAutoRaise(true);
+    auto go = new QPushButton("Go");
+    go->setToolTip("Open the resource pack at this path");
+    connect(go, &QPushButton::clicked, findChild<QAction *>("openTypedProject"), &QAction::trigger);
     pl->addWidget(go);
     appBar->addWidget(projectBox);
     auto spacer = new QWidget;
@@ -369,7 +369,7 @@ void Window::recordActivity(const QString &message) {
 }
 void Window::refreshThemeIcons() {
     if (toolBox)
-        toolBox->refreshIcons(ui::current().text);
+        toolBox->refreshIcons(ui::current().icon);
     for (auto a : findChildren<QAction *>())
         if (const auto icon = a->property("novaIcon"); icon.isValid())
             a->setIcon(ui::lineIcon(icon.toString()));
@@ -380,24 +380,43 @@ void Window::refreshThemeIcons() {
 
 // ------------------------------------------------------------------ presets
 QByteArray Window::currentLayout() {
-    return packLayout(toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge, saveState(1));
+    if (!welcomeEditorLayout.isEmpty())
+        return welcomeEditorLayout;
+    return packLayout(saveState(1));
 }
-// Restores a packed layout: the tool strip goes to its saved position first, so the
-// saved state then finds it in the right container (main-window toolbar or tools dock).
-bool Window::applyLayout(const QByteArray &packed) {
-    ToolPlacement placement;
-    QByteArray state;
-    unpackLayout(packed, &placement, &state); // unknown positions read as the left edge
-    if (state.isEmpty())
-        return false;
-    const auto previous = toolPlacement ? toolPlacement->placement() : ToolPlacement::LeftEdge;
-    if (toolPlacement)
-        toolPlacement->place(placement);
-    if (!restoreState(state, 1)) {
-        if (toolPlacement)
-            toolPlacement->place(previous);
-        return false;
+void Window::syncWelcomeLayout(bool forceEditor) {
+    if (defaultLayout.isEmpty() || !tabs || !toolOptions || !toolBox)
+        return; // construction has not finished
+    const bool welcome = !forceEditor && project.isEmpty() && tabs->count() == 0;
+    if (welcome == !welcomeEditorLayout.isEmpty())
+        return;
+    QScopedValueRollback<bool> arranging(animationSyncing, true);
+    if (welcome) {
+        welcomeEditorLayout = currentLayout();
+        for (auto dock : findChildren<QDockWidget *>())
+            dock->hide();
+        toolOptions->hide();
+        toolBox->hide();
+        appBar->hide();
+    } else {
+        const auto editorLayout = std::exchange(welcomeEditorLayout, {});
+        applyLayout(editorLayout);
     }
+}
+// Restores a packed layout. The tool rail stays on the left edge even when the state was
+// saved by a build that let the strip move elsewhere.
+bool Window::applyLayout(const QByteArray &packed) {
+    const auto state = unpackLayout(packed);
+    if (state.isEmpty() || !restoreState(state, 1))
+        return false;
+    if (toolBox && toolBarArea(toolBox) != Qt::LeftToolBarArea) {
+        const bool shown = toolBox->isVisibleTo(this);
+        addToolBar(Qt::LeftToolBarArea, toolBox);
+        toolBox->setVisible(shown);
+    }
+    if (toolBox && toolBarBreak(toolBox))
+        removeToolBarBreak(toolBox);
+    refreshDockTitles();
     return true;
 }
 // Keeps the outgoing workspace's arrangement only if the user changed it.
@@ -409,6 +428,7 @@ void Window::rememberPresetLayout() {
         preferences.presetLayouts.insert(preset, now);
 }
 void Window::applyPreset(const QString &requested, bool useSaved) {
+    syncWelcomeLayout(true);
     QElapsedTimer timer;
     timer.start();
     const auto name = presetName(requested).isEmpty() ? QString("essentials") : requested;
@@ -442,22 +462,23 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
                 presetBaseline = preferences.presetLayouts.value(name);
         });
         metrics.record("workspace_switch", timer);
-        statusBar()->showMessage("Workspace: " + presetName(name) + " (your layout)", 3000);
+        statusBar()->showMessage("Workspace: " + presetName(name) + " · custom arrangement", 3000);
+        syncWelcomeLayout();
         return;
     }
-    if (toolPlacement)
-        toolPlacement->place(ToolPlacement::LeftEdge);
     restoreState(defaultLayout, 1);
     const int h = std::max(height(), 550), w = std::max(width(), 800);
-    resizeDocks({assetsDock}, {std::clamp(w / 6, 180, 300)}, Qt::Horizontal);
-    resizeDocks({inspectorDock}, {std::clamp(w / 5, 220, 340)}, Qt::Horizontal);
     if (name == "essentials") {
         resizeDocks({previewDock}, {std::clamp(h / 4, 150, 260)}, Qt::Vertical);
+        // Layers lists are short: the inspector above gets the column's spare height.
+        resizeDocks({layersDock}, {std::clamp(h / 4, 170, 240)}, Qt::Vertical);
     } else if (name == "texture" || name == "animation" || name == "uv") {
         // Preview moves into the side column so the canvas spans the full height.
         // Short windows tab it with Layers (splitDockWidget tabs into a tabbed
         // group); taller ones stack it below so it stays visible while painting.
-        if (h < 720) {
+        // Animation always tabs it: the timeline already takes the bottom of the
+        // window, and the canvas shows the playing frame.
+        if (h < ui::CompactEditorHeight || name == "animation") {
             splitDockWidget(layersDock, previewDock, Qt::Vertical);
         } else {
             removeDockWidget(previewDock);
@@ -475,6 +496,8 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
             preferences.timelineVisible = true;
         }
         resizeDocks({previewDock}, {std::clamp(h / 5, 140, 220)}, Qt::Vertical);
+        if (h >= ui::CompactEditorHeight && name != "animation")
+            resizeDocks({layersDock}, {std::clamp(h / 6, 140, 180)}, Qt::Vertical);
     } else if (name == "model") {
         modelsDock->raise();
         resizeDocks({inspectorDock}, {std::clamp(w / 4, 300, 380)}, Qt::Horizontal);
@@ -485,7 +508,13 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
         problemsDock->show();
     animationRefresh(); // the timeline follows the active document, as before
     if (name == "animation" && animationDock->isVisible())
-        resizeDocks({animationDock}, {std::clamp(h / 3, 200, 300)}, Qt::Vertical);
+        // The timeline takes only the height its controls and one row of frames need.
+        resizeDocks({animationDock}, {animationDock->minimumSizeHint().height()}, Qt::Vertical);
+    // Size columns after moving/tabbing the preview. Intermediate dock moves
+    // otherwise redistribute them and undo the requested working widths.
+    resizeDocks({assetsDock, inspectorDock},
+                {std::clamp(w / 4, 240, 320), std::clamp(w / 4, 300, name == "model" || name == "uv" ? 380 : 340)},
+                Qt::Horizontal);
     keepOnScreen();
     setUpdatesEnabled(true);
     // Baseline after the deferred relayout, so settling sizes do not count as user changes.
@@ -496,6 +525,7 @@ void Window::applyPreset(const QString &requested, bool useSaved) {
     });
     metrics.record("workspace_switch", timer);
     statusBar()->showMessage("Workspace: " + presetName(name), 3000);
+    syncWelcomeLayout();
 }
 
 // ------------------------------------------------------------------ zoom

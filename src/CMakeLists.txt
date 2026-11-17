@@ -108,7 +108,7 @@ target_link_libraries(nova-acp PUBLIC nova-testing Qt6::Core)
 
 add_library(nova-workspace STATIC
   app/branding.cpp app/branding.h
-  ui/theme.cpp ui/theme.h ui/workspace.cpp ui/tool_placement.cpp ui/tool_placement.h
+  ui/theme.cpp ui/theme.h ui/workspace.cpp ui/workspace_layout.cpp ui/workspace_layout.h
   assets/assets.cpp assets/assets.h
   ui/modelpanel.cpp ui/modelpanel.h
   ui/uv_editor.cpp

@@ -395,7 +395,7 @@ class WorkspaceTests : public QObject {
         QElapsedTimer time;
         time.start();
         {
-            nova::Window window({}, {}, time);
+            nova::Window window(tmp.path(), {}, time);
             auto dock = window.findChild<QDockWidget *>("preview");
             QVERIFY(dock);
             window.addDockWidget(Qt::RightDockWidgetArea, dock);
@@ -403,7 +403,7 @@ class WorkspaceTests : public QObject {
             QVERIFY(window.close());
         }
         {
-            nova::Window restored({}, {}, time);
+            nova::Window restored(tmp.path(), {}, time);
             QCOMPARE(restored.dockWidgetArea(restored.findChild<QDockWidget *>("preview")),
                      Qt::RightDockWidgetArea);
             QVERIFY(!restored.findChild<QCheckBox *>("pixelGrid")->isChecked());
