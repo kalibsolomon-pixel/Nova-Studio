@@ -13,6 +13,11 @@
 ## Editing and Minecraft
 
 - The 3D preview approximates Minecraft's rendering. Check final results in the game.
+- Vanilla parents such as `item/generated` resolve only when the target version has a baseline
+  cache entry with model data (the default after a fresh download or **Download / Repair
+  Baseline…**), or when a verified vanilla folder is configured in the Model panel's resource
+  stack; a texture-only cache from an older Nova keeps working and shows the update hint. The
+  cache never enters the project or the export.
 - Common generated and handheld item models use thin, alpha-contoured texture layers and
   resolved item display transforms from project models and explicitly configured resource
   stacks. Missing sprites, sprites above 1024 pixels per side, or contours beyond the

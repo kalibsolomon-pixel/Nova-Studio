@@ -376,7 +376,9 @@ class BaselineGuiTests : public QObject {
                      seedColor(101));
         auto label = window->findChild<QLabel *>("baselineStatus");
         QVERIFY(label && label->isVisibleTo(window.get()));
-        QCOMPARE(label->text(), QString("Baseline: Vanilla Java 1.21.11"));
+        // The synthetic entry is texture-only (schema 1): it keeps working, with the update hint.
+        QCOMPARE(label->text(), QString("Baseline: Vanilla Java 1.21.11 · textures only"));
+        QVERIFY(label->toolTip().contains("Update baseline to add vanilla models"));
         // Opening a vanilla texture writes nothing.
         auto doc = openAndWait(*window, stone);
         QVERIFY(doc);
@@ -694,7 +696,8 @@ class BaselineGuiTests : public QObject {
         });
         window->findChild<QAction *>("projectPropertiesCommand")->trigger();
         QCOMPARE(info, QString("Java 1.21.11 (identity %1)").arg(entry.identity.left(12)));
-        QCOMPARE(window->findChild<QLabel *>("baselineStatus")->text(), QString("Baseline: Vanilla Java 1.21.11"));
+        QCOMPARE(window->findChild<QLabel *>("baselineStatus")->text(),
+                 QString("Baseline: Vanilla Java 1.21.11 · textures only"));
     }
 
     // The cache entry is missing: project files only, a permanent explanation, reset disabled.
@@ -943,8 +946,11 @@ class BaselineGuiTests : public QObject {
         const auto downloaded = BaselineCache().load("26.1", mojang.identity);
         QVERIFY(downloaded);
         QCOMPARE(QStringList(downloaded->files.keys()),
-                 (QStringList{QString(P) + "block/dirt.png", QString(P) + "block/lava_still.png",
-                              QString(P) + "block/lava_still.png.mcmeta", QString(P) + "block/stone.png"}));
+                  (QStringList{"assets/minecraft/models/block/stone.json", QString(P) + "block/dirt.png",
+                               QString(P) + "block/lava_still.png", QString(P) + "block/lava_still.png.mcmeta",
+                               QString(P) + "block/stone.png"}));
+        QCOMPARE(downloaded->schema, 2);
+        QVERIFY(downloaded->hasModelData());
         QTRY_COMPARE(EditorTestAccess::project(*window), QDir(destination).canonicalPath());
         ready(*window);
         QTRY_COMPARE(origin(*window, QString(P) + "block/dirt.png"), int(AssetModel::BaselineRow));

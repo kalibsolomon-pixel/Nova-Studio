@@ -6,6 +6,7 @@
 #include "project.h"
 #include "settings.h"
 #include "theme.h"
+#include "vanilla/cache.h"
 #include <QCryptographicHash>
 #include <QImageReader>
 #include <QJsonDocument>
@@ -500,8 +501,9 @@ void ModelPanel::loadResources() {
                     QSettings::IniFormat);
     const auto version = versions->currentText();
     const auto paths = prefs.value(resourceSettingsKey(root, version)).toStringList().mid(0, 8);
-    if (paths.isEmpty() && !library->hasFallbacks() && library->version() == version)
-        return;
+    if (paths.isEmpty() && cacheVersion == version && !library->hasFallbacks() &&
+        library->version() == version)
+        return; // nothing configured and this version's baseline cache was already checked
     const auto originalLibrary = library;
     const auto originalRoot = root;
     QFutureWatcher<std::shared_ptr<mc::Library>> watcher;
@@ -522,6 +524,11 @@ void ModelPanel::loadResources() {
             else
                 sources << source;
         }
+        // Nova's verified baseline cache is the default lowest-priority model source; a
+        // user-configured vanilla folder (or any stack entry) still takes precedence.
+        if (auto cached = vanilla::BaselineCache().latest(version);
+            cached && cached->hasModelData())
+            sources << mc::ResourceSource::fromBaseline(*cached);
         // Additional packs precede vanilla regardless of an accidentally misplaced cache.
         std::stable_sort(sources.begin(), sources.end(),
                          [](const auto &a, const auto &b) { return !a.vanilla && b.vanilla; });
@@ -538,6 +545,7 @@ void ModelPanel::loadResources() {
         return;
     }
     *library = std::move(*watcher.result());
+    cacheVersion = version;
 }
 QStringList ModelPanel::resourceStackPaths() const {
     if (!library || root.isEmpty())
@@ -563,6 +571,7 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
         uvElement = -1;
         target.clear();
         pinned = false;
+        cacheVersion.clear(); // the fresh library starts without the cache model source
         const auto pack = Project::inspect(project).json["pack"].toObject();
         const auto format = PackFormat::parse(pack.contains("min_format") ? pack["min_format"]
                                                                           : pack["pack_format"]);

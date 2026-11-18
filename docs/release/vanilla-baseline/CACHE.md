@@ -24,21 +24,22 @@ The cache is unrelated to the Model panel's user-configured resource folders
 
 ```
 vanilla-baseline/
-  objects/<aa>/<sha256>.png | .mcmeta          one file per distinct content, read-only attribute
+  objects/<aa>/<sha256>.png | .mcmeta | .json  one file per distinct content, read-only attribute
   entries/<version>/<identity[0:32]>/manifest.json
   staging/<token>/                             temporary client download, removed afterwards
   cache.lock                                   held while the cache is changed
 ```
 
-- **Objects** are content-addressed by SHA-256 and shared between versions: a texture that did not
+- **Objects** are content-addressed by SHA-256 and shared between versions: a file that did not
   change between two versions is stored once.
-- **Entries** describe one baseline. `manifest.json` lists every texture path
-  (`assets/minecraft/textures/**.png` and `.png.mcmeta`) with its SHA-256, size and origin (client
+- **Entries** describe one baseline. `manifest.json` (schema 2; schema 1 is still read) lists every
+  path (`assets/minecraft/textures/**.png` and `.png.mcmeta`, and the vanilla model data
+  `assets/minecraft/{models,blockstates,items}/**.json`) with its SHA-256, size and origin (client
   jar or asset index), plus where it came from (Mojang's URLs and published SHA-1 values). The
   manifest carries a SHA-256 digest of its own content; a manifest that fails to parse or whose
   digest, paths or fields are wrong is treated as absent and reported as damaged.
-- Only textures are kept. The client jar is deleted after extraction; models, sounds, languages,
-  code and every other file are never stored.
+- Textures and vanilla model data are kept; nothing else is. The client jar is deleted after
+  extraction; sounds, languages, code and every other file are never stored.
 
 ## Identity
 
@@ -103,8 +104,9 @@ link or junction. Projects are never changed by a removal.
 
 ## Privacy
 
-- **Stored**: vanilla texture files, their manifest (paths, hashes, sizes, Mojang URLs and SHA-1
-  values, the download time) and the lock file. No account, licence, launcher or personal data.
+- **Stored**: vanilla texture files, vanilla model data (models, blockstates, item definitions),
+  their manifest (paths, hashes, sizes, Mojang URLs and SHA-1 values, the download time) and the
+  lock file. No account, licence, launcher or personal data.
 - **Hosts contacted** (HTTPS only, checked on every redirect hop): `piston-meta.mojang.com`
   (version manifest, version JSON, asset index), `piston-data.mojang.com` (client jar) and
   `resources.download.minecraft.net` (asset-index textures). The User-Agent is

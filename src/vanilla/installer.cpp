@@ -52,7 +52,8 @@ void sweepStaging(const BaselineCache &cache) {
 }
 QString megabytes(qint64 bytes) { return QString::number((bytes + 1048575) / 1048576); }
 
-// Worker thread: verify the jar, then store every texture entry as an object.
+// Worker thread: verify the jar, then store every kept entry (textures, and schema 2
+// also the vanilla model data: models, blockstates, item definitions) as an object.
 Outcome extractClient(const BaselineCache &cache, const QString &jar, const Download &client,
                       const std::shared_ptr<std::atomic_bool> &cancel,
                       const std::function<void(qint64, qint64)> &progress) {
@@ -72,7 +73,12 @@ Outcome extractClient(const BaselineCache &cache, const QString &jar, const Down
     const auto entries = zip.fileInfoList();
     if (entries.size() > maxJarEntries)
         return failed(Error::Integrity, "The Minecraft client has too many entries");
-    const QLatin1String prefix(texturePrefix);
+    auto keptFolder = [](const QString &normalized) {
+        return normalized.startsWith(QLatin1String(texturePrefix), Qt::CaseInsensitive) ||
+               normalized.startsWith(QLatin1String(modelPrefix), Qt::CaseInsensitive) ||
+               normalized.startsWith(QLatin1String(blockstatePrefix), Qt::CaseInsensitive) ||
+               normalized.startsWith(QLatin1String(itemPrefix), Qt::CaseInsensitive);
+    };
     qint64 total = 0, done = 0;
     for (const auto &info : entries) {
         if (cancel->load())
@@ -80,19 +86,22 @@ Outcome extractClient(const BaselineCache &cache, const QString &jar, const Down
         if (++done % 512 == 0)
             progress(done, entries.size());
         const auto name = info.filePath;
-        const bool inside = QString(name).replace('\\', '/').startsWith(prefix, Qt::CaseInsensitive);
+        const auto normalized = QString(name).replace('\\', '/');
         if (info.isSymLink)
             return failed(Error::Integrity, "The Minecraft client contains a link entry");
-        if (!inside || info.isDir)
-            continue; // everything outside the textures folder is ignored, never stored
+        if (!keptFolder(normalized) || info.isDir)
+            continue; // everything outside the kept folders is ignored, never stored
         QString why;
-        if (!validBaselinePath(name, &why))
+        const bool valid = normalized.startsWith(QLatin1String(texturePrefix), Qt::CaseInsensitive)
+                               ? validBaselinePath(name, &why)
+                               : validBaselineModelPath(name, &why);
+        if (!valid)
             return failed(Error::Integrity, "The Minecraft client contains unexpected data: " + why);
         if (out.files.contains(name))
-            return failed(Error::Integrity, "The Minecraft client lists a texture twice: " + name);
+            return failed(Error::Integrity, "The Minecraft client lists a file twice: " + name);
         if (info.size < 0 || info.size > maxTextureBytes || (total += info.size) > maxExtractedBytes)
             return failed(Error::Integrity, "The Minecraft client contains an unexpectedly large "
-                                            "texture: " + name);
+                                            "file: " + name);
         const auto bytes = zip.fileData(name);
         if (bytes.size() != info.size)
             return failed(Error::Integrity, "The Minecraft client's " + name +
@@ -182,18 +191,23 @@ void BaselineInstaller::tryLock() {
         return;
     }
     // Under the lock: sweep old staging, then reuse a complete entry if the caller already
-    // knows the identity (no network access at all).
+    // knows the identity (no network access at all). Repair also re-extracts a texture-only
+    // entry so it gains the vanilla model data of the current schema.
     auto c = cache;
     const auto expected = o.expectedIdentity;
     const auto check = o.repair ? BaselineCache::Check::Full : BaselineCache::Check::Sizes;
+    const auto upgrade = o.repair;
     const auto id = version;
     const auto flag = cancelFlag;
     work<std::optional<BaselineEntry>>(
-        [c, expected, check, id, flag]() -> std::optional<BaselineEntry> {
+        [c, expected, check, upgrade, id, flag]() -> std::optional<BaselineEntry> {
             sweepStaging(c);
             if (!validSha256(expected))
                 return std::nullopt;
-            return c.load(id, expected, check, nullptr, flag);
+            auto existing = c.load(id, expected, check, nullptr, flag);
+            if (existing && upgrade && !existing->hasModelData())
+                existing.reset(); // re-extract and republish with model data
+            return existing;
         },
         [this](std::optional<BaselineEntry> existing) { prepared(std::move(existing)); });
 }
@@ -232,10 +246,16 @@ void BaselineInstaller::fetchVersion() {
                               .arg(version));
         auto c = cache;
         const auto check = o.repair ? BaselineCache::Check::Full : BaselineCache::Check::Sizes;
+        const auto upgrade = o.repair;
         const auto id = version, identity = ident;
         const auto flag = cancelFlag;
         work<std::optional<BaselineEntry>>(
-            [c, check, id, identity, flag] { return c.load(id, identity, check, nullptr, flag); },
+            [c, check, upgrade, id, identity, flag] {
+                auto existing = c.load(id, identity, check, nullptr, flag);
+                if (existing && upgrade && !existing->hasModelData())
+                    existing.reset(); // re-extract and republish with model data
+                return existing;
+            },
             [this](std::optional<BaselineEntry> existing) { checked(std::move(existing)); });
     });
 }
@@ -297,7 +317,7 @@ void BaselineInstaller::extracted() {
     work<Outcome>(
         [c, jar, client, flag, report] {
             auto out = extractClient(c, jar, client, flag, report);
-            fs::removeRegularFile(jar); // only textures are kept
+            fs::removeRegularFile(jar); // only the kept baseline data stays in the cache
             return out;
         },
         [this](Outcome out) {
@@ -366,6 +386,7 @@ void BaselineInstaller::writeManifest() {
     entry.version = version;
     entry.identity = ident;
     entry.created = QDateTime::currentDateTimeUtc();
+    entry.schema = 2; // textures + vanilla model data
     entry.files = files;
     entry.source = QJsonObject{
         {"manifest_url", o.manifestUrl.toString()},

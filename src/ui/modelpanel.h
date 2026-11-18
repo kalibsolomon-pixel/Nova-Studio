@@ -27,6 +27,8 @@ class ModelPanel : public QWidget {
     // target: "model:<id>", "definition:<asset>", "cube:" (explicit generic cube) or empty
     // (no model: the texture is shown flat with fallbackReason).
     QString root, activeAsset, target, fallbackReason;
+    // Target version whose baseline-cache model source was last merged into the library.
+    QString cacheVersion;
     QComboBox *targets, *versions, *contexts;
     QLineEdit *inputs;
     QLabel *diagnostics, *faceInfo;

@@ -464,8 +464,11 @@ void Window::ensureMcpService() {
             // catalog's precedence order; Nova's managed texture cache; the project's baseline binding.
             auto describeSources = [this](mcp::Snapshot &target) {
                 const auto catalog = modelPanel->catalog();
+                const auto cacheRoot = vanilla::BaselineCache::defaultRoot();
                 QSet<QString> loaded;
                 for (const auto &source : catalog->resourceSources()) {
+                    if (source.root == cacheRoot)
+                        continue; // Nova's own baseline cache: reported as the cache, not a stack entry
                     loaded.insert(source.root);
                     target.resourceSources.append(source);
                     target.resourceStack.append({source.vanilla ? source.label : QFileInfo(source.root).fileName(),

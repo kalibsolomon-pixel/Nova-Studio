@@ -1,7 +1,8 @@
 # Vanilla texture baseline and sparse export: design
 
 Status: design agreed before implementation (this document is the contract the code follows).
-Scope: Minecraft Java Edition **textures only**. This is not a release document.
+Scope: Minecraft Java Edition **textures plus vanilla model data** (models, blockstates, item
+definitions) from the same verified client download. This is not a release document.
 
 ## 1. Findings that shaped the design
 
@@ -36,16 +37,20 @@ Scope: Minecraft Java Edition **textures only**. This is not a release document.
 
 Block/item/entity textures are in the client jar (`assets/minecraft/textures/**`). The asset index
 contains a few overridable textures (1.21.11: the 7 title-screen panorama files under
-`minecraft/textures/`). The baseline is:
+`minecraft/textures/`). The vanilla model data is in the jar only: `assets/minecraft/models/**`,
+`assets/minecraft/blockstates/**` and `assets/minecraft/items/**` (1.21.4+ item definitions).
+The baseline is:
 
 - jar entries `assets/minecraft/textures/**.png` and `**.png.mcmeta`, plus
+- jar entries `assets/minecraft/{models,blockstates,items}/**.json` (schema 2), plus
 - asset-index objects `minecraft/textures/**.png|.png.mcmeta` mapped to `assets/minecraft/textures/...`,
   used only for paths the jar does not contain (inference: the jar is the primary vanilla pack).
 
 Only these hosts are allowed, on every redirect hop: `piston-meta.mojang.com`,
 `piston-data.mojang.com`, `resources.download.minecraft.net`. TLS uses Qt defaults (system trust,
 peer verification); nothing calls `ignoreSslErrors`. The client jar is deleted after extraction;
-only textures are kept. Non-texture assets are never stored.
+only the baseline data above is kept. Non-baseline assets (sounds, languages, class files) are
+never stored.
 
 ## 3. Shared per-user cache
 
@@ -55,7 +60,7 @@ Root: `QStandardPaths::AppLocalDataLocation + "/vanilla-baseline"`
 
 ```
 vanilla-baseline/
-  objects/<aa>/<sha256>.png | .mcmeta       content-addressed, read-only attribute, shared by all versions
+  objects/<aa>/<sha256>.png | .mcmeta | .json   content-addressed, read-only attribute, shared by all versions
   entries/<version>/<identity32>/manifest.json   the only "complete" marker (published last, atomically)
   staging/<token>/                          temporary downloads (client.jar), swept under the lock
   cache.lock                                QLockFile held for every mutation (populate, repair, remove)
@@ -67,10 +72,15 @@ client, e.g. 1.21.11's JSON changed from `96403ac4…` to `35f8a9bc…` while th
 `ba2df812…`). A new client or asset index produces a new identity and therefore a new entry; a stale
 entry is never reused for different metadata.
 
-**manifest.json** (schema 1): `version, identity, created, source{manifest_url, version_url,
-version_sha1, client{url,sha1,size}, asset_index{id,url,sha1,size}}, files{path:{sha256,size,origin}},
+**manifest.json** (schema 2; schema 1 is still parsed): `version, identity, created, schema, source{manifest_url,
+version_url, version_sha1, client{url,sha1,size}, asset_index{id,url,sha1,size}}, files{path:{sha256,size,origin}},
 digest` where `digest` is SHA-256 of the compact JSON of all other keys. A manifest that fails
 parsing, digest, path or field validation is treated as not present (reported as corrupt).
+Schema 1 manifests (textures only, written before model data was kept) load unchanged: their
+entries keep working for textures and the baseline UI shows a one-line "Update baseline to add
+vanilla models" path (Download / Repair Baseline… re-extracts the verified client and rewrites the
+same identity's manifest as schema 2). The identity does not change: `client.sha1|size|assetIndex`
+are the same, so an upgrade overwrites the entry in place.
 
 **Population** (transactional): take `cache.lock` → re-check for a complete entry (another process
 may have finished) → fetch and verify metadata → check free disk space → download jar to
@@ -79,12 +89,14 @@ may have finished) → fetch and verify metadata → check free disk space → d
 temp+rename unless an object with that name already exists *and* re-hashes correctly (dedupe; a bad
 existing object is replaced) → download asset-index textures (size+SHA-1) → write `manifest.json`
 atomically → delete staging → release lock. Cancellation or any error before the manifest rename
-leaves no entry; orphan objects are harmless and collected by the next removal.
+leaves no entry; orphan objects are harmless and collected by the next removal. A repair run also
+re-extracts a complete texture-only (schema 1) entry so it gains the model data.
 
-**Path rules** for every baseline path: `assets/minecraft/textures/` prefix, segments match
-`[a-z0-9_.-]+`, no empty/`.`/`..` segment, no Windows device names, length ≤ 255 per segment and ≤ 33
-segments, suffix `.png` or `.png.mcmeta`. Entries outside the prefix are ignored; entries inside the
-prefix that break the rules fail the population (unexpected data).
+**Path rules** for every baseline path: under `assets/minecraft/textures/` with suffix `.png` or
+`.png.mcmeta`, or under `assets/minecraft/{models,blockstates,items}/` with suffix `.json`; segments
+match `[a-z0-9_.-]+`, no empty/`.`/`..` segment, no Windows device names, length ≤ 255 per segment
+and ≤ 33 segments. Entries outside the prefixes are ignored; entries inside a prefix that break the
+rules fail the population (unexpected data).
 
 **Use.** A project records its identity, so opening it uses `entries/<version>/<identity>` with no
 network access (offline). Loading checks the manifest digest and that every object exists with the
@@ -156,5 +168,7 @@ byte comparison, decides inclusion: an override identical to vanilla is still ex
 ## 7. Out of scope (documented, not implemented)
 
 MCP sees project files only (baseline rows are not in MCP indexes). Ctrl+K search lists project
-files only. The Model panel's user-configured resource stack is unchanged and does not use the new
-cache. Asset-index sounds/languages and jar models/blockstates are never stored.
+files only. Asset-index sounds/languages are never stored. The Model panel's user-configured
+resource stack is unchanged; since schema 2 the shared cache itself is also exposed as the
+lowest-priority `mc::ResourceSource` for the Model panel and MCP (below any user folder; absent
+when the version has no cache entry or the entry is texture-only).

@@ -3,6 +3,9 @@
 #include "index.h"
 #include <QByteArray>
 #include <QJsonObject>
+namespace nova::vanilla {
+struct BaselineEntry;
+}
 namespace nova::mc {
 struct ResourceSource {
     QString root, label, version;
@@ -10,6 +13,10 @@ struct ResourceSource {
     Index index;
     QJsonObject hashes;
     static ResourceSource open(const QString &folder, const QString &target, QString *error);
+    // Nova's verified baseline cache as a read-only lowest-priority source: records point
+    // straight at the cache's content-addressed objects; `hashes` carries the manifest's
+    // per-file SHA-256 so every read is integrity-checked like a verified vanilla folder.
+    static ResourceSource fromBaseline(const vanilla::BaselineEntry &entry);
 };
 struct ResourceCandidate {
     QString path, label;
