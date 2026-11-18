@@ -2,6 +2,7 @@
 #include "models.h"
 #include "display.h"
 #include "render_layers.h"
+#include "special_models.h"
 #include "tints.h"
 #include <QFile>
 #include <QJsonArray>
@@ -180,6 +181,47 @@ class RenderingTest : public QObject {
         QCOMPARE(colors.block("minecraft:pumpkin_stem", {{"age", 7}}).value(0), qRgb(224, 199, 28));
         QCOMPARE(colors.block("minecraft:oak_leaves", {{"_tints", QJsonArray{0x765432}}}).value(0),
                  0xff765432u);
+    }
+    void specialItemGeometry() {
+        mc::Model base;
+        base.valid = true;
+        base.id = "nova:item/special";
+        base.version = "1.21.11";
+        const auto chest = mc::specialMesh(base, {{"type", "minecraft:chest"}, {"texture", "trapped"}});
+        QCOMPARE(chest.faces.size(), 18);
+        QCOMPARE(chest.minimum, QVector3D(-.875f, -1, -.875f));
+        QCOMPARE(chest.maximum, QVector3D(.875f, .75f, 1));
+        for (const auto &face : chest.faces) {
+            QCOMPARE(face.texture, QString("assets/minecraft/textures/entity/chest/trapped.png"));
+            QVERIFY(face.entityCutout);
+            QVERIFY(face.normal.length() > .99f);
+        }
+        const auto open = mc::specialMesh(base, {{"type", "chest"}, {"openness", 1}});
+        QVERIFY(open.maximum.y() > chest.maximum.y());
+        const auto shulker = mc::specialMesh(base, {{"type", "shulker_box"}, {"texture", "nova:mint"}});
+        QCOMPARE(shulker.faces.size(), 12);
+        QCOMPARE(shulker.faces.front().texture, QString("assets/nova/textures/entity/shulker/mint.png"));
+        const auto bed = mc::specialMesh(base, {{"type", "bed"}, {"texture", "red"}});
+        QCOMPARE(bed.faces.size(), 36);
+        QCOMPARE((bed.maximum - bed.minimum).z(), 4.f);
+        QCOMPARE(mc::specialMesh(base, {{"type", "head"}, {"kind", "skeleton"}}).faces.size(), 6);
+        QCOMPARE(mc::specialMesh(base, {{"type", "player_head"}}).faces.size(), 12);
+        QCOMPARE(mc::specialMesh(base, {{"type", "shield"}}).faces.size(), 12);
+        QCOMPARE(mc::specialMesh(base, {{"type", "conduit"}}).faces.size(), 6);
+
+        QTemporaryDir root;
+        QDir().mkpath(root.path() + "/assets/nova/items");
+        QFile definition(root.filePath("assets/nova/items/storage.json"));
+        QVERIFY(definition.open(QIODevice::WriteOnly));
+        definition.write("{\"model\":{\"type\":\"special\",\"base\":\"nova:item/special\","
+                         "\"model\":{\"type\":\"chest\",\"texture\":\"trapped\"}}}");
+        definition.close();
+        mc::Library library("1.21.11");
+        library.update(root.path(), Index::scan(root.path()));
+        const auto dispatched = library.dispatch("assets/nova/items/storage.json");
+        QCOMPARE(dispatched.instances.size(), 1);
+        QCOMPARE(dispatched.instances.first().model, base.id);
+        QCOMPARE(dispatched.instances.first().special["texture"].toString(), QString("trapped"));
     }
     void contours() {
         mc::Model model;

@@ -89,7 +89,9 @@ void collectModels(const QJsonValue &v, QSet<QString> &out, int depth = 0) {
     if (v.isObject()) {
         const auto o = v.toObject();
         for (auto it = o.begin(); it != o.end(); ++it) {
-            if (it.key() == "model" && it.value().isString()) {
+            if ((it.key() == "model" ||
+                 (it.key() == "base" && Location::parse(o["type"].toString()).id() == "minecraft:special")) &&
+                it.value().isString()) {
                 const auto id = Location::parse(it.value().toString());
                 if (id.valid())
                     out.insert(id.asset("models"));

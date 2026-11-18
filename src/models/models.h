@@ -47,6 +47,7 @@ struct Instance {
     bool uvlock = false;
     QMatrix4x4 transformation;
     QVector<QRgb> tints;
+    QJsonObject special;
 };
 struct Dispatch {
     QVector<Instance> instances;
@@ -132,7 +133,7 @@ struct Face {
     int rotation = 0, tint = -1;
     // Generated sprite layers are composited in authored order, including opaque overlays.
     int generatedLayer = -1;
-    bool shade = true, forceTranslucent = false;
+    bool shade = true, forceTranslucent = false, entityCutout = false;
     std::array<float, 4> ambientShade{1, 1, 1, 1};
     float overworldShade() const;
     QRectF uvRect() const;

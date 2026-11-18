@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
 #include "tints.h"
+#include <QDate>
 #include <QJsonArray>
 #include <cmath>
 #include <functional>
@@ -150,6 +151,7 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
             instance.tints = colors;
     } else if (!Location::fromAsset(asset, "items").isEmpty()) {
         const auto manualTints = inputs["_tints"].toArray();
+        const bool vanillaItem = Location::parse(Location::fromAsset(asset, "items")).nameSpace == "minecraft";
         QMatrix4x4 subtree;
         std::function<void(const QJsonObject &, int, QString)> visit;
         visit = [&](const QJsonObject &o, int depth, QString label) {
@@ -210,6 +212,19 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
                         ++tintIndex;
                     }
                 }
+            } else if (type == "minecraft:special") {
+                const auto renderer = o["model"].toObject();
+                if (renderer.isEmpty()) {
+                    result.diagnostics << "Invalid special renderer";
+                    return;
+                }
+                const auto previousCount = result.instances.size();
+                append({{"model", o["base"]}}, label + " / special");
+                if (result.instances.size() > previousCount) {
+                    auto &instance = result.instances.last();
+                    instance.transformation = subtree;
+                    instance.special = renderer;
+                }
             } else if (type == "minecraft:composite") {
                 for (const auto &child : o["models"].toArray())
                     visit(child.toObject(), depth + 1, label + " / composite");
@@ -217,11 +232,17 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
             } else if (type == "minecraft:condition" || type == "minecraft:select" ||
                        type == "minecraft:range_dispatch") {
                 const auto property = o["property"].toString();
-                if (!inputs.contains(property)) {
+                auto value = inputs[property];
+                if (value.isUndefined() && vanillaItem) {
+                    if (property == "minecraft:using_item")
+                        value = false;
+                    else if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
+                        value = QDate::currentDate().toString("MM-dd");
+                }
+                if (value.isUndefined()) {
                     result.diagnostics << "Manual item input required: " + property;
                     return;
                 }
-                const auto value = inputs[property];
                 if (type == "minecraft:condition") {
                     if (!value.isBool()) {
                         result.diagnostics << "Boolean item input required: " + property;

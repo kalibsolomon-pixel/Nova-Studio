@@ -618,6 +618,8 @@ void Cube::paintGL() {
     for (const auto &face : scene().faces) {
         if (face.forceTranslucent)
             layers << mc::RenderLayer::Translucent;
+        else if (face.entityCutout)
+            layers << mc::RenderLayer::Cutout;
         else if (placedBlock)
             layers << blockLayer;
         else if (face.generatedLayer >= 0 ||

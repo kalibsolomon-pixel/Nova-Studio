@@ -6,6 +6,7 @@
 #include "project.h"
 #include "render_layers.h"
 #include "settings.h"
+#include "special_models.h"
 #include "theme.h"
 #include "tints.h"
 #include <QCryptographicHash>
@@ -905,7 +906,9 @@ void ModelPanel::rebuild() {
                     for (const auto &frame : frames)
                         pixels << doc->frameComposite(frame.id);
                 }
-        auto part = mc::transformed(mc::generatedMesh(model, materials, generatedFrames), instance);
+        auto baked = instance.special.isEmpty() ? mc::generatedMesh(model, materials, generatedFrames)
+                                                : mc::specialMesh(model, instance.special);
+        auto part = mc::transformed(std::move(baked), instance);
         if (placed)
             mc::applyPlacedLighting(part, values["_neighbors"]);
         if (combined->faces.isEmpty())

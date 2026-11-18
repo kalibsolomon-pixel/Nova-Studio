@@ -12,7 +12,7 @@ add_library(nova-asset-index STATIC assets/index.cpp assets/index.h assets/monit
 target_include_directories(nova-asset-index PUBLIC assets)
 target_link_libraries(nova-asset-index PUBLIC Qt6::Core)
 
-add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp models/render_layers.h models/render_layers.cpp models/tints.h models/tints.cpp)
+add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp models/render_layers.h models/render_layers.cpp models/tints.h models/tints.cpp models/special_models.h models/special_models.cpp)
 target_sources(nova-models PRIVATE models/validation.h models/validation.cpp)
 target_include_directories(nova-models PUBLIC models)
 target_link_libraries(nova-models PUBLIC nova-core nova-asset-index Qt6::Gui)
