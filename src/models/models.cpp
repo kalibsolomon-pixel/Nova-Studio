@@ -137,6 +137,13 @@ QString Location::fromAsset(const QString &asset, const QString &kind) {
     path.chop(suffix.size());
     return parse(p[1] + ':' + path).id();
 }
+QString Model::faceTexture(const QString &reference) const {
+    if (reference.startsWith('#'))
+        return textures.value(reference.mid(1));
+    // Java texture slots accept a bare name. Retain direct sprite IDs for existing packs.
+    const auto slot = textures.constFind(reference);
+    return slot == textures.cend() ? Location::parse(reference).asset("textures") : *slot;
+}
 void Library::setVersion(const QString &version) {
     const auto next = Profile::forVersion(version);
     if (profile.version == next.version)
@@ -219,7 +226,10 @@ void Library::replaceEdges(const QString &path) {
         for (const auto &element : o["elements"].toArray()) {
             const auto faces = element.toObject()["faces"].toObject();
             for (auto f = faces.begin(); f != faces.end(); ++f) {
-                auto l = Location::parse(f.value().toObject()["texture"].toString());
+                const auto ref = f.value().toObject()["texture"].toString();
+                if (textures.contains(ref))
+                    continue;
+                const auto l = Location::parse(ref);
                 if (l.valid())
                     edges.insert(l.asset("textures"));
             }

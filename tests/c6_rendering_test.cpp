@@ -193,7 +193,7 @@ class RenderingTest : public QObject {
         QCOMPARE(chest.maximum, QVector3D(.875f, .75f, 1));
         for (const auto &face : chest.faces) {
             QCOMPARE(face.texture, QString("assets/minecraft/textures/entity/chest/trapped.png"));
-            QVERIFY(face.entityCutout);
+            QCOMPARE(face.entityLayer, mc::EntityLayer::Cutout);
             QVERIFY(face.normal.length() > .99f);
         }
         const auto open = mc::specialMesh(base, {{"type", "chest"}, {"openness", 1}});
@@ -204,6 +204,8 @@ class RenderingTest : public QObject {
         const auto bed = mc::specialMesh(base, {{"type", "bed"}, {"texture", "red"}});
         QCOMPARE(bed.faces.size(), 36);
         QCOMPARE((bed.maximum - bed.minimum).z(), 4.f);
+        for (const auto &face : bed.faces)
+            QCOMPARE(face.entityLayer, mc::EntityLayer::Solid);
         QCOMPARE(mc::specialMesh(base, {{"type", "head"}, {"kind", "skeleton"}}).faces.size(), 6);
         QCOMPARE(mc::specialMesh(base, {{"type", "player_head"}}).faces.size(), 12);
         QCOMPARE(mc::specialMesh(base, {{"type", "shield"}}).faces.size(), 12);
@@ -222,6 +224,89 @@ class RenderingTest : public QObject {
         QCOMPARE(dispatched.instances.size(), 1);
         QCOMPARE(dispatched.instances.first().model, base.id);
         QCOMPARE(dispatched.instances.first().special["texture"].toString(), QString("trapped"));
+    }
+    void specialInventoryGeometry() {
+        mc::Model base;
+        base.valid = true;
+        const auto pot = mc::specialMesh(base, {{"type", "decorated_pot"}});
+        QCOMPARE(pot.faces.size(), 20);
+        QCOMPARE(pot.minimum, QVector3D(-.875f, -1, -.875f));
+        QVERIFY(qAbs(pot.maximum.y() - 1.4875f) < 1e-6f);
+        const QVector3D outward[] = {{0, 0, -1}, {-1, 0, 0}, {1, 0, 0}, {0, 0, 1}};
+        for (int i = 0; i < 4; ++i) {
+            const auto &side = pot.faces[16 + i];
+            QCOMPARE(side.normal, outward[i]);
+            QCOMPARE(side.uvRect(), QRectF(1, 0, 14, 16));
+        }
+        const auto dragon = mc::specialMesh(base, {{"type", "head"}, {"kind", "dragon"}});
+        QCOMPARE(dragon.faces.size(), 42);
+        QCOMPARE(dragon.faces.front().texture, QString("assets/minecraft/textures/entity/enderdragon/dragon.png"));
+        QCOMPARE(dragon.faces.front().entityLayer, mc::EntityLayer::CutoutNoCull);
+        QCOMPARE(dragon.faces.front().uvRect(), QRectF(11, 3.75, 1, .3125));
+        QVERIFY(dragon.maximum.z() > 2.f);
+        QCOMPARE(dragon.faces.last().element, QString("Jaw"));
+        const auto piglin = mc::specialMesh(base, {{"type", "head"}, {"kind", "piglin"}});
+        QCOMPARE(piglin.faces.size(), 36);
+        QCOMPARE(piglin.faces.front().texture, QString("assets/minecraft/textures/entity/piglin/piglin.png"));
+        QVERIFY(piglin.maximum.x() > 1.f && piglin.minimum.x() < -1.f);
+        const auto copper = mc::specialMesh(base, {{"type", "copper_golem_statue"},
+            {"pose", "standing"}, {"texture", "nova:textures/entity/oxidized.png"}});
+        QCOMPARE(copper.faces.size(), 54);
+        QCOMPARE(copper.faces.front().texture, QString("assets/nova/textures/entity/oxidized.png"));
+        QCOMPARE(copper.faces.front().entityLayer, mc::EntityLayer::CutoutNoCull);
+        QCOMPARE(copper.maximum.y(), 2.f);
+        QVERIFY(qAbs(copper.minimum.y() - (-1.f + .015f / 8)) < 1e-6f);
+    }
+    void lightStackBlockState() {
+        QTemporaryDir pack;
+        QVERIFY(QDir().mkpath(pack.filePath("assets/minecraft/items")));
+        const QString asset = "assets/minecraft/items/light.json";
+        auto leaf = [](const QString &id) { return QJsonObject{{"type", "model"}, {"model", id}}; };
+        QFile file(pack.filePath(asset));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QJsonArray cases{
+            QJsonObject{{"when", "15"}, {"model", leaf("item/light_15")}},
+            QJsonObject{{"when", "4"}, {"model", leaf("item/light_04")}}};
+        const QJsonObject select{{"type", "select"}, {"property", "minecraft:block_state"},
+                                 {"block_state_property", "level"}, {"cases", cases},
+                                 {"fallback", leaf("item/light")}};
+        QVERIFY(file.write(QJsonDocument(QJsonObject{{"model", select}}).toJson()) > 0);
+        file.close();
+        mc::Library library("1.21.11");
+        library.update(pack.path(), Index::scan(pack.path()));
+        const auto model = [&](const QJsonObject &input) {
+            const auto result = library.dispatch(asset, input);
+            return result.instances.isEmpty() ? QString() : result.instances.front().model;
+        };
+        QCOMPARE(model({}), QString("minecraft:item/light_15"));
+        QCOMPARE(model({{"minecraft:block_state", QJsonObject{{"level", "4"}}}}),
+                 QString("minecraft:item/light_04"));
+        QCOMPARE(model({{"minecraft:block_state", "4"}}), QString("minecraft:item/light_04"));
+        QCOMPARE(model({{"minecraft:block_state", QJsonObject{}}}), QString("minecraft:item/light"));
+    }
+    void crossedPlantNormals() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        const auto stem = [](QJsonArray from, QJsonArray to, QJsonArray origin, int angle,
+                             const char *front, const char *back) {
+            const QJsonObject rotation{{"axis", "y"}, {"angle", angle}, {"rescale", true},
+                                       {"origin", origin}};
+            return QJsonObject{{"from", from}, {"to", to}, {"rotation", rotation},
+                               {"faces", QJsonObject{{front, QJsonObject{}}, {back, QJsonObject{}}}}};
+        };
+        model.resolved["elements"] = QJsonArray{
+            stem({5, 0, 12}, {11, 15, 12}, {8, 8, 12}, 45, "north", "south"),
+            stem({5, 0, 12}, {11, 15, 12}, {8, 8, 12}, -45, "north", "south"),
+            stem({.1, 0, 8}, {15.9, 15.9, 8}, {8, 8, 8}, 45, "north", "south"),
+            stem({8, 0, .1}, {8, 15.9, 15.9}, {8, 8, 8}, 45, "west", "east")};
+        const auto plant = mc::mesh(model);
+        QCOMPARE(plant.faces.size(), 8);
+        const QVector3D north(0, 0, -1), south(0, 0, 1);
+        QCOMPARE(plant.faces[0].points[0], QVector3D(.375f, .875f, .125f));
+        // Direction.values() visits north and south before either X direction, breaking the tie.
+        for (const auto &face : plant.faces)
+            QCOMPARE(face.lightNormal, face.name == "north" || face.name == "east" ? north : south);
     }
     void contours() {
         mc::Model model;

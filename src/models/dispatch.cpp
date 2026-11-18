@@ -151,7 +151,8 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
             instance.tints = colors;
     } else if (!Location::fromAsset(asset, "items").isEmpty()) {
         const auto manualTints = inputs["_tints"].toArray();
-        const bool vanillaItem = Location::parse(Location::fromAsset(asset, "items")).nameSpace == "minecraft";
+        const auto item = Location::parse(Location::fromAsset(asset, "items"));
+        const bool vanillaItem = item.nameSpace == "minecraft";
         QMatrix4x4 subtree;
         std::function<void(const QJsonObject &, int, QString)> visit;
         visit = [&](const QJsonObject &o, int depth, QString label) {
@@ -235,8 +236,16 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
                        type == "minecraft:range_dispatch") {
                 const auto property = o["property"].toString();
                 auto value = inputs[property];
+                if (type == "minecraft:select" && property == "minecraft:block_state") {
+                    const auto stateProperty = o["block_state_property"].toString();
+                    if (value.isObject())
+                        value = value.toObject().value(stateProperty);
+                    else if (value.isUndefined() && vanillaItem && item.path == "light" &&
+                             stateProperty == "level")
+                        value = QStringLiteral("15"); // Items.LIGHT supplies this stack component.
+                }
                 if (value.isUndefined() && vanillaItem) {
-                    // A default stack in a slot: no components, not held, used, cast or broken.
+                    // Default slot values for properties that depend on how the item is used.
                     if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
                         value = QDate::currentDate().toString("MM-dd");
                     else if (type == "minecraft:condition")

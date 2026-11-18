@@ -438,24 +438,30 @@ void Cube::initializeGL() {
         "attribute vec3 position; attribute vec2 texcoord; attribute vec3 normal; attribute float "
         "shade; attribute float worldShade;"
         "uniform mat4 mvp; uniform vec3 direction; uniform float ambient; uniform float neutral;"
-        "uniform vec3 light0; uniform vec3 light1; uniform int lightingMode;"
-        "varying vec2 uv; varying float light; void main(){"
-        "gl_Position=mvp*vec4(position,1.0);uv=texcoord;"
+        "uniform vec3 light0; uniform vec3 light1; uniform int lightingMode; uniform float uvOrigin;"
+        "varying vec2 uv; varying float light; varying float backLight; void main(){"
+        "gl_Position=mvp*vec4(position,1.0);uv=texcoord+vec2(uvOrigin);"
+        "backLight=0.0;"
         "if(lightingMode==2){"
         "float studio=ambient+(1.0-ambient)*max(dot(normal,normalize(direction)),0.0);"
         "light=mix(1.0,studio,shade*(1.0-neutral));"
         "}else if(lightingMode==1){light=worldShade;}"
         "else{float diffuse=max(dot(normal,light0),0.0)+max(dot(normal,light1),0.0);"
-        "light=min(1.0,0.4+0.6*diffuse);}}");
+        "light=min(1.0,0.4+0.6*diffuse);"
+        "float backDiffuse=max(dot(-normal,light0),0.0)+max(dot(-normal,light1),0.0);"
+        "backLight=min(1.0,0.4+0.6*backDiffuse);}}");
     ok = ok &&
          program->addShaderFromSourceCode(
              QOpenGLShader::Fragment,
              "uniform sampler2D tex; uniform float solid; uniform vec4 solidColor; uniform vec3 "
-             "tintColor; uniform float alphaCutoff; uniform bool blended; varying vec2 uv; "
-             "varying float light; void main(){if(solid>0.5){gl_FragColor=solidColor;return;}vec4 "
-             "c=texture2D(tex,uv);"
+             "tintColor; uniform float alphaCutoff; uniform bool textureAlpha; uniform bool twoSided;"
+             "uniform float uvOrigin;"
+             "varying vec2 uv; varying float light; varying float backLight;"
+             "void main(){if(solid>0.5){gl_FragColor=solidColor;return;}vec4 "
+             "c=texture2D(tex,uv-vec2(uvOrigin));"
              "if(c.a<alphaCutoff) discard;"
-             "gl_FragColor=vec4(c.rgb*tintColor*light,blended?c.a:1.0);}");
+             "float shade=twoSided&&!gl_FrontFacing?backLight:light;"
+             "gl_FragColor=vec4(c.rgb*tintColor*shade,textureAlpha?c.a:1.0);}");
     if (!ok || !program->link() || !buffer.create() || !lineBuffer.create() ||
         !guideBuffer.create()) {
         setToolTip(program->log());
@@ -613,43 +619,76 @@ void Cube::paintGL() {
     std::iota(order.begin(), order.end(), 0);
     const auto blockLayer = mc::blockRenderLayer(previewBlock);
     const auto blockItemLayer = mc::itemRenderLayer(previewBlock, false);
-    QVector<mc::RenderLayer> layers;
-    layers.reserve(order.size());
+    struct FacePass {
+        mc::RenderLayer layer;
+        bool blockSprite;
+    };
+    QVector<FacePass> passes;
+    passes.reserve(order.size());
     for (const auto &face : scene().faces) {
-        if (face.forceTranslucent)
-            layers << mc::RenderLayer::Translucent;
-        else if (face.entityCutout)
-            layers << mc::RenderLayer::Cutout;
+        const auto sprite = mc::Location::fromAsset(face.texture, "textures").section(':', 1);
+        const bool blockSprite = sprite.startsWith("block/");
+        auto layer = blockItemLayer;
+        if (face.forceTranslucent || face.entityLayer == mc::EntityLayer::Overlay)
+            layer = mc::RenderLayer::Translucent;
+        else if (face.entityLayer == mc::EntityLayer::Solid)
+            layer = mc::RenderLayer::Solid;
+        else if (face.entityLayer != mc::EntityLayer::None)
+            layer = mc::RenderLayer::Cutout;
         else if (placedBlock)
-            layers << blockLayer;
-        else if (face.generatedLayer >= 0 ||
-                 (modelMesh && mc::Location::fromAsset(face.texture, "textures").section(':', 1)
-                                   .startsWith("item/")))
-            layers << mc::RenderLayer::Translucent;
-        else
-            layers << blockItemLayer;
+            layer = blockLayer;
+        else if ((face.generatedLayer >= 0 && !blockSprite) ||
+                 (modelMesh && sprite.startsWith("item/")))
+            layer = mc::RenderLayer::Translucent;
+        passes << FacePass{layer, blockSprite};
     }
     auto depth = [&](int i) {
         auto c = (scene().faces[i].points[0] + scene().faces[i].points[2]) / 2;
         return m.map(c).z();
     };
     auto blended = [&](int i) {
-        return layers[i] == mc::RenderLayer::Translucent || layers[i] == mc::RenderLayer::Tripwire;
+        return passes[i].layer == mc::RenderLayer::Translucent ||
+               passes[i].layer == mc::RenderLayer::Tripwire;
     };
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
         bool ta = blended(a), tb = blended(b);
         return ta != tb ? !ta : ta && depth(a) > depth(b);
     });
     bool blend = false;
+    bool cull = true, writeDepth = true;
     glDisable(GL_BLEND);
     for (int i : order) {
         const auto &f = scene().faces[i];
+        const bool overlay = f.entityLayer == mc::EntityLayer::Overlay;
+        const bool twoSided = overlay || f.entityLayer == mc::EntityLayer::CutoutNoCull;
         if (blend != blended(i)) {
             blend = blended(i);
-            glEnable(GL_BLEND);
+            if (blend)
+                glEnable(GL_BLEND);
+            else
+                glDisable(GL_BLEND);
         }
-        program->setUniformValue("alphaCutoff", mc::alphaCutoff(layers[i], placedBlock));
-        program->setUniformValue("blended", int(blend));
+        if (cull == twoSided) {
+            cull = !twoSided;
+            if (cull)
+                glEnable(GL_CULL_FACE);
+            else
+                glDisable(GL_CULL_FACE);
+        }
+        if (writeDepth == overlay) {
+            writeDepth = !overlay;
+            glDepthMask(writeDepth);
+        }
+        program->setUniformValue("twoSided", int(twoSided && !placedBlock && !studioLighting));
+        program->setUniformValue("alphaCutoff", overlay || f.entityLayer == mc::EntityLayer::Solid
+                                                   ? 0.f : mc::alphaCutoff(passes[i].layer, placedBlock));
+        // Interpolate in atlas coordinates before sampling the standalone texture.
+        // A 16 px tile halfway across a 1024 px sheet has an origin of 32 sprite widths.
+        // The shader cancels the offset after interpolation, reproducing the atlas rounding.
+        program->setUniformValue("uvOrigin", inventoryCapture && passes[i].blockSprite ? 32.f : 0.f);
+        // The item atlas keeps the shader's alpha even for passes without blending.
+        // Its GUI blit adds the stored RGB to the background weighted by (1 - alpha).
+        program->setUniformValue("textureAlpha", int(blend || inventoryCapture));
         program->setUniformValue(
             "tintColor",
             QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
@@ -659,6 +698,7 @@ void Cube::paintGL() {
         glBindTexture(GL_TEXTURE_2D, t);
         glDrawArrays(GL_TRIANGLES, i * 6, 6);
     }
+    glDepthMask(GL_TRUE);
     buffer.release();
     if (clipToSlot)
         glDisable(GL_SCISSOR_TEST);
@@ -745,7 +785,9 @@ int Cube::faceAt(QPointF position) const {
             auto a = f.points[tri[0]], e1 = f.points[tri[1]] - a, e2 = f.points[tri[2]] - a;
             auto h = QVector3D::crossProduct(ray, e2);
             float det = QVector3D::dotProduct(e1, h);
-            if (det < 1e-7f)
+            const bool twoSided = f.entityLayer == mc::EntityLayer::Overlay ||
+                                  f.entityLayer == mc::EntityLayer::CutoutNoCull;
+            if ((twoSided ? std::abs(det) : det) < 1e-7f)
                 continue;
             auto s = origin - a;
             float u = QVector3D::dotProduct(s, h) / det;

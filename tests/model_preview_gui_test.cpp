@@ -376,11 +376,170 @@ class ModelPreviewGuiTests : public QObject {
         QCOMPARE(image.pixelColor(16, 32), QColor(Qt::red));
         QCOMPARE(image.pixelColor(48, 32).alpha(), 0);
     }
+    void specialInventoryPixels_data() {
+        QTest::addColumn<QJsonObject>("renderer");
+        QTest::addColumn<QString>("texture");
+        QTest::addColumn<QColor>("expected");
+        const struct {
+            const char *name;
+            QRgb rgb;
+        } dyes[] = {{"white", 0xf9fffe}, {"orange", 0xf9801d}, {"magenta", 0xc74ebd},
+                    {"light_blue", 0x3ab3da}, {"yellow", 0xfed83d}, {"lime", 0x80c71f},
+                    {"pink", 0xf38baa}, {"gray", 0x474f52}, {"light_gray", 0x9d9d97},
+                    {"cyan", 0x169c9c}, {"purple", 0x8932b8}, {"blue", 0x3c44aa},
+                    {"brown", 0x835432}, {"green", 0x5e7c16}, {"red", 0xb02e26},
+                    {"black", 0x1d1d21}};
+        for (const auto &dye : dyes)
+            QTest::newRow(dye.name) << QJsonObject{{"type", "banner"}, {"color", dye.name}}
+                << QString("banner/base") << QColor::fromRgb(dye.rgb);
+        const struct {
+            const char *kind;
+            const char *skin;
+        } heads[] = {{"dragon", "enderdragon/dragon"}, {"piglin", "piglin/piglin"}};
+        const QColor sample(160, 100, 50);
+        for (const auto &head : heads)
+            QTest::newRow(head.kind) << QJsonObject{{"type", "head"}, {"kind", head.kind}}
+                << QString(head.skin) << sample;
+        QTest::newRow("pot") << QJsonObject{{"type", "decorated_pot"}}
+            << QString("decorated_pot/decorated_pot_side") << sample;
+        for (const auto *wax : {"", "waxed_"})
+            for (const auto *oxidation : {"", "exposed_", "weathered_", "oxidized_"}) {
+                const auto item = QString(wax) + oxidation + "copper_golem_statue";
+                const auto skin = QString("copper_golem/") + oxidation + "copper_golem";
+                QTest::newRow(qPrintable(item))
+                    << QJsonObject{{"type", "copper_golem_statue"}, {"pose", "standing"},
+                                   {"texture", "minecraft:textures/entity/" + skin + ".png"}}
+                    << skin << sample;
+            }
+    }
+    void specialInventoryPixels() {
+        QFETCH(QJsonObject, renderer);
+        QFETCH(QString, texture);
+        QFETCH(QColor, expected);
+        const auto root = tmp.filePath(QString("special-") + QTest::currentDataTag());
+        auto write = [&](const QString &path, const QJsonObject &object) {
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(QJsonDocument(object).toJson()) > 0;
+        };
+        auto save = [&](const QString &name, QColor color) {
+            const auto path = root + "/assets/minecraft/textures/entity/" + name + ".png";
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QImage sheet(64, 64, QImage::Format_RGBA8888);
+            sheet.fill(color);
+            return sheet.save(path);
+        };
+        const auto type = renderer["type"].toString();
+        const bool banner = type == "banner", statue = type == "copper_golem_statue";
+        const QString asset = "assets/minecraft/items/special_fixture.json";
+        QJsonObject node{{"type", "special"}, {"base", "minecraft:item/special_fixture"},
+                         {"model", renderer}};
+        if (statue)
+            node = QJsonObject{{"type", "select"}, {"property", "minecraft:block_state"},
+                               {"block_state_property", "copper_golem_pose"}, {"fallback", node}};
+        QVERIFY(write(root + '/' + asset, {{"model", node}}));
+        const QJsonObject pose{{"rotation", QJsonArray{0, 0, statue ? 180 : 0}}};
+        QVERIFY(write(root + "/assets/minecraft/models/item/special_fixture.json",
+                      {{"gui_light", "front"}, {"display", QJsonObject{{"gui", pose}}}}));
+        const QColor wood(90, 60, 30);
+        if (banner)
+            QVERIFY(save("banner_base", wood));
+        if (type == "decorated_pot")
+            QVERIFY(save("decorated_pot/decorated_pot_base", Qt::blue));
+        QVERIFY(save(texture, banner ? QColor(Qt::white) : expected));
+
+        mc::Library lib("1.21.11");
+        lib.update(root, Index::scan(root));
+        const auto icon = renderInventoryIcon(lib, asset, 3);
+        QCOMPARE(icon.size(), QSize(48, 48));
+        // At x=8 the front panel or head faces +Z. The flat light rig saturates there.
+        const int modelY = banner || type == "decorated_pot" ? 8 : 5;
+        QCOMPARE(icon.pixelColor(24, 48 - 3 * modelY), expected);
+        QCOMPARE(icon.pixelColor(0, 47).alpha(), 0);
+        if (banner)
+            QCOMPARE(icon.pixelColor(24, 45), wood);
+    }
+    void blockInventoryPixels_data() {
+        QTest::addColumn<QString>("kind");
+        QTest::newRow("bare-slot-and-translation") << QString("heavy_core");
+        QTest::newRow("inverted-cage") << QString("spawner");
+    }
+    void blockInventoryPixels() {
+        QFETCH(QString, kind);
+        const auto root = tmp.filePath(kind);
+        const auto modelDir = root + "/assets/minecraft/models/block";
+        const auto textureDir = root + "/assets/minecraft/textures/block";
+        QVERIFY(QDir().mkpath(modelDir));
+        QVERIFY(QDir().mkpath(textureDir));
+        const bool cage = kind == "spawner";
+        const QColor solid(150, 80, 30);
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(solid);
+        QVERIFY(sprite.save(textureDir + "/solid.png"));
+        sprite.fill(Qt::transparent);
+        QVERIFY(sprite.save(textureDir + "/holes.png"));
+        const auto panel = [](QJsonArray from, QJsonArray to, const char *side, const char *texture) {
+            return QJsonObject{{"from", from}, {"to", to},
+                               {"faces", QJsonObject{{side, QJsonObject{{"texture", texture}}}}}};
+        };
+        QJsonArray elements;
+        QJsonObject gui;
+        if (cage) {
+            elements.append(panel({0, 0, 0}, {16, 16, 16}, "south", "#holes"));
+            // The reversed X axis turns the rear north quad toward the slot viewer.
+            elements.append(panel({14, 2, 2}, {2, 14, 14}, "north", "#all"));
+        } else {
+            gui["translation"] = QJsonArray{0, 3, 0};
+            elements.append(panel({4, 0, 4}, {12, 8, 12}, "south", "all"));
+        }
+        const QJsonObject source{{"gui_light", "front"}, {"elements", elements},
+            {"display", QJsonObject{{"gui", gui}}},
+            {"textures", QJsonObject{{"all", "block/solid"}, {"holes", "block/holes"}}}};
+        QFile file(modelDir + '/' + kind + ".json");
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write(QJsonDocument(source).toJson()) > 0);
+        file.close();
+        mc::Library lib("1.21.11");
+        lib.update(root, Index::scan(root));
+        const auto icon = renderInventoryIcon(lib, "assets/minecraft/models/block/" + kind + ".json", 3);
+        QCOMPARE(icon.size(), QSize(48, 48));
+        const QRect pixels = cage ? QRect(6, 6, 36, 36) : QRect(12, 15, 24, 24);
+        for (int y = 0; y < icon.height(); ++y)
+            for (int x = 0; x < icon.width(); ++x)
+                QCOMPARE(icon.pixelColor(x, y), pixels.contains(x, y) ? solid : QColor(Qt::transparent));
+    }
+    void inventoryAtlasTexel() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        const QString texture = "assets/nova/textures/block/atlas.png";
+        model.display["gui"] = QJsonObject{{"rotation", QJsonArray{30, 225, 0}},
+                                           {"scale", QJsonArray{.625, .625, .625}}};
+        const QJsonObject up{{"texture", "nova:block/atlas"}};
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", QJsonObject{{"up", up}}}}};
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::white);
+        sprite.setPixelColor(11, 4, Qt::red);
+        sprite.setPixelColor(12, 4, Qt::green);
+        const QMap<QString, QImage> materials{{texture, sprite}};
+        const auto geometry = mc::displayMesh(model, {}, "gui", materials);
+        cube->setDocument({});
+        cube->setContextTransform({});
+        cube->setPreviewContext("gui", false, "minecraft:stone");
+        cube->setModel(std::make_shared<mc::Mesh>(geometry), {}, materials);
+        const auto actual = cube->captureInventoryIcon(4);
+        QCOMPARE(actual.size(), QSize(64, 64));
+        // GuiRenderer's 64 px projection places this centre at about (11.99968, 4.283)
+        // in the tile. The block-atlas interpolant selects the texel in column 12.
+        QCOMPARE(actual.pixelColor(31, 21), QColor(Qt::green));
+    }
     void inventoryPixels_data() {
         QTest::addColumn<QString>("kind");
         QTest::addColumn<int>("scale");
         for (const auto kind : {"cube_all", "generated", "handheld", "front", "tinted",
-                                "cutout", "translucent"}) {
+                                "cutout", "translucent", "frogspawn"}) {
             QTest::newRow(qPrintable(QString("%1-16").arg(kind))) << QString(kind) << 1;
             QTest::newRow(qPrintable(QString("%1-32").arg(kind))) << QString(kind) << 2;
         }
@@ -395,13 +554,14 @@ class ModelPreviewGuiTests : public QObject {
         const bool generated = kind == "generated" || kind == "handheld";
         const bool translucent = kind == "translucent";
         const bool cutout = kind == "cutout";
-        const QString spriteId = cubeAll || cutout || translucent ? "nova:block/card"
-                                                                  : "nova:item/card";
+        const bool frogspawn = kind == "frogspawn";
+        const QString spriteId = cubeAll || cutout || translucent || frogspawn ? "nova:block/card"
+                                                                               : "nova:item/card";
         const auto texture = mc::Location::parse(spriteId).asset("textures");
         QJsonObject source;
-        if (cubeAll || generated) {
+        if (cubeAll || generated || frogspawn) {
             const QString parent = cubeAll ? "minecraft:block/cube_all"
-                                           : "minecraft:item/" + kind;
+                                           : "minecraft:item/" + (frogspawn ? QString("generated") : kind);
             source["parent"] = parent;
             source["textures"] = QJsonObject{{cubeAll ? "all" : "layer0", spriteId}};
         } else {
@@ -431,6 +591,7 @@ class ModelPreviewGuiTests : public QObject {
             for (int x = 0; x < 16; ++x) {
                 const int alpha = translucent ? (x < 8 ? 25 : 128)
                                 : cutout ? (x < 8 ? 25 : 26)
+                                : frogspawn ? (x < 8 ? 0 : 170)
                                 : generated && (x < 3 || y < 3 || x > 12 || y > 12) ? 0 : 255;
                 sprite.setPixelColor(x, y, QColor(160, 80, 40, alpha));
             }
@@ -440,6 +601,7 @@ class ModelPreviewGuiTests : public QObject {
         cube->setContextTransform({});
         cube->setPreviewContext("gui", false, cubeAll ? "minecraft:stone"
                                                : cutout ? "minecraft:iron_bars"
+                                               : frogspawn ? "minecraft:frogspawn"
                                                : translucent ? "minecraft:glass" : QString());
         cube->setModel(std::make_shared<mc::Mesh>(geometry), {}, materials);
         const auto actual = cube->captureInventoryIcon(scale);
@@ -498,8 +660,10 @@ class ModelPreviewGuiTests : public QObject {
                 const auto illum = std::min(1.f, .4f + .6f *
                     (std::max(0.f, QVector3D::dotProduct(first, normal)) +
                      std::max(0.f, QVector3D::dotProduct(second, normal))));
-                alpha = alpha < 26 ? 0 : cutout ? 255 : alpha;
-                const auto pixel = actual.pixelColor(x, y);
+                alpha = alpha < 26 ? 0 : alpha;
+                // Cutout atlas writes straight texture RGB even with sub-255 alpha.
+                const auto pixel = cutout || frogspawn ? QColor::fromRgba(actual.pixel(x, y))
+                                                      : actual.pixelColor(x, y);
                 const int expected[] = {
                     alpha ? qRound(160 * illum * qRed(tint) / 255) : 0,
                     alpha ? qRound(80 * illum * qGreen(tint) / 255) : 0,

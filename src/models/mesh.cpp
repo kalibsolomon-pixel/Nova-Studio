@@ -144,8 +144,7 @@ Mesh mesh(const Model &model) {
             mesh.diagnostics << QString("Element %1: %2").arg(index).arg(s);
         };
         if (!value.isObject() || !vector(e["from"], from, -16, 32) ||
-            !vector(e["to"], to, -16, 32) || from.x() > to.x() || from.y() > to.y() ||
-            from.z() > to.z() || !e["faces"].isObject()) {
+            !vector(e["to"], to, -16, 32) || !e["faces"].isObject()) {
             fail("invalid cuboid coordinates/faces");
             continue;
         }
@@ -175,9 +174,10 @@ Mesh mesh(const Model &model) {
         if (e["light_emission"].toInt() != 0)
             fail("light_emission retained; neutral preview omits emissive lighting");
         QMatrix4x4 transform;
+        QVector3D origin;
         if (e.contains("rotation")) {
             const auto r = e["rotation"].toObject();
-            QVector3D origin, angles;
+            QVector3D angles;
             if (!e["rotation"].isObject() || !vector(r["origin"], origin)) {
                 fail("invalid rotation origin");
                 continue;
@@ -214,7 +214,6 @@ Mesh mesh(const Model &model) {
                     continue;
                 }
             }
-            transform.translate(origin);
             // QMatrix multiplies on the right: Z*Y*X applies X first.
             transform.rotate(angles.z(), 0, 0, 1);
             transform.rotate(angles.y(), 0, 1, 0);
@@ -232,7 +231,7 @@ Mesh mesh(const Model &model) {
                 }
                 transform.scale(scale);
             }
-            transform.translate(-origin);
+            origin *= 1.f / 16;
         }
         const float x1 = from.x(), y1 = from.y(), z1 = from.z(), x2 = to.x(), y2 = to.y(),
                     z2 = to.z();
@@ -273,16 +272,16 @@ Mesh mesh(const Model &model) {
             face.cullface = o["cullface"].toString();
             face.tint = o["tintindex"].toInt(-1);
             const auto ref = o["texture"].toString();
-            face.texture = ref.startsWith('#') ? model.textures.value(ref.mid(1))
-                                               : Location::parse(ref).asset("textures");
+            face.texture = model.faceTexture(ref);
             if (face.texture.isEmpty())
                 fail("unresolved face texture: " + ref);
-            auto texValue = model.resolved["textures"].toObject().value(ref.mid(1));
+            const auto textures = model.resolved["textures"].toObject();
+            auto texValue = textures.value(ref.startsWith('#') ? ref.mid(1) : ref);
             QSet<QString> seen;
             while (texValue.isString() && texValue.toString().startsWith('#') &&
                    !seen.contains(texValue.toString())) {
                 seen.insert(texValue.toString());
-                texValue = model.resolved["textures"].toObject().value(texValue.toString().mid(1));
+                texValue = textures.value(texValue.toString().mid(1));
             }
             face.forceTranslucent = texValue.toObject()["force_translucent"].toBool();
             auto uv = defaults[direction];
@@ -309,13 +308,19 @@ Mesh mesh(const Model &model) {
                                         {uv[0] / 16, uv[3] / 16},
                                         {uv[2] / 16, uv[3] / 16},
                                         {uv[2] / 16, uv[1] / 16}};
+            std::array<QVector3D, 4> baked;
             for (int a = 0; a < 4; ++a) {
-                face.points[a] = (transform.map(points[direction][a]) - QVector3D(8, 8, 8)) / 8;
+                const auto vertex = points[direction][a] * (1.f / 16);
+                baked[a] = transform.mapVector(vertex - origin) + origin;
+                face.points[a] = (baked[a] - QVector3D(.5f, .5f, .5f)) * 2;
                 face.uv[a] = coords[(a + face.rotation / 90) % 4];
             }
-            face.normal = QVector3D::crossProduct(face.points[1] - face.points[0],
-                                                  face.points[2] - face.points[0])
-                              .normalized();
+            // FaceBakery chooses the cardinal direction from the rotated block-space vertices.
+            // Computing it after centring the mesh can change a tie at 45 degrees.
+            const auto cross = QVector3D::crossProduct(baked[1] - baked[0], baked[2] - baked[0]);
+            if (cross.lengthSquared() == 0)
+                continue;
+            face.normal = cross / cross.length();
             face.lightNormal = override.isEmpty() ? cardinalNormal(face.normal) : normal(override);
             mesh.faces << face;
         }

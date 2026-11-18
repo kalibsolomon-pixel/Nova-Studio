@@ -282,8 +282,7 @@ class Inspector {
             for (auto f = faceMap.begin(); f != faceMap.end(); ++f) {
                 const auto face = f->toObject();
                 const auto ref = face["texture"].toString();
-                const auto target = ref.startsWith('#') ? model.textures.value(ref.mid(1))
-                                                        : mc::Location::parse(ref).asset("textures");
+                const auto target = model.faceTexture(ref);
                 if (!texture.isEmpty() && target != texture)
                     continue;
                 if (rows.size() >= limit) {
