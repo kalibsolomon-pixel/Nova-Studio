@@ -26,7 +26,105 @@ Parsed parse(const QString &line) {
         return {{}, {}, line};
     return {match.captured(1), match.captured(2), match.captured(3)};
 }
+
+// This accepts invalid Minecraft names (e.g. a PNG with a space before its
+// extension) while only resolving ordinary, contained pack files on disk.
+bool packFile(const QString &root, const QString &path) {
+    if (root.isEmpty())
+        return false;
+    QString target = root;
+    for (const auto &part : path.split('/')) {
+        if (part.isEmpty() || part == "." || part == ".." ||
+            part.compare(".nova", Qt::CaseInsensitive) == 0)
+            return false;
+        target += '/' + part;
+        const QFileInfo info(target);
+        if (info.isSymLink() || info.isJunction())
+            return false;
+    }
+    const QFileInfo file(target);
+    return file.isFile() && file.canonicalFilePath() == target;
+}
 } // namespace
+
+bool ResourceWarning::isError() const {
+    return text.startsWith("ERROR: ") || text.startsWith("FATAL: ") ||
+           text.startsWith("Minecraft wrote a crash report");
+}
+
+ResourceWarning resolveResourceWarning(const QString &warning, const QString &projectRoot,
+                                       const QString &packEntry) {
+    ResourceWarning result{warning, {}};
+    if (projectRoot.isEmpty())
+        return result;
+    const auto root = QFileInfo(projectRoot).canonicalFilePath();
+    const auto add = [&](const QString &path) {
+        if (!result.assets.contains(path) && packFile(root, path))
+            result.assets.append(path);
+    };
+
+    static const QRegularExpression metadata(R"(\b(file/.+?) pack metadata\b)");
+    if (const auto match = metadata.match(warning); match.hasMatch()) {
+        if (match.captured(1) == packEntry)
+            add("pack.mcmeta");
+        return result;
+    }
+    static const QRegularExpression origin(R"(\(from pack ([^)]+)\))");
+    if (const auto match = origin.match(warning); match.hasMatch() &&
+                                                  match.captured(1) != packEntry)
+        return result;
+
+    // Physical paths take precedence over the shorter logical ID syntax.
+    static const QRegularExpression references(
+        R"((?<![\w./\\-])(?:(?<relative>(?:[\w.-]+/)*assets/[\w.-]+/[\w./ -]+?\.(?:png\.mcmeta|png|json|mcmeta)\b|pack\.(?:mcmeta|png)\b)|(?<ns>[a-z0-9_.-]+):(?:(?<file>[a-z0-9_.-]+/[\w./ -]+?\.(?:png\.mcmeta|png|json|mcmeta)\b)|(?<id>[a-z0-9_./-]+)(?<variant>#[^\s'"\])]+)?)))");
+    static const QRegularExpression kinds(
+        R"(\b(item (?:model )?definitions?|block[ -]?states?|models?|textures?|sprites?)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    const QStringList folders{"models", "textures", "blockstates", "items"};
+    QString kind;
+    qsizetype previous = 0;
+    for (auto iter = references.globalMatch(warning); iter.hasNext();) {
+        const auto ref = iter.next();
+        for (auto hints = kinds.globalMatch(warning.mid(previous, ref.capturedStart() - previous));
+             hints.hasNext();) {
+            const auto hint = hints.next().captured().toLower();
+            kind = hint.startsWith("item")   ? "items"
+                   : hint.startsWith("block") ? "blockstates"
+                   : hint.startsWith("model") ? "models"
+                                               : "textures";
+        }
+        previous = ref.capturedEnd();
+        if (const auto relative = ref.captured("relative"); !relative.isEmpty()) {
+            add(relative);
+            continue;
+        }
+        const auto prefix = "assets/" + ref.captured("ns") + '/';
+        if (const auto file = ref.captured("file"); !file.isEmpty()) {
+            add(prefix + file);
+            continue;
+        }
+        auto id = ref.captured("id");
+        // Some warnings put sentence punctuation immediately after a bare ID.
+        while (id.endsWith('.'))
+            id.chop(1);
+        if (id.isEmpty())
+            continue;
+        const auto variant = ref.captured("variant");
+        auto folder = kind;
+        if (!variant.isEmpty() && folder != "items")
+            folder = variant == "#inventory" ? "models" : "blockstates";
+        const auto addId = [&](const QString &category) {
+            add(prefix + category + '/' + id + (category == "textures" ? ".png" : ".json"));
+        };
+        if (folder.isEmpty()) {
+            for (const auto &category : folders)
+                addId(category);
+        } else {
+            addId(folder);
+        }
+    }
+    return result;
+}
 
 QString redactLogLine(QString line) {
     static const QRegularExpression jwt(
@@ -77,7 +175,7 @@ LogFinding classifyFullLine(const QString &line, const QString &packEntry) {
             QRegularExpression::CaseInsensitiveOption);
         static const QRegularExpression resource(
             "model|texture|blockstate|atlas|mcmeta|sprite|resource ?pack|font|animation|"
-            "item definition|equipment",
+            "item (?:model )?definition|equipment|pack metadata|invalid path in pack",
             QRegularExpression::CaseInsensitiveOption);
         if (resource.match(text).hasMatch() && !unrelated.match(text).hasMatch())
             return {LogEvent::PackWarning, severity + ": " + text};

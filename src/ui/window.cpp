@@ -484,6 +484,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             mcpService->projectChanged();
         endAgentSessionForProjectChange();
         project.clear();
+        if (fabricTest)
+            fabricTest->projectChanged();
         clearComparisons();
         if (auto related = findChild<QDialog *>("relatedAssetsDialog"))
             related->close();
@@ -639,6 +641,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         persist();
         modelPanel->discardModelRecovery();
         project = QDir(pathText->text()).canonicalPath();
+        if (fabricTest)
+            fabricTest->projectChanged();
         if (mcpService)
             mcpService->projectChanged();
         endAgentSessionForProjectChange();

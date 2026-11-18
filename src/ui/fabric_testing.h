@@ -27,6 +27,7 @@ class FabricTestDialog : public QDialog {
         std::function<QString()> projectRoot, packName;
         std::function<QStringList()> unsavedDocuments;
         std::function<void(const QString &)> activity;
+        std::function<void(const QString &)> openAsset;
         Preferences *preferences = nullptr;
         std::function<std::shared_ptr<mc::Library>()> modelLibrary; // for Compare Icons
         testing::FabricRuntime::Options runtime; // base options (tests override)
@@ -43,6 +44,8 @@ class FabricTestDialog : public QDialog {
     bool reloadInGame(QString *error = nullptr);
     testing::FabricRuntime *runtime() const { return engine; }
     testing::GameLogMonitor *monitor() const { return log; }
+    const QList<testing::ResourceWarning> &resourceWarnings() const { return warnings; }
+    void projectChanged();
     QString packFolder() const;
     static QString testWorldName() { return "Nova Test World"; }
     bool testWorldExists() const;
@@ -51,6 +54,7 @@ class FabricTestDialog : public QDialog {
 
   signals:
     void reloadReported(const QString &message); // for the main window's status bar
+    void resourceWarningsChanged();
 
   protected:
     void showEvent(QShowEvent *event) override;
@@ -65,6 +69,8 @@ class FabricTestDialog : public QDialog {
     bool ask(const QString &title, const QString &text);
     void inform(const QString &title, const QString &text, bool warning = false);
     void updateMonitoring();
+    void updateWarnings();
+    void refreshFindings();
     void fitToScreen();
     void companionReloadFinished(bool ok, qint64 durationMs, const QString &error);
 
@@ -74,6 +80,9 @@ class FabricTestDialog : public QDialog {
     bool pendingLaunch = false;
     QDateTime lastSync;
     QString reloadNote; // Nova's own reload request, shown before the log's account
+    QList<testing::ResourceWarning> warnings;
+    int renderedReload = -1;
+    bool renderedNoWarnings = false;
     QLabel *versionValue, *runtimeValue, *rrlsValue, *gameValue, *syncValue, *reloadValue,
         *guidance;
     QProgressBar *progress;

@@ -195,6 +195,7 @@ class Window : public QMainWindow {
     QStringList unsavedMinecraftOutputs();
     void buildResourceTools(QMenu *view);
     void showProblems(bool validate);
+    void openProblemAsset(const QString &path);
     void createResourceAsset();
     void modelBatch();
     std::shared_ptr<mc::Library> modelLibrary = std::make_shared<mc::Library>();

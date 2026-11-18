@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "batchdialog.h"
+#include "creation.h"
 #include "fabric_testing.h"
 #include "minecraft_testing.h"
 #include "modelpanel.h"
+#include "scope.h"
 #include "panels.h"
 #include "resourcetools.h"
 #include "window.h"
@@ -101,11 +103,18 @@ void Window::minecraftTesting(bool syncOnly) {
         context.packName = [this] { return QFileInfo(project).fileName(); };
         context.unsavedDocuments = [this] { return unsavedMinecraftOutputs(); };
         context.activity = [this](const QString &message) { recordActivity(message); };
+        context.openAsset = [this](const QString &path) { openProblemAsset(path); };
         context.preferences = &preferences;
         context.modelLibrary = [this] { return modelPanel ? modelPanel->catalog() : nullptr; };
         fabricTest = new FabricTestDialog(context, this);
         connect(fabricTest, &FabricTestDialog::reloadReported, this,
                 [this](const QString &message) { statusBar()->showMessage(message, 8000); });
+        connect(fabricTest, &FabricTestDialog::resourceWarningsChanged, this, [this] {
+            if (resourceTools)
+                resourceTools->setMinecraftWarnings(fabricTest->resourceWarnings());
+        });
+        if (resourceTools)
+            resourceTools->setMinecraftWarnings(fabricTest->resourceWarnings());
     }
     if (!syncOnly) {
         fabricTest->testInMinecraft();
@@ -166,31 +175,9 @@ void Window::showProblems(bool validate) {
                                    modelPanel->catalog(),
                                    modelPanel->documentSources()};
         };
-        resourceTools->navigate = [this](const QString &path) {
-            nav.selected = path;
-            setDirectory(QFileInfo(path).path());
-            if (path.endsWith(".png"))
-                openTexture(project + '/' + path);
-            else if (!mc::Location::fromAsset(path, "models").isEmpty() ||
-                     !mc::Location::fromAsset(path, "items").isEmpty() ||
-                     !mc::Location::fromAsset(path, "blockstates").isEmpty()) {
-                openModelAsset(path);
-                modelsDock->show();
-                modelsDock->raise();
-            } else {
-                QDialog dialog(this);
-                dialog.setWindowTitle(path);
-                auto v = new QVBoxLayout(&dialog);
-                auto text = new QPlainTextEdit;
-                text->setReadOnly(true);
-                QFile f(project + '/' + path);
-                if (f.open(QIODevice::ReadOnly))
-                    text->setPlainText(QString::fromUtf8(f.read(2 * 1024 * 1024)));
-                v->addWidget(text);
-                dialog.resize(650, 500);
-                dialog.exec();
-            }
-        };
+        resourceTools->navigate = [this](const QString &path) { openProblemAsset(path); };
+        if (fabricTest)
+            resourceTools->setMinecraftWarnings(fabricTest->resourceWarnings());
         resourceTools->changed = [this](const QStringList &paths) {
             pendingChanges += paths;
             indexDebounce->start(50);
@@ -200,6 +187,50 @@ void Window::showProblems(bool validate) {
     problemsDock->raise();
     if (validate)
         resourceTools->validate();
+}
+void Window::openProblemAsset(const QString &path) {
+    mcp::Scope scope(project);
+    auto file = scope.open(path);
+    const bool standardAsset = mcp::logicalAsset(path);
+    if (!file && !standardAsset && !project.isEmpty()) {
+        // Explicit paths from the log may refer to an overlay's assets.
+        QString absolute;
+        if (mc::safeDestination(project, path, &absolute, nullptr) &&
+            QFileInfo(absolute).isFile()) {
+            auto input = std::make_unique<QFile>(absolute);
+            if (input->open(QIODevice::ReadOnly))
+                file = std::move(input);
+        }
+    }
+    if (!file) {
+        statusBar()->showMessage("This reference has no available local asset", 5000);
+        return;
+    }
+    nav.selected = path;
+    setDirectory(QFileInfo(path).path());
+    if (path.endsWith(".png")) {
+        file.reset();
+        if (standardAsset)
+            openRelatedAsset(path);
+        else
+            openTexture(project + '/' + path);
+    } else if (modelPanel->catalog()->failure(path).isEmpty() &&
+               (!mc::Location::fromAsset(path, "models").isEmpty() ||
+                !mc::Location::fromAsset(path, "items").isEmpty() ||
+                !mc::Location::fromAsset(path, "blockstates").isEmpty())) {
+        file.reset();
+        openModelAsset(path);
+    } else {
+        QDialog dialog(this);
+        dialog.setWindowTitle(path);
+        auto layout = new QVBoxLayout(&dialog);
+        auto text = new QPlainTextEdit;
+        text->setReadOnly(true);
+        text->setPlainText(QString::fromUtf8(file->read(2 * 1024 * 1024)));
+        layout->addWidget(text);
+        dialog.resize(650, 500);
+        dialog.exec();
+    }
 }
 void Window::createResourceAsset() {
     ResourceContext c{project, nav.selected, nav.directory, collection, modelPanel->catalog()};

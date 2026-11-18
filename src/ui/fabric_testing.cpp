@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fabric_testing.h"
+#include "theme.h"
 #include "icon_parity.h"
 #include "packsync.h"
 #include "settings.h"
@@ -88,6 +89,15 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     findings->setMaximumHeight(150);
     findings->hide();
     layout->addWidget(findings);
+    connect(findings, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+        const auto assets = item->data(Qt::UserRole).toStringList();
+        if (!assets.isEmpty() && this->context.openAsset)
+            this->context.openAsset(assets.first());
+    });
+    ui::afterEvents(findings, {QEvent::PaletteChange}, [this] {
+        renderedReload = -1;
+        refreshFindings();
+    });
 
     // Advanced settings stay collapsed: ordinary use needs none of them.
     advancedButton = new QPushButton("Advanced ▸");
@@ -279,7 +289,10 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
                 "settings and synced packs are kept."))
             engine->prepare(true);
     });
-    connect(log, &GameLogMonitor::changed, this, &FabricTestDialog::refresh);
+    connect(log, &GameLogMonitor::changed, this, [this] {
+        updateWarnings();
+        refresh();
+    });
     rebuildRuntime();
 }
 
@@ -545,10 +558,62 @@ bool FabricTestDialog::confirmShutdown() {
 
 void FabricTestDialog::updateMonitoring() {
     if (isVisible() || engine->running()) {
-        if (!log->active() || log->gameDirectory() != engine->layout().game)
-            log->watch(engine->layout().game, "file/" + packFolder());
+        const auto entry = "file/" + packFolder();
+        if (!log->active() || log->gameDirectory() != engine->layout().game ||
+            log->packEntry() != entry) {
+            log->watch(engine->layout().game, entry);
+            updateWarnings();
+        }
     } else
         log->stop(); // no polling while nothing can change
+}
+
+void FabricTestDialog::projectChanged() {
+    updateMonitoring();
+    updateWarnings();
+    refresh();
+}
+
+void FabricTestDialog::updateWarnings() {
+    const auto root = context.projectRoot ? context.projectRoot() : QString();
+    const auto entry = "file/" + packFolder();
+    QList<ResourceWarning> next;
+    if (!root.isEmpty() && log->gameDirectory() == engine->layout().game && log->packEntry() == entry)
+        for (const auto &warning : log->state().warnings)
+            next.append(resolveResourceWarning(warning, root, entry));
+    if (next == warnings)
+        return;
+    warnings = std::move(next);
+    renderedReload = -1;
+    emit resourceWarningsChanged();
+}
+
+void FabricTestDialog::refreshFindings() {
+    const auto &state = log->state();
+    const bool noWarnings = engine->running() && state.resourcesLoaded && warnings.isEmpty();
+    if (renderedReload == state.reloads && renderedNoWarnings == noWarnings)
+        return;
+    renderedReload = state.reloads;
+    renderedNoWarnings = noWarnings;
+    findings->clear();
+    for (const auto &warning : warnings) {
+        auto text = warning.text;
+        for (const auto prefix : {"WARN: ", "ERROR: ", "FATAL: "})
+            if (text.startsWith(prefix)) {
+                text.remove(0, qstrlen(prefix));
+                break;
+            }
+        const auto source = warning.assets.isEmpty() ? QString("Not from this pack")
+                                                     : warning.assets.first();
+        auto item = new QListWidgetItem(
+            (warning.isError() ? "Error · " : "Warning · ") + text + " · " + source, findings);
+        item->setForeground(warning.isError() ? ui::current().danger : ui::current().warning);
+        item->setData(Qt::UserRole, warning.assets);
+        item->setToolTip(warning.assets.isEmpty() ? text : text + "\n" + warning.assets.join("\n"));
+    }
+    if (noWarnings)
+        findings->addItem("No resource warnings in Minecraft's log for the latest reload.");
+    findings->setVisible(findings->count() > 0);
 }
 
 void FabricTestDialog::showEvent(QShowEvent *event) {
@@ -696,12 +761,7 @@ void FabricTestDialog::refresh() {
               "” once; Nova opens it directly afterwards.";
     guidance->setText(tip);
     guidance->setVisible(!tip.isEmpty());
-    findings->clear();
-    for (const auto &warning : s.warnings)
-        findings->addItem(warning);
-    if (running && s.resourcesLoaded && s.warnings.isEmpty())
-        findings->addItem("No resource warnings in Minecraft's log for the latest reload.");
-    findings->setVisible(findings->count() > 0);
+    refreshFindings();
 }
 
 } // namespace nova

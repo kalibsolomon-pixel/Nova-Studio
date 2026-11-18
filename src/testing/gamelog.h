@@ -28,9 +28,18 @@ struct LogFinding {
     QString text;
 };
 
+struct ResourceWarning {
+    QString text;
+    QStringList assets; // in the order Minecraft named them
+    bool isError() const;
+    bool operator==(const ResourceWarning &) const = default;
+};
+
 QString redactLogLine(QString line);
 // packEntry is Minecraft's identifier for the pack, e.g. "file/Nova Test - X".
 LogFinding classifyLogLine(const QString &line, const QString &packEntry);
+ResourceWarning resolveResourceWarning(const QString &warning, const QString &projectRoot,
+                                       const QString &packEntry);
 
 struct GameState {
     bool running = false, packActive = false, resourcesLoaded = false, crashed = false;
@@ -50,6 +59,7 @@ class GameLogMonitor : public QObject {
     bool active() const;
     const GameState &state() const { return current; }
     QString gameDirectory() const { return directory; }
+    QString packEntry() const { return entry; }
     void poll(); // public for deterministic tests
 
   signals:
