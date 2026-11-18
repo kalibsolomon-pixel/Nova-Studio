@@ -3,7 +3,11 @@
 // downloads come from a local HTTP server, Gradle is a scripted fake process,
 // JDKs are synthetic archives. The real pinned profile is checked separately.
 #include "fabric_runtime.h"
+#include "assets.h"
 #include "fabric_testing.h"
+#include "icon_parity.h"
+#include "index.h"
+#include "models.h"
 #include "packsync.h"
 #include "settings.h"
 #include <QBuffer>
@@ -13,7 +17,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QSignalSpy>
 #include <QScopeGuard>
 #include <QProcess>
@@ -986,6 +992,91 @@ class FabricRuntimeTest : public QObject {
         QString error;
         QVERIFY(!dialog.reloadInGame(&error));
         QVERIFY(error.contains("not running"));
+    }
+    // Nova draws the same item Minecraft drew and compares them; the game side is simulated here.
+    void iconParityComparesGameAndNova() {
+        const auto pack = temp.filePath("Parity Pack");
+        write(pack + "/pack.mcmeta", R"({"pack":{"description":"t","pack_format":75}})");
+        write(pack + "/assets/minecraft/items/demo_cube.json",
+              R"({"model":{"type":"minecraft:model","model":"minecraft:block/demo_cube"}})");
+        write(pack + "/assets/minecraft/models/block/demo_cube.json",
+              R"({"textures":{"all":"minecraft:block/demo"},"elements":[{"from":[0,0,0],"to":[16,16,16],)"
+              R"("faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},)"
+              R"("west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}}],)"
+              R"("display":{"gui":{"rotation":[30,225,0],"scale":[0.625,0.625,0.625]}}})");
+        QImage texture(16, 16, QImage::Format_ARGB32);
+        texture.fill(QColor(200, 40, 40));
+        QVERIFY(QDir().mkpath(pack + "/assets/minecraft/textures/block"));
+        QVERIFY(texture.save(pack + "/assets/minecraft/textures/block/demo.png"));
+        auto library = std::make_shared<mc::Library>("1.21.11");
+        library->update(pack, Index::scan(pack));
+        const auto icon = renderInventoryIcon(*library, "assets/minecraft/items/demo_cube.json", 2);
+        QCOMPARE(icon.size(), QSize(32, 32));
+        QVERIFY(icon.pixelColor(16, 16).alpha() == 255 && icon.pixelColor(0, 0).alpha() == 0);
+        QVERIFY(renderInventoryIcon(*library, "assets/minecraft/items/missing.json", 2).isNull());
+
+        const QColor slot("#8b8b8b");
+        auto same = compareIcons(icon, {}, slot);
+        QVERIFY(!same.comparable());
+        same = compareIcons(icon, compareIcons(icon, icon, slot).nova, slot);
+        QVERIFY(same.matches());
+        QCOMPARE(same.total, 32 * 32);
+        QCOMPARE(same.nova.pixelColor(0, 0), slot); // drawn on the slot grey like the game
+        auto altered = same.nova;
+        QVERIFY(icon.pixelColor(0, 0).alpha() == 0 && icon.pixelColor(31, 0).alpha() == 0); // slot background
+        altered.setPixelColor(0, 0, QColor(0, 0, 0));
+        altered.setPixelColor(31, 0, QColor(slot.red() + 2, slot.green(), slot.blue())); // within tolerance
+        const auto changed = compareIcons(icon, altered, slot);
+        QCOMPARE(changed.differing, 1);
+        QCOMPARE(changed.maxDelta, slot.red());
+        QVERIFY(!compareIcons(icon, altered.scaled(16, 16), slot).comparable());
+
+        // The dialog asks the companion, then lays the answer beside Nova's own drawing.
+        const auto game = temp.filePath("parity-game");
+        const auto folder = game + "/nova-companion";
+        const auto launch = newLaunchId();
+        CompanionLink link;
+        link.attach(game, launch);
+        write(folder + "/companion.json", QString(R"({"protocol":1,"launch":"%1"})").arg(launch).toUtf8());
+        IconParityDialog::Context context;
+        context.companion = &link;
+        context.library = [library] { return library; };
+        context.projectRoot = [pack] { return pack; };
+        context.folder = [folder] { return folder; };
+        IconParityDialog dialog(context);
+        dialog.findChild<QPushButton *>("parityPackItems")->click();
+        QCOMPARE(dialog.findChild<QPlainTextEdit *>("parityItems")->toPlainText(), QString("minecraft:demo_cube"));
+        dialog.findChild<QPlainTextEdit *>("parityItems")->setPlainText("demo_cube\nminecraft:not_an_item\n");
+        dialog.compare();
+        QVERIFY(!dialog.findChild<QPushButton *>("parityCompare")->isEnabled());
+        const auto requests = QDir(folder).entryList({"request-*.json"});
+        QCOMPARE(requests.size(), 1);
+        const auto request = QJsonDocument::fromJson(read(folder + '/' + requests.first())).object();
+        QCOMPARE(request.value("type").toString(), QString("icons"));
+        QCOMPARE(request.value("items").toArray(), (QJsonArray{"minecraft:demo_cube", "minecraft:not_an_item"}));
+        const auto id = request.value("id").toString();
+        QFile::remove(folder + '/' + requests.first());
+        QVERIFY(QDir().mkpath(folder + "/icons-" + id));
+        QVERIFY(same.nova.save(folder + "/icons-" + id + "/0.png"));
+        write(folder + "/response-" + id + ".json",
+              QJsonDocument(QJsonObject{{"launch", launch}, {"id", id}, {"status", "finished"}, {"guiScale", 2},
+                                        {"folder", "icons-" + id}, {"background", "#8b8b8b"},
+                                        {"missing", QJsonArray{"minecraft:not_an_item"}}})
+                  .toJson());
+        auto results = dialog.findChild<QTableWidget *>("parityResults");
+        QTRY_COMPARE(results->rowCount(), 2);
+        QCOMPARE(results->item(0, 4)->text(), QString("Match"));
+        QVERIFY(results->item(1, 4)->text().startsWith("Not an item"));
+        QVERIFY(dialog.findChild<QLabel *>("parityStatus")->text().contains("1 match"));
+        QVERIFY(QFileInfo::exists(folder + "/icons-" + id + "/nova-0.png"));
+        const auto report = QJsonDocument::fromJson(read(folder + "/icons-" + id + "/report.json")).object();
+        QCOMPARE(report.value("guiScale").toInt(), 2);
+        QCOMPARE(report.value("items").toArray().size(), 2);
+        QVERIFY(dialog.findChild<QPushButton *>("parityCompare")->isEnabled());
+        // A request outside the companion's limits is refused before anything is written.
+        QString error;
+        QVERIFY(!link.requestIcons({}, &error));
+        QVERIFY(error.contains("1 to 64"));
     }
     void dialogSyncsLaunchesOnceAndRespectsPackChoice() {
         const auto base = preparedBase("dialog");

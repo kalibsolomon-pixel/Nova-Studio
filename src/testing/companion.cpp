@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "companion.h"
 #include <QDateTime>
+#include <QJsonArray>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -8,10 +9,11 @@
 #include <QJsonObject>
 #include <QRandomGenerator>
 #include <QTimer>
+#include <utility>
 
 namespace nova::testing {
 namespace {
-constexpr qint64 fileLimit = 4096;
+constexpr qint64 fileLimit = 16384;
 
 QJsonObject readSmall(const QString &path) {
     QFile file(path);
@@ -46,6 +48,8 @@ void CompanionLink::reset(const QString &gameDirectory) {
     const QDir folder(gameDirectory + '/' + companionFolder);
     for (const auto &name : folder.entryList({"companion.json*", "request-*", "response-*"}, QDir::Files))
         QFile::remove(folder.filePath(name));
+    for (const auto &name : folder.entryList({"icons-*"}, QDir::Dirs | QDir::NoDotAndDotDot))
+        QDir(folder.filePath(name)).removeRecursively();
 }
 
 QString CompanionLink::path(const QString &name) const {
@@ -59,18 +63,33 @@ bool CompanionLink::available() const {
     return hello.value("protocol").toInt() == companionProtocol && hello.value("launch").toString() == launch;
 }
 
-bool CompanionLink::requestReload(QString *error) {
+bool CompanionLink::requestReload(QString *error) { return send("reload", {}, timeoutMs, error); }
+
+bool CompanionLink::requestIcons(const QStringList &items, QString *error) {
+    if (items.isEmpty() || items.size() > 64) {
+        if (error)
+            *error = "Choose 1 to 64 items";
+        return false;
+    }
+    pendingItems = int(items.size());
+    return send("icons", {{"items", QJsonArray::fromStringList(items)}}, qMin(timeoutMs, 60000), error);
+}
+
+bool CompanionLink::send(const QString &type, QJsonObject request, int timeout, QString *error) {
     auto refuse = [&](const QString &message) {
         if (error)
             *error = message;
         return false;
     };
     if (!pending.isEmpty())
-        return refuse("Minecraft is already reloading");
+        return refuse(pendingType == "reload" ? "Minecraft is already reloading" : "Minecraft is busy with Nova's last request");
     if (!available())
         return refuse("Nova's companion is not active in the running game");
     const auto id = newLaunchId().left(16);
-    const QJsonObject request{{"protocol", companionProtocol}, {"launch", launch}, {"id", id}, {"type", "reload"}};
+    request.insert("protocol", companionProtocol);
+    request.insert("launch", launch);
+    request.insert("id", id);
+    request.insert("type", type);
     // Written under another name, then renamed: the mod only lists request-*.json.
     const auto partial = path("request-" + id + ".partial");
     QFile file(partial);
@@ -83,6 +102,8 @@ bool CompanionLink::requestReload(QString *error) {
         return refuse("Nova could not write the reload request");
     }
     pending = id;
+    pendingType = type;
+    pendingTimeout = timeout;
     taken = false;
     sentMs = QDateTime::currentMSecsSinceEpoch();
     timer->start();
@@ -94,7 +115,8 @@ void CompanionLink::poll() {
         return;
     if (!taken && !QFileInfo::exists(path("request-" + pending + ".json"))) {
         taken = true;
-        emit reloadStarted();
+        if (pendingType == "reload")
+            emit reloadStarted();
     }
     const auto responsePath = path("response-" + pending + ".json");
     const auto response = readSmall(responsePath);
@@ -103,21 +125,41 @@ void CompanionLink::poll() {
         const auto status = response.value("status").toString();
         return finish(status == "finished", qint64(response.value("durationMs").toDouble()),
                       status == "finished" ? QString()
-                      : response.value("error").toString().isEmpty() ? QString("Minecraft could not reload resources")
-                                                                      : response.value("error").toString().left(300));
+                      : response.value("error").toString().isEmpty()
+                          ? QString(pendingType == "reload" ? "Minecraft could not reload resources"
+                                                            : "Minecraft could not draw the icons")
+                          : response.value("error").toString().left(300),
+                      response);
     }
-    if (QDateTime::currentMSecsSinceEpoch() - sentMs > timeoutMs) {
+    if (QDateTime::currentMSecsSinceEpoch() - sentMs > pendingTimeout) {
         QFile::remove(path("request-" + pending + ".json"));
-        finish(false, 0, taken ? "Minecraft did not finish reloading in time"
-                               : "Minecraft did not take the reload request; it may be paused or busy");
+        finish(false, 0, !taken ? QString("Minecraft did not take the request; it may be paused or busy")
+                         : pendingType == "reload" ? QString("Minecraft did not finish reloading in time")
+                                                   : QString("Minecraft did not finish drawing the icons in time"));
     }
 }
 
-void CompanionLink::finish(bool ok, qint64 durationMs, const QString &error) {
+void CompanionLink::finish(bool ok, qint64 durationMs, const QString &error, QJsonObject result) {
     timer->stop();
+    const auto type = std::exchange(pendingType, QString());
     pending.clear();
     taken = false;
-    emit reloadFinished(ok, durationMs, error);
+    if (type != "icons")
+        return emit reloadFinished(ok, durationMs, error);
+    // Only PNGs inside this request's own folder are reported.
+    const auto name = result.value("folder").toString();
+    const QDir folder(game + '/' + companionFolder + '/' + name);
+    QJsonArray files;
+    for (int i = 0; i < pendingItems; ++i) {
+        const auto file = folder.filePath(QString::number(i) + ".png");
+        files.append(ok && name.startsWith("icons-") && !name.contains('/') && !name.contains('\\') &&
+                             QFileInfo(file).isFile()
+                         ? file
+                         : QString());
+    }
+    result.insert("files", files);
+    result.insert("durationMs", durationMs);
+    emit iconsFinished(ok, result, error);
 }
 
 } // namespace nova::testing

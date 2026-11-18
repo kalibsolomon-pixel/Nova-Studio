@@ -37,8 +37,10 @@ your documents.
    1.21.11 runtime the first time (a download you confirm), copies the pack into it and starts the
    game. **Sync Test Pack** (Ctrl+Alt+M) updates the running game after more edits and reloads its
    resources for you, then reports the reload time and any resource warnings. **Reload in
-   Minecraft** (Ctrl+Alt+R) reloads without syncing. Nova Studio never asks for or stores your
-   Microsoft or Minecraft account credentials.
+   Minecraft** (Ctrl+Alt+R) reloads without syncing. **Compare Icons…** in the Test in Minecraft
+   window has the running game draw inventory icons and shows them beside Nova's, with a pixel
+   difference for each. Nova Studio never asks for or stores your Microsoft or Minecraft account
+   credentials.
 5. **File › Export Minecraft Pack…** writes a clean copy of the pack to a new folder, ready to zip
    and share.
 

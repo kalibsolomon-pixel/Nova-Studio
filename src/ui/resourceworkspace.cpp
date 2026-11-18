@@ -102,6 +102,7 @@ void Window::minecraftTesting(bool syncOnly) {
         context.unsavedDocuments = [this] { return unsavedMinecraftOutputs(); };
         context.activity = [this](const QString &message) { recordActivity(message); };
         context.preferences = &preferences;
+        context.modelLibrary = [this] { return modelPanel ? modelPanel->catalog() : nullptr; };
         fabricTest = new FabricTestDialog(context, this);
         connect(fabricTest, &FabricTestDialog::reloadReported, this,
                 [this](const QString &message) { statusBar()->showMessage(message, 8000); });

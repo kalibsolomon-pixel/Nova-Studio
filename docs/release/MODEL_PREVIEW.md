@@ -36,6 +36,16 @@ game capture. Some item definitions still need preview inputs to resolve predica
 choose a weighted alternative. Player profiles, component-driven entity patterns and the
 remaining special item renderers require further work.
 
+## Checking against the game
+
+With Minecraft running from **Test in Minecraft**, **Compare Icons…** asks the game (through
+Nova's companion mod) to draw a list of items in inventory slots on the vanilla slot grey at its
+current GUI scale. Nova draws the same items with the inventory pose above and shows Nova,
+Minecraft and a difference image for each, counting pixels whose channels differ by more than 2.
+The reference set covers full blocks, cutout and translucent blocks, tinted items, generated and
+handheld items and special models; **This Pack's Items** uses the pack's own item definitions.
+The images and a `report.json` stay in the test instance's `nova-companion` folder.
+
 ## Java 1.21.11 rendering references
 
 | Behavior | Reference and constants |

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fabric_testing.h"
+#include "icon_parity.h"
 #include "packsync.h"
 #include "settings.h"
 #include <QCheckBox>
@@ -145,6 +146,9 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     syncButton->setToolTip("Export the saved pack into the test environment (Ctrl+Alt+M)");
     reloadButton = new QPushButton("Reload Resources");
     reloadButton->setObjectName("fabricReload");
+    compareButton = new QPushButton("Compare Icons…");
+    compareButton->setObjectName("fabricCompareIcons");
+    compareButton->setToolTip("Compare Nova's inventory icons with the ones Minecraft draws");
     stopButton = new QPushButton("Stop Minecraft");
     stopButton->setObjectName("fabricStop");
     folderButton = new QPushButton("Open Game Folder");
@@ -155,6 +159,7 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     buttons->addWidget(testButton);
     buttons->addWidget(syncButton);
     buttons->addWidget(reloadButton);
+    buttons->addWidget(compareButton);
     buttons->addWidget(stopButton);
     buttons->addStretch();
     buttons->addWidget(folderButton);
@@ -180,6 +185,16 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     });
     connect(testButton, &QPushButton::clicked, this, &FabricTestDialog::testInMinecraft);
     connect(syncButton, &QPushButton::clicked, this, [this] { syncPack(); });
+    connect(compareButton, &QPushButton::clicked, this, [this] {
+        IconParityDialog::Context parity;
+        parity.companion = engine->companion();
+        parity.library = context.modelLibrary;
+        parity.projectRoot = context.projectRoot;
+        parity.folder = [this] { return engine->layout().game + '/' + testing::companionFolder; };
+        auto dialog = new IconParityDialog(parity, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
     connect(reloadButton, &QPushButton::clicked, this, [this] {
         QString error;
         if (!reloadInGame(&error))
@@ -635,7 +650,9 @@ void FabricTestDialog::refresh() {
     syncButton->setEnabled(project && !busy);
     const bool companion = running && engine->companion()->available();
     reloadButton->setVisible(running);
-    reloadButton->setEnabled(companion && !engine->companion()->reloading());
+    compareButton->setVisible(running);
+    compareButton->setEnabled(companion && !engine->companion()->busy());
+    reloadButton->setEnabled(companion && !engine->companion()->busy());
     reloadButton->setToolTip(companion ? "Reload resources in the running game, like F3+T (Ctrl+Alt+R)"
                                        : "This game was started without Nova's companion. Press F3+T in "
                                          "Minecraft, or restart it from Nova.");

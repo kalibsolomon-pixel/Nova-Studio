@@ -132,6 +132,7 @@ add_library(nova-workspace STATIC
   rendering/layer_floating.cpp
   ui/minecraft_testing.cpp ui/minecraft_testing.h
   ui/fabric_testing.cpp ui/fabric_testing.h
+  ui/icon_parity.cpp ui/icon_parity.h
   ui/window.cpp ui/window.h ui/saving.cpp ui/animation_ui.cpp ui/timeline.cpp ui/timeline.h ui/layers.cpp ui/layers.h ui/tools.cpp ui/tools.h ui/panels.cpp ui/panels.h ui/opdialog.cpp ui/opdialog.h ui/editor.cpp ui/batchdialog.cpp ui/batchdialog.h ui/safety.cpp ui/indexing.cpp ui/performance.cpp ui/projectdialogs.cpp ui/projectdialogs.h app/metrics.cpp app/metrics.h)
 target_include_directories(nova-workspace PUBLIC app assets rendering ui)
 target_link_libraries(nova-workspace PUBLIC nova-diagnostics nova-core nova-application nova-asset-index nova-models nova-testing nova-vanilla Qt6::Widgets Qt6::OpenGLWidgets Qt6::OpenGL Qt6::Concurrent)

@@ -16,6 +16,9 @@ class QPushButton;
 class QWidget;
 namespace nova {
 struct Preferences;
+namespace mc {
+class Library;
+}
 
 class FabricTestDialog : public QDialog {
     Q_OBJECT
@@ -25,6 +28,7 @@ class FabricTestDialog : public QDialog {
         std::function<QStringList()> unsavedDocuments;
         std::function<void(const QString &)> activity;
         Preferences *preferences = nullptr;
+        std::function<std::shared_ptr<mc::Library>()> modelLibrary; // for Compare Icons
         testing::FabricRuntime::Options runtime; // base options (tests override)
         bool interactive = true;
     };
@@ -74,7 +78,7 @@ class FabricTestDialog : public QDialog {
         *guidance;
     QProgressBar *progress;
     QListWidget *findings;
-    QPushButton *testButton, *syncButton, *reloadButton, *stopButton, *folderButton, *logsButton, *advancedButton,
+    QPushButton *testButton, *syncButton, *reloadButton, *compareButton, *stopButton, *folderButton, *logsButton, *advancedButton,
         *repairButton, *javaButton, *locationButton;
     QWidget *advanced;
     QComboBox *versionBox;
