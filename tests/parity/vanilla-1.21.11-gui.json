@@ -3,62 +3,34 @@
  "minecraft": "1.21.11",
  "scales": {
   "1": {
-   "compared": 1477,
+   "compared": 1504,
    "differing": [
     {
-     "animationEntries": 1,
-     "differingPixels": 10,
-     "item": "minecraft:big_dripleaf",
-     "maxDelta": 37,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 40,
-     "item": "minecraft:calibrated_sculk_sensor",
-     "maxDelta": 135,
-     "pixels": 256
-    },
-    {
      "animationEntries": 4,
-     "differingPixels": 4,
+     "differingPixels": 3,
      "item": "minecraft:chain_command_block",
-     "maxDelta": 23,
+     "maxDelta": 5,
      "pixels": 256
     },
     {
      "animationEntries": 4,
      "differingPixels": 4,
      "item": "minecraft:command_block",
-     "maxDelta": 20,
+     "maxDelta": 24,
      "pixels": 256
     },
     {
      "animationEntries": 5,
-     "differingPixels": 9,
+     "differingPixels": 30,
+     "item": "minecraft:crimson_hyphae",
+     "maxDelta": 27,
+     "pixels": 256
+    },
+    {
+     "animationEntries": 5,
+     "differingPixels": 14,
      "item": "minecraft:crimson_stem",
-     "maxDelta": 7,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 72,
-     "item": "minecraft:frogspawn",
-     "maxDelta": 50,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 120,
-     "item": "minecraft:heavy_core",
-     "maxDelta": 171,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 120,
-     "item": "minecraft:light",
-     "maxDelta": 224,
+     "maxDelta": 10,
      "pixels": 256
     },
     {
@@ -69,166 +41,61 @@
      "pixels": 256
     },
     {
-     "animationEntries": 22,
-     "differingPixels": 140,
-     "item": "minecraft:prismarine",
-     "maxDelta": 16,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 93,
-     "item": "minecraft:prismarine_slab",
-     "maxDelta": 16,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 132,
-     "item": "minecraft:prismarine_stairs",
-     "maxDelta": 16,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 77,
-     "item": "minecraft:prismarine_wall",
-     "maxDelta": 16,
-     "pixels": 256
-    },
-    {
      "animationEntries": 4,
-     "differingPixels": 1,
+     "differingPixels": 4,
      "item": "minecraft:repeating_command_block",
-     "maxDelta": 3,
+     "maxDelta": 15,
      "pixels": 256
     },
     {
      "animationEntries": 4,
-     "differingPixels": 8,
+     "differingPixels": 6,
      "item": "minecraft:sculk",
-     "maxDelta": 30,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 22,
-     "item": "minecraft:sculk_sensor",
-     "maxDelta": 137,
+     "maxDelta": 12,
      "pixels": 256
     },
     {
      "animationEntries": 10,
-     "differingPixels": 4,
+     "differingPixels": 3,
      "item": "minecraft:sculk_shrieker",
-     "maxDelta": 34,
+     "maxDelta": 14,
      "pixels": 256
     },
     {
      "animationEntries": 4,
      "differingPixels": 14,
      "item": "minecraft:sculk_vein",
-     "maxDelta": 78,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 43,
-     "item": "minecraft:spawner",
-     "maxDelta": 129,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 28,
-     "item": "minecraft:trial_spawner",
-     "maxDelta": 129,
-     "pixels": 256
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 11,
-     "item": "minecraft:vault",
-     "maxDelta": 122,
+     "maxDelta": 114,
      "pixels": 256
     },
     {
      "animationEntries": 5,
-     "differingPixels": 24,
+     "differingPixels": 3,
      "item": "minecraft:warped_hyphae",
-     "maxDelta": 10,
+     "maxDelta": 4,
      "pixels": 256
     },
     {
      "animationEntries": 5,
-     "differingPixels": 17,
+     "differingPixels": 1,
      "item": "minecraft:warped_stem",
-     "maxDelta": 7,
+     "maxDelta": 4,
      "pixels": 256
     }
    ],
    "matchedOnAnimationEntry": [
-    "minecraft:crimson_hyphae (entry 4)",
-    "minecraft:sea_lantern (entry 1)",
-    "minecraft:stonecutter (entry 2)"
+    "minecraft:sculk_sensor (entry 2)",
+    "minecraft:stonecutter (entry 1)"
    ],
-   "matching": 1454,
+   "matching": 1493,
    "notDrawnByGame": [],
    "notDrawnByNova": [
-    "minecraft:air",
-    "minecraft:black_banner",
-    "minecraft:blue_banner",
-    "minecraft:brown_banner",
-    "minecraft:copper_golem_statue",
-    "minecraft:cyan_banner",
-    "minecraft:decorated_pot",
-    "minecraft:dragon_head",
-    "minecraft:exposed_copper_golem_statue",
-    "minecraft:gray_banner",
-    "minecraft:green_banner",
-    "minecraft:light_blue_banner",
-    "minecraft:light_gray_banner",
-    "minecraft:lime_banner",
-    "minecraft:magenta_banner",
-    "minecraft:orange_banner",
-    "minecraft:oxidized_copper_golem_statue",
-    "minecraft:piglin_head",
-    "minecraft:pink_banner",
-    "minecraft:purple_banner",
-    "minecraft:red_banner",
-    "minecraft:waxed_copper_golem_statue",
-    "minecraft:waxed_exposed_copper_golem_statue",
-    "minecraft:waxed_oxidized_copper_golem_statue",
-    "minecraft:waxed_weathered_copper_golem_statue",
-    "minecraft:weathered_copper_golem_statue",
-    "minecraft:white_banner",
-    "minecraft:yellow_banner"
+    "minecraft:air"
    ]
   },
   "2": {
-   "compared": 1477,
+   "compared": 1504,
    "differing": [
-    {
-     "animationEntries": 1,
-     "differingPixels": 9,
-     "item": "minecraft:azalea",
-     "maxDelta": 28,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 49,
-     "item": "minecraft:big_dripleaf",
-     "maxDelta": 37,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 154,
-     "item": "minecraft:calibrated_sculk_sensor",
-     "maxDelta": 203,
-     "pixels": 1024
-    },
     {
      "animationEntries": 4,
      "differingPixels": 18,
@@ -245,7 +112,7 @@
     },
     {
      "animationEntries": 5,
-     "differingPixels": 98,
+     "differingPixels": 94,
      "item": "minecraft:crimson_hyphae",
      "maxDelta": 22,
      "pixels": 1024
@@ -258,253 +125,124 @@
      "pixels": 1024
     },
     {
-     "animationEntries": 1,
-     "differingPixels": 9,
-     "item": "minecraft:flowering_azalea",
-     "maxDelta": 28,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 288,
-     "item": "minecraft:frogspawn",
-     "maxDelta": 50,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 428,
-     "item": "minecraft:heavy_core",
-     "maxDelta": 171,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 480,
-     "item": "minecraft:light",
-     "maxDelta": 224,
-     "pixels": 1024
-    },
-    {
      "animationEntries": 3,
-     "differingPixels": 225,
+     "differingPixels": 261,
      "item": "minecraft:magma_block",
-     "maxDelta": 20,
+     "maxDelta": 30,
      "pixels": 1024
     },
     {
      "animationEntries": 22,
-     "differingPixels": 381,
+     "differingPixels": 172,
      "item": "minecraft:prismarine",
-     "maxDelta": 16,
+     "maxDelta": 5,
      "pixels": 1024
     },
     {
      "animationEntries": 22,
-     "differingPixels": 239,
+     "differingPixels": 114,
      "item": "minecraft:prismarine_slab",
-     "maxDelta": 16,
+     "maxDelta": 5,
      "pixels": 1024
     },
     {
      "animationEntries": 22,
-     "differingPixels": 334,
+     "differingPixels": 138,
      "item": "minecraft:prismarine_stairs",
-     "maxDelta": 16,
+     "maxDelta": 5,
      "pixels": 1024
     },
     {
      "animationEntries": 22,
-     "differingPixels": 206,
+     "differingPixels": 67,
      "item": "minecraft:prismarine_wall",
-     "maxDelta": 16,
+     "maxDelta": 5,
      "pixels": 1024
     },
     {
      "animationEntries": 4,
      "differingPixels": 10,
      "item": "minecraft:repeating_command_block",
-     "maxDelta": 6,
+     "maxDelta": 8,
      "pixels": 1024
     },
     {
      "animationEntries": 4,
      "differingPixels": 30,
      "item": "minecraft:sculk",
-     "maxDelta": 64,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 92,
-     "item": "minecraft:sculk_sensor",
-     "maxDelta": 34,
+     "maxDelta": 71,
      "pixels": 1024
     },
     {
      "animationEntries": 10,
-     "differingPixels": 20,
+     "differingPixels": 11,
      "item": "minecraft:sculk_shrieker",
-     "maxDelta": 12,
+     "maxDelta": 23,
      "pixels": 1024
     },
     {
      "animationEntries": 4,
      "differingPixels": 100,
      "item": "minecraft:sculk_vein",
-     "maxDelta": 64,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 126,
-     "item": "minecraft:spawner",
-     "maxDelta": 135,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 88,
-     "item": "minecraft:trial_spawner",
-     "maxDelta": 129,
-     "pixels": 1024
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 56,
-     "item": "minecraft:vault",
-     "maxDelta": 129,
+     "maxDelta": 71,
      "pixels": 1024
     },
     {
      "animationEntries": 5,
-     "differingPixels": 67,
+     "differingPixels": 22,
      "item": "minecraft:warped_hyphae",
-     "maxDelta": 21,
+     "maxDelta": 5,
      "pixels": 1024
     },
     {
      "animationEntries": 5,
-     "differingPixels": 58,
+     "differingPixels": 6,
      "item": "minecraft:warped_stem",
-     "maxDelta": 14,
+     "maxDelta": 3,
      "pixels": 1024
     }
    ],
    "matchedOnAnimationEntry": [
-    "minecraft:sea_lantern (entry 3)"
+    "minecraft:calibrated_sculk_sensor (entry 5)",
+    "minecraft:sculk_sensor (entry 5)",
+    "minecraft:sea_lantern (entry 2)",
+    "minecraft:stonecutter (entry 2)"
    ],
-   "matching": 1451,
+   "matching": 1489,
    "notDrawnByGame": [],
    "notDrawnByNova": [
-    "minecraft:air",
-    "minecraft:black_banner",
-    "minecraft:blue_banner",
-    "minecraft:brown_banner",
-    "minecraft:copper_golem_statue",
-    "minecraft:cyan_banner",
-    "minecraft:decorated_pot",
-    "minecraft:dragon_head",
-    "minecraft:exposed_copper_golem_statue",
-    "minecraft:gray_banner",
-    "minecraft:green_banner",
-    "minecraft:light_blue_banner",
-    "minecraft:light_gray_banner",
-    "minecraft:lime_banner",
-    "minecraft:magenta_banner",
-    "minecraft:orange_banner",
-    "minecraft:oxidized_copper_golem_statue",
-    "minecraft:piglin_head",
-    "minecraft:pink_banner",
-    "minecraft:purple_banner",
-    "minecraft:red_banner",
-    "minecraft:waxed_copper_golem_statue",
-    "minecraft:waxed_exposed_copper_golem_statue",
-    "minecraft:waxed_oxidized_copper_golem_statue",
-    "minecraft:waxed_weathered_copper_golem_statue",
-    "minecraft:weathered_copper_golem_statue",
-    "minecraft:white_banner",
-    "minecraft:yellow_banner"
+    "minecraft:air"
    ]
   },
   "3": {
-   "compared": 1477,
+   "compared": 1504,
    "differing": [
     {
-     "animationEntries": 1,
-     "differingPixels": 14,
-     "item": "minecraft:azalea",
-     "maxDelta": 28,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 103,
-     "item": "minecraft:big_dripleaf",
-     "maxDelta": 37,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 359,
-     "item": "minecraft:calibrated_sculk_sensor",
-     "maxDelta": 49,
-     "pixels": 2304
-    },
-    {
      "animationEntries": 4,
-     "differingPixels": 23,
+     "differingPixels": 36,
      "item": "minecraft:chain_command_block",
-     "maxDelta": 7,
+     "maxDelta": 24,
      "pixels": 2304
     },
     {
      "animationEntries": 4,
-     "differingPixels": 30,
+     "differingPixels": 36,
      "item": "minecraft:command_block",
-     "maxDelta": 19,
+     "maxDelta": 8,
      "pixels": 2304
     },
     {
      "animationEntries": 5,
-     "differingPixels": 169,
+     "differingPixels": 213,
      "item": "minecraft:crimson_hyphae",
      "maxDelta": 22,
      "pixels": 2304
     },
     {
      "animationEntries": 5,
-     "differingPixels": 159,
+     "differingPixels": 61,
      "item": "minecraft:crimson_stem",
-     "maxDelta": 14,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 14,
-     "item": "minecraft:flowering_azalea",
-     "maxDelta": 28,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 648,
-     "item": "minecraft:frogspawn",
-     "maxDelta": 50,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1002,
-     "item": "minecraft:heavy_core",
-     "maxDelta": 171,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1080,
-     "item": "minecraft:light",
-     "maxDelta": 224,
+     "maxDelta": 7,
      "pixels": 2304
     },
     {
@@ -516,7 +254,7 @@
     },
     {
      "animationEntries": 3,
-     "differingPixels": 297,
+     "differingPixels": 290,
      "item": "minecraft:magma_block",
      "maxDelta": 10,
      "pixels": 2304
@@ -532,28 +270,28 @@
      "animationEntries": 22,
      "differingPixels": 1322,
      "item": "minecraft:prismarine",
-     "maxDelta": 16,
+     "maxDelta": 14,
      "pixels": 2304
     },
     {
      "animationEntries": 22,
      "differingPixels": 851,
      "item": "minecraft:prismarine_slab",
-     "maxDelta": 16,
+     "maxDelta": 14,
      "pixels": 2304
     },
     {
      "animationEntries": 22,
      "differingPixels": 1209,
      "item": "minecraft:prismarine_stairs",
-     "maxDelta": 16,
+     "maxDelta": 14,
      "pixels": 2304
     },
     {
      "animationEntries": 22,
      "differingPixels": 789,
      "item": "minecraft:prismarine_wall",
-     "maxDelta": 16,
+     "maxDelta": 14,
      "pixels": 2304
     },
     {
@@ -565,72 +303,44 @@
     },
     {
      "animationEntries": 4,
-     "differingPixels": 15,
+     "differingPixels": 26,
      "item": "minecraft:repeating_command_block",
-     "maxDelta": 8,
+     "maxDelta": 46,
      "pixels": 2304
     },
     {
      "animationEntries": 4,
-     "differingPixels": 16,
+     "differingPixels": 43,
      "item": "minecraft:sculk",
-     "maxDelta": 8,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 198,
-     "item": "minecraft:sculk_sensor",
-     "maxDelta": 34,
+     "maxDelta": 47,
      "pixels": 2304
     },
     {
      "animationEntries": 10,
-     "differingPixels": 41,
+     "differingPixels": 45,
      "item": "minecraft:sculk_shrieker",
-     "maxDelta": 12,
+     "maxDelta": 35,
      "pixels": 2304
     },
     {
      "animationEntries": 4,
-     "differingPixels": 27,
+     "differingPixels": 81,
      "item": "minecraft:sculk_vein",
-     "maxDelta": 4,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 308,
-     "item": "minecraft:spawner",
-     "maxDelta": 135,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 191,
-     "item": "minecraft:trial_spawner",
-     "maxDelta": 129,
-     "pixels": 2304
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 136,
-     "item": "minecraft:vault",
-     "maxDelta": 129,
+     "maxDelta": 78,
      "pixels": 2304
     },
     {
      "animationEntries": 5,
-     "differingPixels": 166,
+     "differingPixels": 201,
      "item": "minecraft:warped_hyphae",
      "maxDelta": 21,
      "pixels": 2304
     },
     {
      "animationEntries": 5,
-     "differingPixels": 155,
+     "differingPixels": 93,
      "item": "minecraft:warped_stem",
-     "maxDelta": 14,
+     "maxDelta": 7,
      "pixels": 2304
     },
     {
@@ -642,728 +352,360 @@
     }
    ],
    "matchedOnAnimationEntry": [
-    "minecraft:sea_lantern (entry 2)"
+    "minecraft:calibrated_sculk_sensor (entry 6)",
+    "minecraft:sculk_sensor (entry 1)",
+    "minecraft:sea_lantern (entry 3)"
    ],
-   "matching": 1447,
+   "matching": 1485,
    "notDrawnByGame": [],
    "notDrawnByNova": [
-    "minecraft:air",
-    "minecraft:black_banner",
-    "minecraft:blue_banner",
-    "minecraft:brown_banner",
-    "minecraft:copper_golem_statue",
-    "minecraft:cyan_banner",
-    "minecraft:decorated_pot",
-    "minecraft:dragon_head",
-    "minecraft:exposed_copper_golem_statue",
-    "minecraft:gray_banner",
-    "minecraft:green_banner",
-    "minecraft:light_blue_banner",
-    "minecraft:light_gray_banner",
-    "minecraft:lime_banner",
-    "minecraft:magenta_banner",
-    "minecraft:orange_banner",
-    "minecraft:oxidized_copper_golem_statue",
-    "minecraft:piglin_head",
-    "minecraft:pink_banner",
-    "minecraft:purple_banner",
-    "minecraft:red_banner",
-    "minecraft:waxed_copper_golem_statue",
-    "minecraft:waxed_exposed_copper_golem_statue",
-    "minecraft:waxed_oxidized_copper_golem_statue",
-    "minecraft:waxed_weathered_copper_golem_statue",
-    "minecraft:weathered_copper_golem_statue",
-    "minecraft:white_banner",
-    "minecraft:yellow_banner"
+    "minecraft:air"
    ]
   },
   "4": {
-   "compared": 1477,
+   "compared": 1504,
    "differing": [
     {
      "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:acacia_stairs",
-     "maxDelta": 51,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:andesite_stairs",
-     "maxDelta": 32,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 17,
-     "item": "minecraft:azalea",
-     "maxDelta": 28,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:bamboo_mosaic_stairs",
-     "maxDelta": 43,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:bamboo_stairs",
-     "maxDelta": 47,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 196,
-     "item": "minecraft:big_dripleaf",
-     "maxDelta": 37,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:birch_leaves",
-     "maxDelta": 88,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:birch_log",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:birch_planks",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:birch_stairs",
-     "maxDelta": 55,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:birch_wood",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:black_concrete_powder",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:black_glazed_terracotta",
-     "maxDelta": 73,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:black_wool",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blackstone",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:blackstone_stairs",
-     "maxDelta": 43,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blast_furnace",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blue_concrete_powder",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blue_glazed_terracotta",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blue_ice",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blue_terracotta",
-     "maxDelta": 4,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:blue_wool",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:bone_block",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:bookshelf",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:brick_stairs",
-     "maxDelta": 59,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:bricks",
-     "maxDelta": 22,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:brown_concrete_powder",
-     "maxDelta": 7,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:brown_glazed_terracotta",
-     "maxDelta": 48,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:brown_terracotta",
-     "maxDelta": 3,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:brown_wool",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:bubble_coral_block",
-     "maxDelta": 19,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cactus",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:calcite",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 635,
-     "item": "minecraft:calibrated_sculk_sensor",
-     "maxDelta": 122,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:carved_pumpkin",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 4,
-     "differingPixels": 47,
-     "item": "minecraft:chain_command_block",
-     "maxDelta": 36,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cherry_leaves",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cherry_log",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cherry_planks",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:cherry_stairs",
-     "maxDelta": 46,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:chiseled_stone_bricks",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:chiseled_tuff",
-     "maxDelta": 7,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:chiseled_tuff_bricks",
-     "maxDelta": 25,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:chorus_flower",
-     "maxDelta": 29,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cobbled_deepslate_stairs",
-     "maxDelta": 11,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:cobblestone_stairs",
-     "maxDelta": 39,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 4,
-     "differingPixels": 42,
-     "item": "minecraft:command_block",
-     "maxDelta": 32,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:copper_ore",
-     "maxDelta": 11,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cracked_deepslate_bricks",
-     "maxDelta": 29,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:crafting_table",
-     "maxDelta": 89,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 5,
-     "differingPixels": 245,
-     "item": "minecraft:crimson_hyphae",
-     "maxDelta": 46,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:crimson_stairs",
-     "maxDelta": 66,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 5,
-     "differingPixels": 89,
-     "item": "minecraft:crimson_stem",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:cut_copper_stairs",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:damaged_anvil",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dark_oak_leaves",
-     "maxDelta": 125,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dark_oak_log",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dark_oak_planks",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:dark_oak_stairs",
-     "maxDelta": 35,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dark_oak_wood",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dark_prismarine",
-     "maxDelta": 50,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:dark_prismarine_stairs",
-     "maxDelta": 47,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dead_horn_coral_block",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dead_tube_coral_block",
-     "maxDelta": 30,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:deepslate_brick_stairs",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:deepslate_tile_stairs",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:diorite_stairs",
-     "maxDelta": 43,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dispenser",
-     "maxDelta": 54,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dried_kelp_block",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dripstone_block",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:dropper",
-     "maxDelta": 54,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:emerald_block",
-     "maxDelta": 79,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:end_stone_brick_stairs",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:end_stone_bricks",
-     "maxDelta": 7,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:exposed_copper_bulb",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:exposed_cut_copper",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:exposed_cut_copper_stairs",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:fire_coral_block",
-     "maxDelta": 28,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:fletching_table",
-     "maxDelta": 41,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 17,
-     "item": "minecraft:flowering_azalea",
-     "maxDelta": 28,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:flowering_azalea_leaves",
-     "maxDelta": 25,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1152,
-     "item": "minecraft:frogspawn",
-     "maxDelta": 50,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:furnace",
-     "maxDelta": 54,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gilded_blackstone",
-     "maxDelta": 87,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:glowstone",
-     "maxDelta": 89,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gold_ore",
+     "item": "minecraft:acacia_leaves",
      "maxDelta": 129,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:granite",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:granite_stairs",
-     "maxDelta": 45,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:grass_block",
-     "maxDelta": 3,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gravel",
-     "maxDelta": 36,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gray_concrete_powder",
-     "maxDelta": 19,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gray_glazed_terracotta",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gray_terracotta",
-     "maxDelta": 3,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:gray_wool",
+     "item": "minecraft:acacia_log",
      "maxDelta": 13,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:green_concrete_powder",
+     "item": "minecraft:acacia_planks",
+     "maxDelta": 13,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:acacia_wood",
+     "maxDelta": 14,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:amethyst_block",
+     "maxDelta": 23,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:ancient_debris",
+     "maxDelta": 50,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:andesite",
+     "maxDelta": 15,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:anvil",
+     "maxDelta": 8,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:azalea_leaves",
+     "maxDelta": 90,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:bamboo_block",
+     "maxDelta": 53,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:bamboo_mosaic",
+     "maxDelta": 13,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:bamboo_planks",
+     "maxDelta": 4,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:barrel",
+     "maxDelta": 14,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:bee_nest",
+     "maxDelta": 100,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cartography_table",
+     "maxDelta": 214,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 4,
+     "differingPixels": 56,
+     "item": "minecraft:chain_command_block",
+     "maxDelta": 15,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:chipped_anvil",
+     "maxDelta": 8,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:chiseled_bookshelf",
+     "maxDelta": 10,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:chiseled_nether_bricks",
+     "maxDelta": 29,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:chiseled_polished_blackstone",
+     "maxDelta": 43,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:chorus_plant",
      "maxDelta": 6,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:green_glazed_terracotta",
-     "maxDelta": 26,
+     "item": "minecraft:coal_block",
+     "maxDelta": 16,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:green_terracotta",
-     "maxDelta": 3,
+     "item": "minecraft:coarse_dirt",
+     "maxDelta": 50,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:green_wool",
-     "maxDelta": 22,
+     "item": "minecraft:cobbled_deepslate",
+     "maxDelta": 37,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 4,
+     "differingPixels": 57,
+     "item": "minecraft:command_block",
+     "maxDelta": 25,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:copper_bulb",
+     "maxDelta": 20,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cracked_nether_bricks",
+     "maxDelta": 6,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cracked_stone_bricks",
+     "maxDelta": 28,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:creaking_heart",
+     "maxDelta": 19,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 5,
+     "differingPixels": 88,
+     "item": "minecraft:crimson_hyphae",
+     "maxDelta": 5,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:crimson_nylium",
+     "maxDelta": 19,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:crimson_planks",
+     "maxDelta": 20,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 5,
+     "differingPixels": 159,
+     "item": "minecraft:crimson_stem",
+     "maxDelta": 10,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cyan_concrete_powder",
+     "maxDelta": 8,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cyan_terracotta",
+     "maxDelta": 4,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:cyan_wool",
+     "maxDelta": 23,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:dead_bubble_coral_block",
+     "maxDelta": 12,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:dead_fire_coral_block",
+     "maxDelta": 15,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate",
+     "maxDelta": 10,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_bricks",
+     "maxDelta": 14,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_coal_ore",
+     "maxDelta": 21,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_copper_ore",
+     "maxDelta": 21,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_diamond_ore",
+     "maxDelta": 21,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_emerald_ore",
+     "maxDelta": 21,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_gold_ore",
+     "maxDelta": 114,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_iron_ore",
+     "maxDelta": 36,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:deepslate_redstone_ore",
+     "maxDelta": 21,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:diamond_ore",
+     "maxDelta": 16,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:dirt",
+     "maxDelta": 50,
      "pixels": 4096
     },
     {
@@ -1376,1168 +718,237 @@
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:hay_block",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1794,
-     "item": "minecraft:heavy_core",
-     "maxDelta": 171,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:honeycomb_block",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:horn_coral_block",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:infested_chiseled_stone_bricks",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:infested_mossy_stone_bricks",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:infested_stone_bricks",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:iron_ore",
-     "maxDelta": 32,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:jack_o_lantern",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:jungle_leaves",
-     "maxDelta": 39,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:jungle_log",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:jungle_planks",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:jungle_stairs",
-     "maxDelta": 71,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:jungle_wood",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lapis_block",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lapis_ore",
-     "maxDelta": 51,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1920,
-     "item": "minecraft:light",
-     "maxDelta": 224,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_blue_concrete_powder",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_blue_glazed_terracotta",
-     "maxDelta": 166,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_blue_terracotta",
-     "maxDelta": 4,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_blue_wool",
-     "maxDelta": 42,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_gray_concrete_powder",
-     "maxDelta": 4,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_gray_glazed_terracotta",
-     "maxDelta": 57,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_gray_terracotta",
-     "maxDelta": 4,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:light_gray_wool",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lime_concrete_powder",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lime_glazed_terracotta",
-     "maxDelta": 39,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lime_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:lime_wool",
-     "maxDelta": 22,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:loom",
-     "maxDelta": 118,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:magenta_concrete",
-     "maxDelta": 3,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:magenta_concrete_powder",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:magenta_glazed_terracotta",
-     "maxDelta": 133,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:magenta_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:magenta_wool",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 3,
-     "differingPixels": 1,
-     "item": "minecraft:magma_block",
-     "maxDelta": 129,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mangrove_leaves",
-     "maxDelta": 109,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mangrove_log",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mangrove_planks",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mangrove_roots",
-     "maxDelta": 42,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:mangrove_stairs",
-     "maxDelta": 41,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:melon",
-     "maxDelta": 29,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:moss_block",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mossy_cobblestone_stairs",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mossy_stone_brick_stairs",
-     "maxDelta": 74,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mossy_stone_bricks",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mud",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mud_bricks",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:muddy_mangrove_roots",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:mycelium",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:nether_brick_stairs",
-     "maxDelta": 37,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:nether_bricks",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:nether_gold_ore",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:nether_quartz_ore",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:netherite_block",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:netherrack",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:note_block",
-     "maxDelta": 58,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oak_leaves",
-     "maxDelta": 38,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oak_log",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oak_planks",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:oak_stairs",
-     "maxDelta": 68,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oak_wood",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:observer",
-     "maxDelta": 63,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:orange_concrete_powder",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:orange_glazed_terracotta",
-     "maxDelta": 227,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:orange_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:orange_wool",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oxidized_copper",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:oxidized_copper_bulb",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:oxidized_cut_copper_stairs",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:packed_ice",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pale_moss_block",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pale_oak_log",
-     "maxDelta": 19,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pale_oak_planks",
-     "maxDelta": 19,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:pale_oak_stairs",
-     "maxDelta": 67,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pink_concrete_powder",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pink_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pink_wool",
-     "maxDelta": 47,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:podzol",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_andesite_stairs",
-     "maxDelta": 10,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_basalt",
-     "maxDelta": 41,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_blackstone",
-     "maxDelta": 26,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_blackstone_brick_stairs",
-     "maxDelta": 26,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_deepslate",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:polished_deepslate_stairs",
-     "maxDelta": 33,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_diorite",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_diorite_stairs",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_granite_stairs",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_tuff",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:polished_tuff_stairs",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 2077,
-     "item": "minecraft:prismarine",
-     "maxDelta": 27,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:prismarine_bricks",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 1345,
-     "item": "minecraft:prismarine_slab",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 1857,
-     "item": "minecraft:prismarine_stairs",
-     "maxDelta": 48,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 22,
-     "differingPixels": 1116,
-     "item": "minecraft:prismarine_wall",
-     "maxDelta": 14,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:pumpkin",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purple_concrete_powder",
-     "maxDelta": 4,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purple_glazed_terracotta",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purple_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purple_wool",
-     "maxDelta": 25,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purpur_block",
-     "maxDelta": 11,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:purpur_pillar",
-     "maxDelta": 57,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:quartz_pillar",
-     "maxDelta": 29,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:quartz_stairs",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:raw_copper_block",
-     "maxDelta": 25,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:raw_gold_block",
-     "maxDelta": 138,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:raw_iron_block",
-     "maxDelta": 92,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_concrete_powder",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_glazed_terracotta",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_mushroom_block",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:red_nether_brick_stairs",
-     "maxDelta": 61,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_nether_bricks",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_sand",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_terracotta",
-     "maxDelta": 5,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:red_wool",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:redstone_block",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:redstone_lamp",
-     "maxDelta": 26,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:redstone_ore",
-     "maxDelta": 24,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:reinforced_deepslate",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 4,
-     "differingPixels": 46,
-     "item": "minecraft:repeating_command_block",
-     "maxDelta": 20,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:resin_brick_stairs",
-     "maxDelta": 73,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:rooted_dirt",
-     "maxDelta": 65,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:sand",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:sandstone_stairs",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:scaffolding",
-     "maxDelta": 26,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 4,
-     "differingPixels": 121,
-     "item": "minecraft:sculk",
-     "maxDelta": 41,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 16,
-     "differingPixels": 322,
-     "item": "minecraft:sculk_sensor",
-     "maxDelta": 130,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 10,
-     "differingPixels": 70,
-     "item": "minecraft:sculk_shrieker",
-     "maxDelta": 12,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 4,
-     "differingPixels": 400,
-     "item": "minecraft:sculk_vein",
-     "maxDelta": 107,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 5,
-     "item": "minecraft:small_dripleaf",
+     "item": "minecraft:infested_cracked_stone_bricks",
      "maxDelta": 28,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:smoker",
+     "item": "minecraft:infested_deepslate",
+     "maxDelta": 10,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 3,
+     "differingPixels": 749,
+     "item": "minecraft:magma_block",
+     "maxDelta": 20,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:mossy_cobblestone_stairs",
+     "maxDelta": 39,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:polished_andesite_stairs",
+     "maxDelta": 9,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 22,
+     "differingPixels": 2142,
+     "item": "minecraft:prismarine",
+     "maxDelta": 13,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 22,
+     "differingPixels": 1403,
+     "item": "minecraft:prismarine_slab",
+     "maxDelta": 13,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 22,
+     "differingPixels": 1929,
+     "item": "minecraft:prismarine_stairs",
+     "maxDelta": 13,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 22,
+     "differingPixels": 1172,
+     "item": "minecraft:prismarine_wall",
      "maxDelta": 13,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:smooth_basalt",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:smooth_quartz_stairs",
+     "item": "minecraft:quartz_stairs",
      "maxDelta": 12,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:smooth_sandstone_stairs",
+     "item": "minecraft:red_sandstone_stairs",
      "maxDelta": 9,
      "pixels": 4096
     },
     {
-     "animationEntries": 1,
-     "differingPixels": 521,
-     "item": "minecraft:spawner",
-     "maxDelta": 135,
+     "animationEntries": 4,
+     "differingPixels": 50,
+     "item": "minecraft:repeating_command_block",
+     "maxDelta": 48,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:sponge",
-     "maxDelta": 18,
+     "item": "minecraft:resin_block",
+     "maxDelta": 48,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:spruce_leaves",
-     "maxDelta": 43,
+     "item": "minecraft:resin_bricks",
+     "maxDelta": 35,
      "pixels": 4096
     },
     {
-     "animationEntries": 1,
+     "animationEntries": 10,
+     "differingPixels": 59,
+     "item": "minecraft:sculk_shrieker",
+     "maxDelta": 23,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 5,
      "differingPixels": 1,
-     "item": "minecraft:spruce_log",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:spruce_planks",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:spruce_stairs",
-     "maxDelta": 46,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:spruce_wood",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stone_brick_stairs",
-     "maxDelta": 19,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stone_bricks",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_acacia_log",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_acacia_wood",
-     "maxDelta": 16,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_bamboo_block",
-     "maxDelta": 40,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_birch_log",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_cherry_log",
-     "maxDelta": 9,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_crimson_stem",
-     "maxDelta": 8,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:stripped_dark_oak_log",
+     "item": "minecraft:sea_lantern",
      "maxDelta": 6,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:stripped_warped_stem",
-     "maxDelta": 11,
+     "item": "minecraft:shroomlight",
+     "maxDelta": 26,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:structure_block",
-     "maxDelta": 34,
+     "item": "minecraft:slime_block",
+     "maxDelta": 21,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:suspicious_gravel",
-     "maxDelta": 36,
+     "item": "minecraft:smooth_red_sandstone_stairs",
+     "maxDelta": 9,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:suspicious_sand",
-     "maxDelta": 13,
+     "item": "minecraft:snow_block",
+     "maxDelta": 8,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:target",
-     "maxDelta": 162,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 348,
-     "item": "minecraft:trial_spawner",
-     "maxDelta": 129,
+     "item": "minecraft:soul_soil",
+     "maxDelta": 18,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:tube_coral_block",
-     "maxDelta": 57,
+     "item": "minecraft:stripped_jungle_log",
+     "maxDelta": 16,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:tuff",
-     "maxDelta": 41,
+     "item": "minecraft:stripped_mangrove_log",
+     "maxDelta": 15,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:tuff_brick_stairs",
+     "differingPixels": 1,
+     "item": "minecraft:stripped_oak_log",
+     "maxDelta": 10,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:stripped_pale_oak_log",
      "maxDelta": 19,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:tuff_bricks",
-     "maxDelta": 15,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:tuff_stairs",
-     "maxDelta": 41,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 281,
-     "item": "minecraft:vault",
-     "maxDelta": 133,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 5,
-     "differingPixels": 294,
-     "item": "minecraft:warped_hyphae",
-     "maxDelta": 30,
+     "item": "minecraft:stripped_pale_oak_wood",
+     "maxDelta": 11,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:warped_nylium",
-     "maxDelta": 24,
+     "item": "minecraft:stripped_spruce_log",
+     "maxDelta": 8,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:warped_planks",
+     "item": "minecraft:stripped_spruce_wood",
      "maxDelta": 27,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:warped_stairs",
-     "maxDelta": 76,
+     "differingPixels": 1,
+     "item": "minecraft:test_block",
+     "maxDelta": 169,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:test_instance_block",
+     "maxDelta": 33,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:tnt",
+     "maxDelta": 202,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 1,
+     "differingPixels": 1,
+     "item": "minecraft:vault",
+     "maxDelta": 35,
      "pixels": 4096
     },
     {
      "animationEntries": 5,
-     "differingPixels": 126,
+     "differingPixels": 445,
+     "item": "minecraft:warped_hyphae",
+     "maxDelta": 26,
+     "pixels": 4096
+    },
+    {
+     "animationEntries": 5,
+     "differingPixels": 185,
      "item": "minecraft:warped_stem",
      "maxDelta": 11,
      "pixels": 4096
@@ -2545,189 +956,31 @@
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:waxed_cut_copper_stairs",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_exposed_copper_bulb",
-     "maxDelta": 23,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_exposed_cut_copper",
+     "item": "minecraft:waxed_copper_bulb",
      "maxDelta": 20,
      "pixels": 4096
     },
     {
      "animationEntries": 1,
      "differingPixels": 1,
-     "item": "minecraft:waxed_exposed_cut_copper_stairs",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_oxidized_copper",
-     "maxDelta": 13,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_oxidized_copper_bulb",
-     "maxDelta": 18,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:waxed_oxidized_cut_copper_stairs",
-     "maxDelta": 21,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_weathered_copper_bulb",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:waxed_weathered_cut_copper",
-     "maxDelta": 32,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:waxed_weathered_cut_copper_stairs",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:weathered_copper_bulb",
-     "maxDelta": 17,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:weathered_cut_copper",
-     "maxDelta": 32,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 2,
-     "item": "minecraft:weathered_cut_copper_stairs",
-     "maxDelta": 34,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:white_concrete_powder",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:white_glazed_terracotta",
-     "maxDelta": 193,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:white_terracotta",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:white_wool",
-     "maxDelta": 31,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:yellow_concrete_powder",
-     "maxDelta": 131,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:yellow_glazed_terracotta",
+     "item": "minecraft:wet_sponge",
      "maxDelta": 26,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:yellow_terracotta",
-     "maxDelta": 6,
-     "pixels": 4096
-    },
-    {
-     "animationEntries": 1,
-     "differingPixels": 1,
-     "item": "minecraft:yellow_wool",
-     "maxDelta": 27,
      "pixels": 4096
     }
    ],
    "matchedOnAnimationEntry": [
-    "minecraft:sea_lantern (entry 2)",
-    "minecraft:stonecutter (entry 1)"
+    "minecraft:calibrated_sculk_sensor (entry 13)",
+    "minecraft:sculk (entry 2)",
+    "minecraft:sculk_sensor (entry 12)",
+    "minecraft:sculk_vein (entry 2)"
    ],
-   "matching": 1190,
+   "matching": 1418,
    "notDrawnByGame": [],
    "notDrawnByNova": [
-    "minecraft:air",
-    "minecraft:black_banner",
-    "minecraft:blue_banner",
-    "minecraft:brown_banner",
-    "minecraft:copper_golem_statue",
-    "minecraft:cyan_banner",
-    "minecraft:decorated_pot",
-    "minecraft:dragon_head",
-    "minecraft:exposed_copper_golem_statue",
-    "minecraft:gray_banner",
-    "minecraft:green_banner",
-    "minecraft:light_blue_banner",
-    "minecraft:light_gray_banner",
-    "minecraft:lime_banner",
-    "minecraft:magenta_banner",
-    "minecraft:orange_banner",
-    "minecraft:oxidized_copper_golem_statue",
-    "minecraft:piglin_head",
-    "minecraft:pink_banner",
-    "minecraft:purple_banner",
-    "minecraft:red_banner",
-    "minecraft:waxed_copper_golem_statue",
-    "minecraft:waxed_exposed_copper_golem_statue",
-    "minecraft:waxed_oxidized_copper_golem_statue",
-    "minecraft:waxed_weathered_copper_golem_statue",
-    "minecraft:weathered_copper_golem_statue",
-    "minecraft:white_banner",
-    "minecraft:yellow_banner"
+    "minecraft:air"
    ]
   }
  },
  "tolerance": 2,
- "captured": "2026-11-18, Minecraft 1.21.11 via tests/companion_live_probe.cpp --full, glint off"
+ "captured": "2026-11-18, Minecraft 1.21.11 via tests/companion_live_probe.cpp --full, glint off (after #8)"
 }
