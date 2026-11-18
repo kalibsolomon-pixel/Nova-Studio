@@ -356,7 +356,8 @@ class Phase4gMcpSetupTest : public QObject {
         dialog->findChild<QPushButton *>("mcpAuthorize")->click();
         QCOMPARE(status->text(), "Waiting for client");
         QVERIFY(service->offeredToAgents());
-        QCOMPARE(mcp::handoff::read()->code, service->connectionCode());
+        const auto firstCode = service->connectionCode();
+        QCOMPARE(mcp::handoff::read()->code, firstCode);
         QVERIFY(overview->text().contains("waiting for an agent"));
         QProcess agent;
         startAsAgent(agent);
@@ -374,6 +375,25 @@ class Phase4gMcpSetupTest : public QObject {
         QCOMPARE(service->permission(), "Read-only");
         agent.closeWriteChannel();
         QVERIFY(agent.waitForFinished(10000));
+        // The disconnect did not end the access: a fresh code is offered again.
+        QTRY_COMPARE(status->text().section('\n', 0, 0), "Waiting for client");
+        QVERIFY(service->offeredToAgents());
+        QVERIFY(mcp::handoff::read()->code != firstCode);
+        QVERIFY(service->connectionCode() != firstCode);
+        // The next agent reconnects on its own through the new offer.
+        QProcess returning;
+        startAsAgent(returning);
+        send(returning, request(1, "initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+                                                  {"clientInfo", QJsonObject{{"name", "phase4g-agent"}, {"version", "1"}}}}));
+        const auto reinitialized = receive(returning);
+        QCOMPARE(reinitialized["result"]["serverInfo"]["version"].toString(), QString(AppVersion));
+        returning.write(R"({"jsonrpc":"2.0","method":"notifications/initialized"})" "\n");
+        QTRY_VERIFY(status->text().startsWith("Connected"));
+        QVERIFY(!QFileInfo::exists(mcp::handoff::filePath()));
+        // Revoke ends the access for good: the connected agent is dropped, and with the offer
+        // withdrawn a later agent cannot connect.
+        dialog->findChild<QPushButton *>("mcpRevoke")->click();
+        QVERIFY(returning.waitForFinished(10000));
         QTRY_COMPARE(status->text().section('\n', 0, 0), "Disabled");
         QProcess late;
         startAsAgent(late);

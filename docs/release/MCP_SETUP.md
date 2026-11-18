@@ -10,8 +10,9 @@ if you allow editing, change it through Nova Studio's normal undo, save and reco
 - **Access is off until you choose Allow** in Resources › MCP Integration › Access, for the
   project that is open now. **Allow read-only** lets the agent inspect; **Allow editing…** also lets
   it change open documents (you confirm this separately).
-- An authorization is used by one agent session. It ends when the agent disconnects, when you open
-  another project, when you choose **Revoke access**, or after five minutes if no agent connects.
+- An authorization stays on until you choose **Revoke access**, open another project, or close Nova
+  Studio. One agent is connected at a time; when it disconnects, Nova Studio offers a fresh
+  connection code so the agent's next session reconnects on its own.
 - Agents never get file-system access outside the open pack through Nova Studio.
 
 ## Set up an agent
@@ -36,7 +37,8 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 
 1. In Nova Studio, open the pack, then **Resources › MCP Integration › Access › Allow read-only**
    (or **Allow editing…**).
-2. Within five minutes, start your agent or reconnect its `nova-studio` server.
+2. Start your agent or reconnect its `nova-studio` server. This works at any time while the access
+   is on; after a disconnect the agent reconnects with the freshly offered code.
 3. The Access tab shows **Client connected** with the agent's name. Workflow activity and **Review
    changes** list what the agent did; every edit can be undone.
 
@@ -109,8 +111,9 @@ These checks are local. Only **Client connected** on the Access tab shows a real
 ## Troubleshooting
 
 - **The agent says the server failed or disconnected:** choose Allow in Nova Studio first, then
-  reconnect within five minutes. The agent's log shows the reason, for example "Nova Studio has not
-  offered a connection".
+   start or reconnect the server; access stays on until you revoke it, so an agent that reconnected
+   on its own needs no new Allow. The agent's log shows the reason, for example "Nova Studio has not
+   offered a connection".
 - **Configured for a different copy of Nova Studio:** you moved or reinstalled Nova Studio. Choose
   **Update Nova Studio…**.
 - **Claude Desktop is running:** quit it from the notification area, then Check again.

@@ -63,10 +63,11 @@ QString offeredCode() {
     const auto pending = handoff::read(&reason);
     if (!pending) {
         qWarning("Nova Studio has not offered a connection. In Nova Studio, open Resources > MCP Integration "
-                 "and choose Allow read-only or Allow editing, then reconnect this server in your AI agent "
-                 "within five minutes.");
+                 "and choose Allow read-only or Allow editing, then start or reconnect this server in your AI "
+                 "agent.");
         return {};
     }
+    // Offers no longer expire; older offers written with a deadline still respect it.
     if (pending->expiresUtcMs && pending->expiresUtcMs < QDateTime::currentMSecsSinceEpoch()) {
         qWarning("The connection offered by Nova Studio has expired. Choose Allow again in "
                  "Resources > MCP Integration, then reconnect this server.");

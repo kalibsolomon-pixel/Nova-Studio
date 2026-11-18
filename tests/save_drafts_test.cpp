@@ -507,9 +507,12 @@ class SaveDraftsTest : public QObject {
         QCOMPARE(fingerprint(root), before);
         QVERIFY(nova::EditorTestAccess::dirty(window, doc));
 
-        // A later editing connection reconnects to the still-open draft and saves it.
+        // A later editing connection reconnects to the still-open draft and saves it. The read-only
+        // connection's exit left the access waiting again, so revoke before allowing editing.
         QProcess client;
-        QTRY_COMPARE(service()->status(), "Disabled");
+        QTRY_COMPARE(service()->status(), "Waiting for client");
+        window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
+        QCOMPARE(service()->status(), "Disabled");
         start(client, authorize(window, true));
         initialize(client);
         auto info = projectInfo(client);

@@ -1230,6 +1230,9 @@ class RelationshipsTest : public QObject {
         } else {
             qInfo() << "NOVA_MCP_SDK_PYTHON is not set: official SDK part skipped";
         }
+        // The SDK client's exit re-offers the grant; end it before the next Allow.
+        window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
+        QCOMPARE(window.findChild<Service *>()->status(), "Disabled");
 
         // Project switch: the old connection cannot read either project's cache view or relationships.
         QProcess switched;
