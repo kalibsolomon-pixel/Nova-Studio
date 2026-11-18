@@ -58,7 +58,8 @@ class Window : public QMainWindow {
     void endAgentSessionForProjectChange();
     struct Comparison {
         QString path, beforeRevision, afterRevision, detail, owner;
-        QUuid instance;
+        QUuid instance, frame;
+        int uvFace = -1;
         quint64 serial = 0;
         QImage before, after, uvBefore, uvAfter;
     };

@@ -321,6 +321,10 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
         "maximum": 255,
         "minimum": 0,
         "type": "integer"
+      },
+      "returnPreview": {
+        "type": "boolean",
+        "description": "Append an upscaled PNG of the result."
       }
     },
     "required": [
@@ -472,6 +476,9 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       },
       "width": {
         "type": "integer"
+      },
+      "preview": {
+        "type": "object"
       }
     },
     "required": [
@@ -601,6 +608,10 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
         "maximum": 255,
         "minimum": 0,
         "type": "integer"
+      },
+      "returnPreview": {
+        "type": "boolean",
+        "description": "Append an upscaled PNG of the result."
       }
     },
     "required": [
@@ -747,6 +758,9 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       },
       "width": {
         "type": "integer"
+      },
+      "preview": {
+        "type": "object"
       }
     },
     "required": [
@@ -892,6 +906,10 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
         "maxItems": 16,
         "minItems": 2,
         "type": "array"
+      },
+      "returnPreview": {
+        "type": "boolean",
+        "description": "Append an upscaled PNG of the result."
       }
     },
     "required": [
@@ -1038,6 +1056,9 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       },
       "width": {
         "type": "integer"
+      },
+      "preview": {
+        "type": "object"
       }
     },
     "required": [
@@ -1139,6 +1160,10 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
         "maximum": 255,
         "minimum": 1,
         "type": "integer"
+      },
+      "returnPreview": {
+        "type": "boolean",
+        "description": "Append an upscaled PNG of the result."
       }
     },
     "required": [
@@ -1285,6 +1310,9 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       },
       "width": {
         "type": "integer"
+      },
+      "preview": {
+        "type": "object"
       }
     },
     "required": [

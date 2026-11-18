@@ -678,14 +678,14 @@ class TexturePixelsTest : public QObject {
         QVERIFY(cursor < doc->historyCursor());
     }
 
-    // The 32 Phase 1 tools are byte-for-byte the same definitions, except MCP Phase 3's intended change to
-    // nova.pack.validate (description and output schema; same input schema and annotations); the four new
-    // ones match the published schemas.
+    // Phase 1 tool definitions stay compatible outside the intentional validation and preview changes.
     void schemas() {
         const auto definitions = toolDefinitions();
         QCOMPARE(definitions.size(), 40);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
+        const QSet<QString> previewEdits{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
+            "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo"};
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
@@ -698,6 +698,26 @@ class TexturePixelsTest : public QObject {
                     definition->remove("description");
                     definition->remove("outputSchema");
                 }
+            }
+            if (previewEdits.contains(it.key()) || it.key() == "nova.asset.preview_image") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                if (previewEdits.contains(it.key())) {
+                    QCOMPARE(fields.take("returnPreview").toObject()["type"].toString(), "boolean");
+                    auto output = now["outputSchema"].toObject();
+                    auto results = output["properties"].toObject();
+                    QCOMPARE(results.take("preview").toObject()["type"].toString(), "object");
+                    output["properties"] = results;
+                    now["outputSchema"] = output;
+                } else {
+                    for (const auto key : {"assetIds", "compare", "maxEdge", "pixelGrid"})
+                        QVERIFY(!fields.take(key).isUndefined());
+                    QCOMPARE(input["required"].toArray(), (QJsonArray{"generation", "projectId"}));
+                    input["required"] = then["inputSchema"].toObject()["required"];
+                    now["description"] = then["description"];
+                }
+                input["properties"] = fields;
+                now["inputSchema"] = input;
             }
             QVERIFY2(now == then, qPrintable(it.key()));
         }

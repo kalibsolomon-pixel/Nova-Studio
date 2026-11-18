@@ -209,6 +209,7 @@ QJsonObject editOutputSchema(bool capabilities) {
     add("appliedOperations", "integer");
     add("changed", "boolean");
     add("warnings", "array");
+    add("preview", "object");
     auto required = common;
     for (const auto key : {"transactionId", "appliedOperations", "changed", "warnings"})
         required.append(key);
@@ -290,6 +291,7 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     const auto required = QJsonArray::fromStringList(target.keys());
     auto single = [&](const QString &tool, const QJsonArray &variants) {
         auto fields = target;
+        fields["returnPreview"] = boolean;
         fields["operation"] = QJsonObject{{"oneOf", variants}};
         auto keys = required;
         keys.append("operation");
@@ -347,22 +349,33 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     image["frameId"] = uuid;
     image["view"] = choice({"model", "uv"});
     image["faceIndex"] = integerField(0, 1535);
+    image["maxEdge"] = described(integerField(16, 512), "Longest edge in pixels for a texture or each comparison panel. "
+                                "Defaults to 256 for one texture, 128 per contact-sheet tile (maximum 192).");
+    image["pixelGrid"] = described(boolean, "Draw boundaries between source texels when the image is enlarged.");
+    image["compare"] = described(boolean, "Show before and after the last edit of the requested revision.");
+    image["assetIds"] = described(arrayField(token, 1, 16), "Texture IDs for a labelled contact sheet. Supply this "
+                                 "or assetId with expectedRevision.");
     list.append(QJsonObject{{"name", "nova.asset.preview_image"},
-        {"description", "Return a bounded PNG of a live texture, animation frame, model viewport, or model face UV."},
-        {"inputSchema", objectSchema(image, required)},
+        {"description", "Return a readable PNG of a live texture, animation frame, model viewport or UV. Supports "
+                        "before/after comparison and labelled texture contact sheets."},
+        {"inputSchema", objectSchema(image, {"generation", "projectId"})},
         {"annotations", QJsonObject{{"readOnlyHint", true}, {"openWorldHint", false}}}});
     auto batchKeys = required;
     batchKeys.append("operations");
+    auto editBatch = batch;
+    editBatch["returnPreview"] = boolean;
     add("nova.edit.batch", "Apply up to eight compatible operations as one history step (schema v1).",
-        batch, batchKeys);
+        editBatch, batchKeys);
     list.append(QJsonObject{{"name", "nova.edit.preview"},
         {"description", "Preflight a native batch against an isolated draft."},
         {"inputSchema", objectSchema(batch, batchKeys)},
         {"outputSchema", outputSchema("nova.edit.preview")},
         {"annotations", QJsonObject{{"readOnlyHint", true}, {"openWorldHint", false}}}});
+    auto history = target;
+    history["returnPreview"] = boolean;
     for (const auto &name : {"undo", "redo"})
         add(QString("nova.edit.") + name, "Move only through this connection's contiguous edits.",
-            target, required);
+            history, required);
 }
 // MCP Phase 2: compact texture edits. Each call is one native in-memory edit of an open texture
 // (one history step), committed like nova.texture.edit; the runtime checks that need the canvas
@@ -400,6 +413,8 @@ void addCompactTextureTools(QJsonArray &list, const QJsonObject &token) {
             keys.append(key);
         }
         properties["layer"] = uuid;
+        properties["returnPreview"] = described(QJsonObject{{"type", "boolean"}},
+                                                  "Append an upscaled PNG of the result.");
         list.append(QJsonObject{{"name", tool}, {"description", description},
             {"inputSchema", objectSchema(properties, keys)}, {"outputSchema", output},
             {"annotations", QJsonObject{{"readOnlyHint", false}, {"openWorldHint", false}}}});

@@ -847,6 +847,9 @@ async def phase2(client: ClientSession) -> dict:
     ]
     for name, args in edits:
         full = {**target, "expectedRevision": revision, **args}
+        previous = revision
+        if name == "nova.texture.put_pixels":
+            full["returnPreview"] = True
         validators[name].validate(full)
         result = await client.call_tool(name, full)
         assert not result.isError, result
@@ -855,6 +858,32 @@ async def phase2(client: ClientSession) -> dict:
         assert content["changed"] is True and content["dirty"] is True and content["pixelsChanged"] > 0, content
         revision = content["revision"]
         if name == "nova.texture.put_pixels":
+            image = base64.b64decode(next(item.data for item in result.content if item.type == "image"))
+            assert content["preview"] == {"width": 256, "height": 256}, content
+            assert struct.unpack(">II", image[16:24]) == (256, 256)
+            rgba = decode_png(image, 256, 256)
+            assert rgba[8 * 256 + 8] == (255, 0, 0, 255), rgba[8 * 256 + 8]
+            png = await client.call_tool("nova.asset.preview_image", {
+                **target, "expectedRevision": revision, "pixelGrid": True})
+            assert not png.isError and png.structuredContent["width"] == 256, png
+            grid = base64.b64decode(next(item.data for item in png.content if item.type == "image"))
+            gridded = decode_png(grid, 256, 256)
+            assert gridded[8 * 256 + 8] == rgba[8 * 256 + 8]
+            assert gridded[8 * 256 + 16] != rgba[8 * 256 + 16]
+            comparison = await client.call_tool("nova.asset.preview_image", {
+                **target, "expectedRevision": revision, "compare": True})
+            assert not comparison.isError and comparison.structuredContent["beforeRevision"] == previous, comparison
+            assert comparison.structuredContent["width"] > 512, comparison.structuredContent
+            assert any(item.type == "image" for item in comparison.content)
+            assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"]})
+            other = next(entry["assetId"] for entry in assets.structuredContent["assets"]
+                         if entry["type"] == "texture" and entry["assetId"] != target["assetId"])
+            sheet = await client.call_tool("nova.asset.preview_image", {
+                **scope, "assetIds": [target["assetId"], other]})
+            assert not sheet.isError and sheet.structuredContent["columns"] == 2, sheet
+            assert [tile["assetId"] for tile in sheet.structuredContent["assets"]] == [target["assetId"], other]
+            assert all(tile["label"] for tile in sheet.structuredContent["assets"])
+            assert any(item.type == "image" for item in sheet.content)
             read = await client.call_tool("nova.texture.read", {**target, "layer": content["layer"],
                                           "region": {"x": 0, "y": 0, "width": 4, "height": 1}})
             assert not read.isError, read

@@ -24,6 +24,8 @@
 #include <QApplication>
 #include <QDir>
 #include <QBuffer>
+#include <QImageReader>
+#include <QPainter>
 #include <QRegularExpression>
 #include <algorithm>
 #include <climits>
@@ -134,14 +136,140 @@ QJsonArray describeOperations(const QJsonArray &operations) {
     return description;
 }
 
-QJsonObject encodePreview(const QImage &image, const QString &asset, const QString &revision) {
+QJsonObject encodePreview(const QImage &image, const QString &asset = {}, const QString &revision = {}) {
+    if (image.isNull())
+        return mcp::toolError("preview_unavailable", "No image is available for this revision.");
     QByteArray png;
     QBuffer buffer(&png);
     buffer.open(QIODevice::WriteOnly);
     if (!image.save(&buffer, "PNG") || png.size() > 320 * 1024)
         return mcp::toolError("preview_limit", "The PNG exceeds the response budget.");
-    return {{"assetId", asset}, {"revision", revision}, {"width", image.width()},
-            {"height", image.height()}, {"_pngImage", QString::fromLatin1(png.toBase64())}};
+    QJsonObject result{{"width", image.width()}, {"height", image.height()},
+                       {"_pngImage", QString::fromLatin1(png.toBase64())}};
+    if (!asset.isEmpty()) {
+        result["assetId"] = asset;
+        result["revision"] = revision;
+    }
+    return result;
+}
+QImage rasterPreview(const QImage &image, int edge = 256, bool grid = false) {
+    if (image.isNull())
+        return {};
+    auto result = image.scaled(edge, edge, Qt::KeepAspectRatio, Qt::FastTransformation);
+    if (grid && result.width() >= 4 * image.width() && result.height() >= 4 * image.height()) {
+        result = result.convertToFormat(QImage::Format_ARGB32);
+        QPainter painter(&result);
+        painter.setPen(QColor(0, 0, 0, 105));
+        for (int x = 1; x < image.width(); ++x) {
+            const int line = x * result.width() / image.width();
+            painter.drawLine(line, 0, line, result.height() - 1);
+        }
+        for (int y = 1; y < image.height(); ++y) {
+            const int line = y * result.height() / image.height();
+            painter.drawLine(0, line, result.width() - 1, line);
+        }
+    }
+    return result;
+}
+struct PreviewTile {
+    QImage image;
+    QString label;
+};
+QImage previewSheet(const QList<PreviewTile> &tiles, int columns) {
+    constexpr int padding = 8, labelHeight = 24;
+    QSize size(104, 16);
+    for (const auto &tile : tiles)
+        size = size.expandedTo(tile.image.size());
+    const int width = size.width() + 2 * padding, height = size.height() + padding + labelHeight;
+    const int rows = (int(tiles.size()) + columns - 1) / columns;
+    QImage sheet(columns * width, rows * height, QImage::Format_ARGB32_Premultiplied);
+    if (sheet.isNull())
+        return {};
+    sheet.fill(QColor(24, 26, 31));
+    QPainter painter(&sheet);
+    painter.setPen(QColor(236, 238, 242));
+    for (int i = 0; i < tiles.size(); ++i) {
+        const auto &tile = tiles[i];
+        const QPoint cell((i % columns) * width, (i / columns) * height);
+        const QRect area(cell + QPoint(padding, padding), size);
+        if (!tile.image.isNull())
+            painter.drawImage(area.center() - QPoint(tile.image.width() / 2, tile.image.height() / 2), tile.image);
+        const QRect label(cell + QPoint(padding, padding + size.height()), QSize(size.width(), labelHeight));
+        painter.drawText(label, Qt::AlignCenter, painter.fontMetrics().elidedText(tile.label, Qt::ElideMiddle, size.width()));
+    }
+    return sheet;
+}
+void appendPreview(QJsonObject &response, const QImage &pixels) {
+    auto preview = encodePreview(pixels);
+    const auto image = preview.take("_pngImage");
+    if (image.isString())
+        response["_pngImage"] = image;
+    response["preview"] = preview;
+}
+QJsonObject contactSheet(const mcp::Snapshot &snapshot, mcp::Scope &scope, const QJsonObject &args,
+                         const QSet<QUuid> &baselineDocs, const DocumentSession &session) {
+    const auto ids = args["assetIds"].toArray();
+    QSet<QString> wanted;
+    for (const auto &id : ids)
+        wanted.insert(id.toString());
+    QHash<QString, QString> paths;
+    for (const auto &path : snapshot.index.files) {
+        if (!path.endsWith(".png") || !mcp::logicalAsset(path))
+            continue;
+        const auto id = mcp::assetIdentifier(snapshot, path);
+        if (wanted.remove(id))
+            paths.insert(id, path);
+        if (wanted.isEmpty())
+            break;
+    }
+    if (!wanted.isEmpty())
+        return mcp::toolError("asset_not_found", "Each contact-sheet ID must refer to an indexed pack texture.");
+    QHash<QString, std::shared_ptr<Document>> openDocs;
+    for (const auto &doc : session.all())
+        if (!baselineDocs.contains(doc->id()))
+            openDocs.insert(QDir(snapshot.root).relativeFilePath(doc->path), doc);
+    QList<PreviewTile> tiles;
+    QJsonArray assets;
+    const int edge = std::min(args["maxEdge"].toInt(128), 192);
+    const bool grid = args["pixelGrid"].toBool();
+    for (const auto &id : ids) {
+        const auto path = paths.value(id.toString());
+        const auto doc = openDocs.value(path);
+        const bool provisional = snapshot.provisional.contains(path);
+        auto source = provisional ? nullptr : scope.open(path);
+        if (provisional ? !doc || !rasterDestination(scope, path) : !source)
+            return mcp::toolError("asset_unavailable", "A contact-sheet texture failed project containment.",
+                                  {{"assetId", id}});
+        QImage pixels;
+        QJsonValue revision;
+        if (doc) {
+            if (doc->strokeOpen())
+                return mcp::toolError("document_busy", "Finish the current stroke before previewing the texture.",
+                                      {{"assetId", id}});
+            pixels = doc->image;
+            revision = revisionToken(snapshot, *doc);
+        } else {
+            QImageReader reader(source.get(), "PNG");
+            reader.setAutoDetectImageFormat(false);
+            const auto size = reader.size();
+            if (!size.isEmpty() && size.width() <= MaxEditDimension && size.height() <= MaxEditDimension &&
+                source->size() <= 4 * MaxEditPixelBytes)
+                pixels = reader.read();
+        }
+        if (pixels.isNull() || pixels.width() > MaxEditDimension || pixels.height() > MaxEditDimension)
+            return mcp::toolError("preview_limit", "A contact-sheet texture is unreadable or exceeds 256 by 256.",
+                                  {{"assetId", id}});
+        const auto label = QFileInfo(path).completeBaseName();
+        tiles.append({rasterPreview(pixels, edge, grid), label});
+        assets.append(QJsonObject{{"assetId", id}, {"path", path}, {"label", label}, {"revision", revision}});
+    }
+    const int columns = std::min(4, int(tiles.size()));
+    auto result = encodePreview(previewSheet(tiles, columns));
+    if (!result.contains("error")) {
+        result["assets"] = assets;
+        result["columns"] = columns;
+    }
+    return result;
 }
 
 // Style notes are user content: always labelled as preferences, and never inferred when absent.
@@ -784,6 +912,10 @@ void Window::ensureMcpService() {
             const bool capabilities = request.tool == "nova.edit.capabilities";
             const bool preview = request.tool == "nova.edit.preview";
             const bool imagePreview = request.tool == "nova.asset.preview_image";
+            const bool returnPreview = request.arguments["returnPreview"].toBool();
+            const bool compare = request.arguments["compare"].toBool();
+            const bool grid = request.arguments["pixelGrid"].toBool();
+            const int edge = request.arguments["maxEdge"].toInt(256);
             const auto asset = request.arguments["assetId"].toString();
             QJsonObject result{{"schemaVersion", 1}, {"projectId", snapshot.projectId},
                 {"generation", snapshot.generation}, {"permission", editing ? "editing" : "read_only"},
@@ -797,6 +929,19 @@ void Window::ensureMcpService() {
                 return result;
             if (!capabilities && QApplication::activeModalWidget())
                 return toolError("document_busy", "Finish the current editor dialog first.");
+            mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+            if (scope.identity().isEmpty())
+                return toolError("asset_unavailable", "The authorized project root has changed.");
+            if (imagePreview) {
+                if (request.arguments.contains("assetIds")) {
+                    for (const auto key : {"assetId", "expectedRevision", "frameId", "view", "faceIndex", "compare"})
+                        if (request.arguments.contains(key))
+                            return toolError("invalid_arguments", "Contact sheets accept assetIds, maxEdge and pixelGrid.");
+                    return contactSheet(snapshot, scope, request.arguments, baselineDocs, session);
+                }
+                if (asset.isEmpty() || !request.arguments.contains("expectedRevision"))
+                    return toolError("invalid_arguments", "Supply assetId and expectedRevision or use assetIds for a contact sheet.");
+            }
 
             const bool redo = request.tool == "nova.edit.redo";
             const bool history = redo || request.tool == "nova.edit.undo";
@@ -804,7 +949,7 @@ void Window::ensureMcpService() {
             const auto compact = mcp::compactTextureCommand(request.tool);
             auto compactOperation = [&] {
                 auto operation = request.arguments;
-                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision"})
+                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview"})
                     operation.remove(key);
                 operation["command"] = compact;
                 return operation;
@@ -827,9 +972,24 @@ void Window::ensureMcpService() {
                 return {{"assetId", asset}, {"assetPath", path}, {"previousRevision", revision},
                         {"tool", request.tool}, {"operations", describeOperations(operations)}};
             };
-            mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
-            if (scope.identity().isEmpty())
-                return toolError("asset_unavailable", "The authorized project root has changed.");
+            auto comparisonFor = [&](const QString &path, const QString &revision) -> const Comparison * {
+                for (const auto &item : comparisons)
+                    if (item.path == path && item.owner == snapshot.generation &&
+                        item.afterRevision == revision && comparisonCurrent(item))
+                        return &item;
+                return nullptr;
+            };
+            auto compareImages = [&](const QImage &before, const QImage &after, const QString &revision,
+                                     const QString &beforeRevision) {
+                if (before.isNull() && after.isNull())
+                    return toolError("comparison_unavailable", "No comparison image was captured for this view.");
+                auto response = encodePreview(previewSheet({
+                    {rasterPreview(before, edge, grid), before.isNull() ? "Before (absent)" : "Before"},
+                    {rasterPreview(after, edge, grid), after.isNull() ? "After (absent)" : "After"}}, 2), asset, revision);
+                if (!response.contains("error"))
+                    response["beforeRevision"] = beforeRevision;
+                return response;
+            };
             for (const auto &path : modelPanel->openModelAssets()) {
                 if (!snapshot.index.records.contains(path) || !mcp::logicalAsset(path) ||
                     mcp::assetIdentifier(snapshot, path) != asset)
@@ -850,7 +1010,7 @@ void Window::ensureMcpService() {
                     return toolError("document_busy", "Finish the current model or UV preview first.");
                 if (imagePreview) {
                     const auto view = request.arguments["view"].toString();
-                    if (view.isEmpty() || request.arguments.contains("frameId") ||
+                    if (view.isEmpty() || grid || request.arguments.contains("frameId") ||
                         (view != "uv" && request.arguments.contains("faceIndex")))
                         return toolError("invalid_arguments", "Select a model or UV view with compatible arguments.");
                     if (modelPanel->catalog()->source(path) != model->authoritative())
@@ -866,6 +1026,22 @@ void Window::ensureMcpService() {
                             return toolError("asset_unavailable", "A preview material is outside the authorized pack.");
                     QString error;
                     const int face = request.arguments["faceIndex"].toInt();
+                    const auto revision = revisionToken(snapshot, *model);
+                    if (compare) {
+                        const auto change = comparisonFor(path, revision);
+                        if (!change || (view == "uv" && (change->uvFace != face || change->uvBefore.isNull())))
+                            return toolError("comparison_unavailable", "No comparison was captured for this revision and view.");
+                        auto response = view == "uv" ? compareImages(change->uvBefore, change->uvAfter,
+                                                                         revision, change->beforeRevision)
+                                                     : compareImages(change->before, change->after,
+                                                                         revision, change->beforeRevision);
+                        if (!response.contains("error")) {
+                            response["view"] = view;
+                            if (view == "uv")
+                                response["faceIndex"] = face;
+                        }
+                        return response;
+                    }
                     QElapsedTimer render;
                     render.start();
                     const auto image = modelPanel->modelPreviewImage(path, view == "uv", face, &error);
@@ -874,7 +1050,8 @@ void Window::ensureMcpService() {
                         return toolError("preview_unavailable", error);
                     QElapsedTimer encode;
                     encode.start();
-                    auto response = encodePreview(image, asset, revisionToken(snapshot, *model));
+                    auto response = encodePreview(request.arguments.contains("maxEdge") ? rasterPreview(image, edge) : image,
+                                                  asset, revision);
                     metrics.record("mcp_model_preview_encode", encode);
                     if (!response.contains("error")) {
                         response["view"] = view;
@@ -902,7 +1079,7 @@ void Window::ensureMcpService() {
                 if (preview)
                     return previewResult(*model);
                 const auto revision = revisionToken(snapshot, *model);
-                commit = [this, model, path, snapshot, revision, history, redo, prepared,
+                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview,
                           changes = summary(path, revision),
                           operations, count = operations.size()]() -> QJsonObject {
                     if (modelPanel->openModelDocument(path) != model ||
@@ -951,8 +1128,11 @@ void Window::ensureMcpService() {
                                 continue;
                             if (before)
                                 texture = face.texture;
-                            if (face.texture == texture)
+                            if (face.texture == texture) {
                                 uvImage = modelPanel->modelPreviewImage(path, true, i, &error, true);
+                                if (!before && !uvImage.isNull())
+                                    comparison.uvFace = i;
+                            }
                             break;
                         }
                     };
@@ -977,8 +1157,11 @@ void Window::ensureMcpService() {
                         if (!warning.isEmpty())
                             response["warnings"] = QJsonArray{"Model recovery checkpoint failed. The edit is still in memory."};
                     }
-                    if (changed) {
+                    if (changed || returnPreview)
                         capture(comparison.after, comparison.uvAfter, false);
+                    if (returnPreview)
+                        appendPreview(response, comparison.uvAfter.isNull() ? comparison.after : comparison.uvAfter);
+                    if (changed) {
                         comparison.serial = model->changeSerial();
                         comparison.afterRevision = response["revision"].toString();
                         rememberComparison(std::move(comparison));
@@ -1039,13 +1222,23 @@ void Window::ensureMcpService() {
                 }
                 QElapsedTimer render;
                 render.start();
+                const auto revision = revisionToken(snapshot, *doc);
+                if (compare) {
+                    const auto change = comparisonFor(relative, revision);
+                    if (!change || (request.arguments.contains("frameId") && change->frame != frame))
+                        return toolError("comparison_unavailable", "No comparison was captured for this revision and frame.");
+                    auto response = compareImages(change->before, change->after, revision, change->beforeRevision);
+                    if (!response.contains("error"))
+                        response["frameId"] = change->frame.toString(QUuid::WithoutBraces);
+                    return response;
+                }
                 const auto image = doc->animated() ? doc->frameComposite(frame) : doc->image;
                 metrics.record("mcp_raster_preview_pixels", render);
                 if (image.isNull())
                     return toolError("invalid_arguments", "The source frame does not exist.");
                 QElapsedTimer encode;
                 encode.start();
-                auto response = encodePreview(image, asset, revisionToken(snapshot, *doc));
+                auto response = encodePreview(rasterPreview(image, edge, grid), asset, revision);
                 metrics.record("mcp_raster_preview_encode", encode);
                 if (!response.contains("error"))
                     response["frameId"] = doc->animated() ? frame.toString(QUuid::WithoutBraces) : QString{};
@@ -1099,7 +1292,7 @@ void Window::ensureMcpService() {
             const auto revision = revisionToken(snapshot, *doc);
             commit = [this, doc, relative, snapshot, revision, interactionActive, prepared, history, provisional,
                       changes = summary(relative, revision), compact, asset,
-                      operations, redo, workflowStage = request.workflowStage,
+                      operations, redo, returnPreview, workflowStage = request.workflowStage,
                       count = operations.size()]() -> QJsonObject {
                 if (!session.owns(doc) || revisionToken(snapshot, *doc) != revision)
                     return toolError("revision_conflict", "The texture changed before commit.");
@@ -1184,9 +1377,14 @@ void Window::ensureMcpService() {
                             .arg(addedFrame ? "Added frame" : "Frame", frame.toString(QUuid::WithoutBraces),
                                  playbackBefore.isEmpty() ? QString("not animated") : playbackBefore, playback());
                     comparison.after = pixels();
+                    comparison.frame = doc->animated() ? frame : QUuid{};
                     comparison.serial = doc->changeSerial();
                     comparison.afterRevision = response["revision"].toString();
+                    if (returnPreview)
+                        appendPreview(response, rasterPreview(comparison.after.isNull() ? doc->image : comparison.after));
                     rememberComparison(std::move(comparison));
+                } else if (returnPreview) {
+                    appendPreview(response, rasterPreview(doc->image));
                 }
                 if (workflowStage && response["changed"].toBool() && doc->modified()) {
                     // Serialize with the periodic checkpoint writer so an older snapshot
