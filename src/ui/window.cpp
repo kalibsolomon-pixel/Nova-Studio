@@ -1065,6 +1065,12 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         });
         if (paths.isEmpty())
             return;
+        // Pack writes converge here, including animation pairs, model authoring,
+        // pack metadata and saves from external editors.
+        if (preferences.fabricLiveReload && !launcherHandoffEnabled()) {
+            ensureFabricTest();
+            fabricTest->packFilesChanged(paths);
+        }
         pendingChanges.append(paths);
         if (pendingChanges.size() > 4096) {
             fullRescan = true;

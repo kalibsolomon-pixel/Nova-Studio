@@ -8,6 +8,7 @@
 #include "icon_parity.h"
 #include "index.h"
 #include "models.h"
+#include "monitor.h"
 #include "packsync.h"
 #include "settings.h"
 #include <QBuffer>
@@ -992,6 +993,104 @@ class FabricRuntimeTest : public QObject {
         QString error;
         QVERIFY(!dialog.reloadInGame(&error));
         QVERIFY(error.contains("not running"));
+    }
+    void liveReloadDebouncesSavesAndQueuesOneFollowup() {
+        const auto base = preparedBase("live-reload");
+        const auto pack = temp.filePath("Live Pack");
+        const QString texture = "assets/minecraft/textures/block/stone.png";
+        const QString model = "assets/minecraft/models/block/stone.json";
+        write(pack + "/pack.mcmeta", R"({"pack":{"description":"t","min_format":[75,0],"max_format":[75,0]}})");
+        write(pack + '/' + texture, "initial");
+        const auto game = RuntimeLayout::make(base, profile).game;
+        const auto synced = game + "/resourcepacks/" + testPackFolderName("Live Pack") + '/';
+        script("NOVA_FAKE_GRADLE_RUN", runScript("companion " + game + "\nwindow\n"));
+        Settings settings(temp.filePath("live-settings.ini"));
+        auto preferences = settings.load();
+        QVERIFY(!preferences.fabricLiveReload);
+        preferences.fabricLocation = base;
+        preferences.fabricAutoReload = false;
+        QStringList unsaved;
+        FabricTestDialog::Context context;
+        context.projectRoot = [&] { return pack; };
+        context.packName = [] { return QString("Live Pack"); };
+        context.unsavedDocuments = [&] { return unsaved; };
+        context.preferences = &preferences;
+        context.runtime = options(base);
+        context.interactive = false;
+        FabricTestDialog dialog(context);
+        auto engine = dialog.runtime();
+        auto link = engine->companion();
+        const auto checkbox = dialog.findChild<QCheckBox *>("fabricLiveReload");
+        QVERIFY(checkbox);
+        QVERIFY(!checkbox->isChecked());
+        DirectoryMonitor monitor;
+        connect(&monitor, &DirectoryMonitor::changed, &dialog, &FabricTestDialog::packFilesChanged);
+        QVERIFY(monitor.watch(pack));
+        QSignalSpy reported(&dialog, &FabricTestDialog::reloadReported);
+        QSignalSpy started(link, &CompanionLink::reloadStarted);
+        QSignalSpy finished(link, &CompanionLink::reloadFinished);
+        checkbox->setChecked(true);
+        QVERIFY(settings.save(preferences));
+        QVERIFY(settings.load().fabricLiveReload);
+        write(pack + '/' + texture, "saved with no game");
+        QTest::qWait(1700);
+        QVERIFY(reported.isEmpty());
+        QVERIFY(!QFileInfo::exists(synced + texture));
+
+        checkbox->setChecked(false);
+        dialog.testInMinecraft();
+        auto stopGame = qScopeGuard([&] { engine->forceStop(); });
+        QTRY_VERIFY_WITH_TIMEOUT(link->available(), 15000);
+        QCOMPARE(read(synced + texture), QByteArray("saved with no game"));
+        write(pack + '/' + texture, "saved with live reload off");
+        QTest::qWait(1700);
+        QVERIFY(reported.isEmpty());
+        QCOMPARE(read(synced + texture), QByteArray("saved with no game"));
+
+        checkbox->setChecked(true);
+        unsaved = {model};
+        write(pack + '/' + texture, "another file is unsaved");
+        QTRY_COMPARE_WITH_TIMEOUT(reported.size(), 1, 4000);
+        QVERIFY(reported.last().first().toString().contains("Save or update " + model));
+        QVERIFY(finished.isEmpty());
+        QCOMPARE(read(synced + texture), QByteArray("saved with no game"));
+        unsaved.clear();
+
+        const auto hold = game + "/nova-companion/hold-reload";
+        write(hold, {});
+        write(pack + '/' + texture, "first save");
+        QTest::qWait(300);
+        write(pack + '/' + texture, "second save");
+        QTest::qWait(300);
+        write(pack + '/' + model, "{}");
+        QTest::qWait(1100);
+        QVERIFY(started.isEmpty());
+        QCOMPARE(read(synced + texture), QByteArray("saved with no game"));
+        QTRY_COMPARE_WITH_TIMEOUT(started.size(), 1, 4000);
+        QCOMPARE(read(synced + texture), QByteArray("second save"));
+        QCOMPARE(read(synced + model), QByteArray("{}"));
+
+        write(pack + '/' + texture, "saved while Minecraft reloads");
+        write(pack + '/' + texture + ".mcmeta", "{}");
+        QTest::qWait(1700); // debounce expires while Minecraft is still busy
+        QCOMPARE(started.size(), 1);
+        QVERIFY(finished.isEmpty());
+        QCOMPARE(read(synced + texture), QByteArray("second save"));
+        QVERIFY(QFile::remove(hold));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 2, 5000);
+        QCOMPARE(finished.first().first().toBool(), true);
+        QCOMPARE(finished.last().first().toBool(), true);
+        QCOMPARE(read(synced + texture), QByteArray("saved while Minecraft reloads"));
+        QVERIFY(QFileInfo::exists(synced + texture + ".mcmeta"));
+        QTest::qWait(1700);
+        QCOMPARE(started.size(), 2);
+        QCOMPARE(finished.size(), 2);
+        QVERIFY(reported.last().first().toString().startsWith("Reloaded in Minecraft"));
+
+        QSignalSpy exited(engine, &FabricRuntime::gameExited);
+        engine->requestStop();
+        QVERIFY(exited.wait(10000));
+        stopGame.dismiss();
     }
     // Nova draws the same item Minecraft drew and compares them; the game side is simulated here.
     void iconParityComparesGameAndNova() {

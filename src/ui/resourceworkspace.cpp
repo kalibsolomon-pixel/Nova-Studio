@@ -80,7 +80,8 @@ QStringList Window::unsavedMinecraftOutputs() {
         if (doc->minecraftOutputPending())
             names << QDir(project).relativeFilePath(doc->path);
     for (const auto &asset : modelPanel->openModelAssets())
-        if (const auto doc = modelPanel->openModelDocument(asset); doc && doc->modified())
+        if (const auto doc = modelPanel->anyModelDocument(asset);
+            doc && (doc->modified() || doc->previewing()))
             names << asset;
     return names;
 }
@@ -90,13 +91,7 @@ QStringList Window::unsavedMinecraftOutputs() {
 bool Window::launcherHandoffEnabled() {
     return qEnvironmentVariableIntValue("NOVA_ENABLE_LAUNCHER_HANDOFF") == 1;
 }
-void Window::minecraftTesting(bool syncOnly) {
-    if (project.isEmpty()) {
-        statusBar()->showMessage("Open a resource pack to test it in Minecraft", 5000);
-        return;
-    }
-    if (launcherHandoffEnabled())
-        return launcherHandoffTesting(syncOnly);
+void Window::ensureFabricTest() {
     if (!fabricTest) {
         FabricTestDialog::Context context;
         context.projectRoot = [this] { return project; };
@@ -116,6 +111,15 @@ void Window::minecraftTesting(bool syncOnly) {
         if (resourceTools)
             resourceTools->setMinecraftWarnings(fabricTest->resourceWarnings());
     }
+}
+void Window::minecraftTesting(bool syncOnly) {
+    if (project.isEmpty()) {
+        statusBar()->showMessage("Open a resource pack to test it in Minecraft", 5000);
+        return;
+    }
+    if (launcherHandoffEnabled())
+        return launcherHandoffTesting(syncOnly);
+    ensureFabricTest();
     if (!syncOnly) {
         fabricTest->testInMinecraft();
         fabricTest->activateWindow();
