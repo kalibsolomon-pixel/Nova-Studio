@@ -265,6 +265,11 @@ int main(int argc, char **argv) {
                 say(session, QString("SPAWNED %1").arg(child->processId()));
                 children.push_back(std::move(child));
             } else if (text == "crash") {
+                std::fputs("discarded startup message\n", stderr);
+                const QByteArray filler(20 * 1024, 'x');
+                std::fwrite(filler.constData(), 1, size_t(filler.size()), stderr);
+                std::fputs("\n\x1b[31mScripted failure: missing dependency.\x1b[0m\n", stderr);
+                std::fflush(stderr);
                 std::fflush(stdout);
                 std::_Exit(3);
             } else if (text.startsWith("Please ")) {

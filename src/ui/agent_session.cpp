@@ -33,6 +33,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextLayout>
+#include <QToolButton>
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -494,6 +495,41 @@ void Window::showAgentSession() {
     dialog->notice->setProperty("role", "notice");
     dialog->notice->hide();
     sessionSection->addWidget(dialog->notice);
+    auto outputToggle = new QToolButton(dialog);
+    outputToggle->setObjectName("acpOutputToggle");
+    outputToggle->setProperty("role", "disclosure");
+    outputToggle->setCheckable(true);
+    outputToggle->setFocusPolicy(Qt::StrongFocus);
+    outputToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    outputToggle->setArrowType(Qt::RightArrow);
+    outputToggle->setText("Show agent output");
+    sessionSection->addWidget(outputToggle, 0, Qt::AlignLeft);
+    auto output = new QPlainTextEdit(dialog);
+    output->setObjectName("acpAgentOutput");
+    output->setAccessibleName("Agent standard error");
+    output->setPlaceholderText("The agent has not written any output.");
+    output->setReadOnly(true);
+    output->setFixedHeight(5 * output->fontMetrics().lineSpacing() + 2 * ui::SpaceL);
+    output->hide();
+    sessionSection->addWidget(output);
+    const auto refreshOutput = [dialog, output, outputToggle] {
+        if (!outputToggle->isChecked() || output->textCursor().hasSelection())
+            return;
+        const auto text = dialog->session ? agentDisplayText(dialog->session->agentOutput(), acp::Session::OutputLimit)
+                                          : QString{};
+        if (output->toPlainText() != text) {
+            output->setPlainText(text);
+            output->moveCursor(QTextCursor::End);
+        }
+    };
+    connect(outputToggle, &QToolButton::toggled, output, [outputToggle, output, refreshOutput](bool show) {
+        outputToggle->setText(show ? "Hide agent output" : "Show agent output");
+        outputToggle->setArrowType(show ? Qt::DownArrow : Qt::RightArrow);
+        output->setVisible(show);
+        if (show)
+            refreshOutput();
+    });
+    connect(output, &QPlainTextEdit::selectionChanged, output, refreshOutput);
 
     dialog->permission = new PermissionCard(dialog);
     conversationSection->addWidget(dialog->permission);
@@ -532,7 +568,7 @@ void Window::showAgentSession() {
         return mcpService && dialog->grant && mcpService->grantSerial() == dialog->grant &&
                !mcpService->authorizedProject().isEmpty();
     };
-    auto refresh = [this, dialog, ours, choose, projectHint] {
+    auto refresh = [this, dialog, ours, choose, projectHint, outputToggle] {
         const auto state = dialog->session ? dialog->session->state() : acp::Session::State::Idle;
         const bool live = state == acp::Session::State::Starting || state == acp::Session::State::Ready ||
                           state == acp::Session::State::Prompting;
@@ -575,6 +611,7 @@ void Window::showAgentSession() {
         dialog->send->setEnabled(state == acp::Session::State::Ready && !dialog->prompt->toPlainText().trimmed().isEmpty());
         dialog->prompt->setEnabled(state == acp::Session::State::Ready || state == acp::Session::State::Prompting);
         dialog->cancel->setEnabled(state == acp::Session::State::Prompting);
+        outputToggle->setEnabled(bool(dialog->session));
     };
     // Ends Nova's grant when the session that owned it ends; never touches another grant.
     auto release = [this, dialog, ours] {
@@ -584,7 +621,8 @@ void Window::showAgentSession() {
         if (!dialog->workFolder.isEmpty())
             QDir().rmdir(dialog->workFolder); // only if the agent left it empty
     };
-    auto begin = [this, dialog, refresh, release, choice, transcript](bool editing, const acp::AgentProgram &program) {
+    auto begin = [this, dialog, refresh, release, choice, transcript, output, refreshOutput](
+                     bool editing, const acp::AgentProgram &program) {
         QString problem;
         if (!acp::acceptableExecutable(program.executable, &problem))
             return dialog->tell(problem, "error");
@@ -609,6 +647,8 @@ void Window::showAgentSession() {
         dialog->grant = mcpService->grantSerial();
         auto session = new acp::Session(dialog);
         dialog->session = session;
+        output->clear();
+        connect(session, &acp::Session::agentOutputChanged, output, refreshOutput);
         // Only a bridge started by this agent (or its children) may take the grant.
         mcpService->setClientFilter([session = QPointer<acp::Session>(session)](qint64 pid) {
             return session && session->ownsProcess(pid);

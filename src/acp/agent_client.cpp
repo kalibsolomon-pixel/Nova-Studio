@@ -18,6 +18,7 @@ static bool operator==(const ProcessIdentity &a, const ProcessIdentity &b) {
 namespace nova::acp {
 namespace {
 constexpr int ProtocolVersion = 1;
+constexpr int StartupTimeout = 30000, AuthenticateTimeout = 180000, CancelTimeout = 8000;
 QString text(const QJsonObject &error) {
     return error["message"].toString().left(300);
 }
@@ -104,18 +105,21 @@ QJsonObject stdioServer(const QString &name, const QString &command) {
 Session::Session(QObject *parent) : QObject(parent) {
     process.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&process, &QProcess::readyReadStandardOutput, this, &Session::readOutput);
-    // The agent's diagnostics may contain credentials or prompts: drained, never stored or shown.
-    connect(&process, &QProcess::readyReadStandardError, this, [this] { process.readAllStandardError(); });
+    connect(&process, &QProcess::readyReadStandardError, this, &Session::readError);
     connect(&process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        finish(status == QProcess::NormalExit ? QString("The agent exited (code %1).").arg(code)
-                                              : QString("The agent stopped unexpectedly."));
+        readError();
+        finish((status == QProcess::NormalExit ? QString("The agent exited (code %1).").arg(code)
+                                              : QString("The agent stopped unexpectedly.")) +
+               " Open Show agent output, correct the reported problem, then start again.");
     });
     connect(&process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart)
-            finish("The agent program could not be started.");
+            finish("Windows could not start the agent. Check the program path and reinstall its adapter or runtime.");
     });
     shutdownTimer.setSingleShot(true);
     connect(&shutdownTimer, &QTimer::timeout, this, &Session::endTree);
+    replyTimer.setSingleShot(true);
+    connect(&replyTimer, &QTimer::timeout, this, [this] { stop(timeoutReason); });
     // Remember the processes the agent starts (such as Nova's bridge), so stopping ends them too
     // even after the agent itself has exited.
     treeTimer.setInterval(500);
@@ -152,18 +156,22 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
     setState(State::Starting);
     process.start();
     if (!process.waitForStarted(10000)) {
-        finish("The agent program could not be started.");
+        finish("The agent program did not start. Check the program path and runtime, then retry.");
         if (problem)
             *problem = reason;
         return false;
     }
     identity = testing::identifyProcess(process.processId());
     treeTimer.start();
+    expectReply(StartupTimeout, "The agent did not answer the ACP handshake. Check the adapter and its launch arguments.");
     request("initialize", {{"protocolVersion", ProtocolVersion},
                            {"clientCapabilities", QJsonObject{{"fs", QJsonObject{{"readTextFile", false}, {"writeTextFile", false}}},
                                                               {"terminal", false}}},
                            {"clientInfo", QJsonObject{{"name", "nova-studio"}, {"title", "Nova Studio"}, {"version", AppVersion}}}},
             [this](const QJsonObject &reply) {
+        if (current != State::Starting)
+            return;
+        replyTimer.stop();
         if (reply.contains("error"))
             return stop("The agent refused to start a session: " + text(reply["error"].toObject()));
         const auto result = reply["result"].toObject();
@@ -185,9 +193,11 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
 void Session::createSession() {
     if (current != State::Starting)
         return;
+    expectReply(StartupTimeout, "The agent did not open a session. Check sign-in and agent output, then retry.");
     request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
         if (current != State::Starting)
             return;
+        replyTimer.stop();
         if (reply.contains("error")) {
             const auto error = reply["error"].toObject();
             if (error["code"].toInt() != -32000)
@@ -212,9 +222,11 @@ bool Session::authenticate(const QString &methodId) {
         if (value.toObject()["id"].toString() != methodId)
             continue;
         waitingForAuth = false;
+        expectReply(AuthenticateTimeout, "The agent did not finish signing in. Complete sign-in in its own tool, then retry.");
         request("authenticate", {{"methodId", methodId}}, [this](const QJsonObject &reply) {
             if (current != State::Starting)
                 return;
+            replyTimer.stop();
             if (reply.contains("error")) {
                 waitingForAuth = true;
                 emit authenticationRequired(authMethods);
@@ -235,6 +247,7 @@ bool Session::prompt(const QString &message) {
     setState(State::Prompting);
     request("session/prompt", {{"sessionId", session}, {"prompt", QJsonArray{QJsonObject{{"type", "text"}, {"text", message}}}}},
             [this](const QJsonObject &reply) {
+        replyTimer.stop();
         cancelPermissions();
         if (current == State::Prompting)
             setState(State::Ready);
@@ -249,6 +262,7 @@ void Session::cancel() {
     if (current == State::Prompting && !cancellingTurn) {
         cancellingTurn = true;
         notify("session/cancel", {{"sessionId", session}});
+        expectReply(CancelTimeout, "The agent ignored cancellation. Nova ended the session. Start again to continue.");
     }
 }
 
@@ -271,6 +285,7 @@ void Session::stop(const QString &why) {
         return;
     reason = why;
     cancel();
+    replyTimer.stop();
     setState(State::Stopping);
     if (canClose && !session.isEmpty())
         request("session/close", {{"sessionId", session}}, [](const QJsonObject &) {});
@@ -351,6 +366,25 @@ void Session::readOutput() {
         stop("The agent sent an oversized message.");
 }
 
+void Session::readError() {
+    const auto chunk = process.readAllStandardError();
+    if (chunk.isEmpty())
+        return;
+    if (chunk.size() >= OutputLimit)
+        stderrTail = chunk.last(OutputLimit);
+    else {
+        stderrTail += chunk;
+        if (stderrTail.size() > OutputLimit)
+            stderrTail.remove(0, stderrTail.size() - OutputLimit);
+    }
+    emit agentOutputChanged();
+}
+
+void Session::expectReply(int timeoutMs, const QString &failure) {
+    timeoutReason = failure;
+    replyTimer.start(timeoutMs);
+}
+
 void Session::handle(const QJsonObject &message) {
     const auto method = message["method"].toString();
     if (message.contains("method") && message.contains("id")) {
@@ -410,6 +444,7 @@ void Session::finish(const QString &why) {
         reason = why;
     shutdownTimer.stop();
     treeTimer.stop();
+    replyTimer.stop();
     endTree();
     pending.clear();
     permissions.clear();

@@ -47,10 +47,12 @@ class Session : public QObject {
     QString agentName() const { return agent; }
     QString sessionId() const { return session; }
     QString endReason() const { return reason; }
+    QString agentOutput() const { return QString::fromUtf8(stderrTail); }
     // True for the agent process and the processes it started (matched by id and creation time).
     bool ownsProcess(qint64 pid) const;
     QList<testing::ProcessIdentity> processTree() const;
     static constexpr int LineLimit = 4 * 1024 * 1024;
+    static constexpr int OutputLimit = 16 * 1024;
   signals:
     void stateChanged();
     void agentText(const QString &text);              // agent_message_chunk text
@@ -61,6 +63,7 @@ class Session : public QObject {
     void authenticationRequired(const QJsonArray &methods); // empty: sign in with the agent's own CLI
     void turnEnded(const QString &stopReason);
     void problem(const QString &message);
+    void agentOutputChanged();
 
   private:
     QProcess process;
@@ -75,13 +78,16 @@ class Session : public QObject {
     qint64 nextId = 0;
     QMap<qint64, std::function<void(const QJsonObject &)>> pending;
     QList<QJsonValue> permissions;
-    QByteArray buffer;
-    QTimer shutdownTimer, treeTimer;
+    QByteArray buffer, stderrTail;
+    QTimer shutdownTimer, treeTimer, replyTimer;
+    QString timeoutReason;
     void setState(State next);
     qint64 request(const QString &method, const QJsonObject &params, std::function<void(const QJsonObject &)> done);
     void notify(const QString &method, const QJsonObject &params);
     void write(const QJsonObject &message);
     void readOutput();
+    void readError();
+    void expectReply(int timeoutMs, const QString &failure);
     void handle(const QJsonObject &message);
     void update(const QJsonObject &params);
     void createSession();

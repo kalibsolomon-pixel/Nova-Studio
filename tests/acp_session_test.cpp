@@ -444,6 +444,16 @@ class AcpSessionTest : public QObject {
         composer()->setPlainText("crash");
         button("acpSend")->click();
         QTRY_VERIFY_WITH_TIMEOUT(status().contains("code 3"), 10000);
+        QVERIFY(status().contains("Show agent output"));
+        const auto toggle = dialog->findChild<QToolButton *>("acpOutputToggle");
+        const auto output = dialog->findChild<QPlainTextEdit *>("acpAgentOutput");
+        QVERIFY(toggle && output && !output->isVisible());
+        toggle->click();
+        QTRY_VERIFY(output->isVisible());
+        const auto tail = output->toPlainText();
+        QVERIFY(tail.contains("Scripted failure: missing dependency."));
+        QVERIFY(!tail.contains("discarded startup message") && !tail.contains("[31m"));
+        QVERIFY(session()->agentOutput().toUtf8().size() <= nova::acp::Session::OutputLimit);
         QCOMPARE(service()->status(), "Disabled");
         QVERIFY(service()->connectionCode().isEmpty());
         expectTreeGone(tree);
