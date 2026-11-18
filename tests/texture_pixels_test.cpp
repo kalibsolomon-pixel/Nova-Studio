@@ -182,6 +182,24 @@ QJsonObject parse(const QByteArray &json) { return QJsonDocument::fromJson(json)
 // Round-trips through text so integer and floating-point JSON numbers compare alike.
 QJsonObject canonical(const QJsonObject &object) { return parse(QJsonDocument(object).toJson(QJsonDocument::Compact)); }
 
+QJsonValue expandSchema(const QJsonValue &value, const QJsonObject &defs) {
+    if (value.isObject()) {
+        auto object = value.toObject();
+        if (object.contains("$ref"))
+            return defs[object["$ref"].toString().mid(8)];
+        for (auto it = object.begin(); it != object.end(); ++it)
+            it.value() = expandSchema(it.value(), defs);
+        return object;
+    }
+    if (value.isArray()) {
+        QJsonArray array;
+        for (const QJsonValue &item : value.toArray())
+            array.append(expandSchema(item, defs));
+        return array;
+    }
+    return value;
+}
+
 // ---- Synthetic benchmark textures: opaque pixel-art-like patterns from a fixed seed.
 QImage synthetic(int width, int height, int colors, quint32 seed) {
     std::mt19937 random(seed);
@@ -681,7 +699,7 @@ class TexturePixelsTest : public QObject {
     // Phase 1 tool definitions stay compatible outside the intentional validation and preview changes.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 42);
+        QCOMPARE(definitions.size(), 44);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
         const QSet<QString> previewEdits{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
@@ -691,6 +709,51 @@ class TexturePixelsTest : public QObject {
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
         for (auto it = phase1.begin(); it != phase1.end(); ++it) {
             auto now = runtime.value(it.key()), then = canonical(it.value().toObject());
+            auto input = now["inputSchema"].toObject();
+            const auto defs = input.take("$defs").toObject();
+            input = expandSchema(input, defs).toObject();
+            auto fields = input["properties"].toObject();
+            QVERIFY(!fields.take("verbosity").isUndefined());
+            fields.remove("include");
+            if (it.key() == "nova.vanilla.texture") // The legacy include controls image data.
+                fields["include"] = then["inputSchema"].toObject()["properties"].toObject()["include"];
+            input["properties"] = fields;
+            now["inputSchema"] = input;
+            auto oldCommands = [](QJsonObject variants) {
+                QJsonArray commands;
+                for (const QJsonValue &variant : variants["oneOf"].toArray()) {
+                    const auto name = variant["properties"]["command"]["enum"].toArray().at(0).toString();
+                    if (!nativeTextureCommand(name) && !nova::texture::compactCommand(name))
+                        commands.append(variant);
+                }
+                variants["oneOf"] = commands;
+                return variants;
+            };
+            if (it.key() == "nova.texture.edit" || it.key() == "nova.edit.preview" || it.key() == "nova.edit.batch" ||
+                it.key() == "nova.workflow.plan" || it.key() == "nova.workflow.execute") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                auto stripBatch = [&](QJsonObject &properties) {
+                    auto operations = properties["operations"].toObject();
+                    operations["items"] = oldCommands(operations["items"].toObject());
+                    properties["operations"] = operations;
+                };
+                if (fields.contains("operation")) {
+                    fields["operation"] = oldCommands(fields["operation"].toObject());
+                } else if (fields.contains("stages")) {
+                    auto stages = fields["stages"].toObject();
+                    auto stage = stages["items"].toObject();
+                    auto stageFields = stage["properties"].toObject();
+                    stripBatch(stageFields);
+                    stage["properties"] = stageFields;
+                    stages["items"] = stage;
+                    fields["stages"] = stages;
+                } else {
+                    stripBatch(fields);
+                }
+                input["properties"] = fields;
+                now["inputSchema"] = input;
+            }
             if (it.key() == "nova.pack.validate") {
                 QCOMPARE(now["inputSchema"], then["inputSchema"]);
                 QCOMPARE(now["annotations"], then["annotations"]);
@@ -802,6 +865,23 @@ class TexturePixelsTest : public QObject {
             QVERIFY2(failure == "invalid_arguments" && where == expected,
                      qPrintable(tool + ' ' + QJsonDocument(args).toJson(QJsonDocument::Compact) + " -> " + failure + ' ' + where));
         }
+        // tools/list names preview and workflow operations by command only, yet calls are checked in full.
+        const auto listing = protocol.receive(request(4, "tools/list")).response["result"].toObject()["tools"].toArray();
+        QCOMPARE(listing, toolListing());
+        QCOMPARE(listing.size(), definitions.size());
+        for (const QJsonValue &tool : listing) {
+            const auto name = tool["name"].toString();
+            if (name != "nova.edit.preview" && name != "nova.workflow.plan" && name != "nova.workflow.execute")
+                continue;
+            const auto fields = tool["inputSchema"]["properties"];
+            const auto operations = name == "nova.edit.preview" ? fields["operations"]
+                                                                : fields["stages"]["items"]["properties"]["operations"];
+            const auto commands = operations["items"]["properties"]["command"]["enum"].toArray();
+            QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") && commands.contains("hue_saturation") &&
+                     commands.contains("uv_rotate"), qPrintable(name));
+        }
+        const auto badPut = with(with(put, "command", "put_pixels"), "palette", QJsonArray{"#00000"});
+        QCOMPARE(argumentError("nova.edit.preview", {{"operations", QJsonArray{badPut}}}).first, "invalid_arguments");
         // The framing limit bounds every payload before it is parsed.
         QJsonArray rows;
         for (int i = 0; i < 256; ++i)
@@ -1211,6 +1291,12 @@ class TexturePixelsTest : public QObject {
         const auto python = qEnvironmentVariable("NOVA_MCP_SDK_PYTHON");
         if (python.isEmpty())
             QSKIP("NOVA_MCP_SDK_PYTHON is not set");
+        for (const auto suite : {"a", "b"}) {
+            const auto folder = root + "/assets/nova/textures/item/zbench_" + suite;
+            QVERIFY(QDir().mkpath(folder));
+            for (int i = 0; i < 5; ++i)
+                QVERIFY(canvas(16, 16, qRgba(128, 128, 128, 255)).save(folder + QString("/ore_%1.png").arg(i)));
+        }
         auto layered = nova::Document::open(root + '/' + second);
         QVERIFY(layered);
         QString error;
@@ -1231,9 +1317,9 @@ class TexturePixelsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["tools"].toInt(), 42);
+        QCOMPARE(summary["tools"].toInt(), 44);
         QCOMPARE(summary["opened"].toString(), second);
-        QCOMPARE(window.documents().all().size(), size_t(2));
+        QCOMPARE(window.documents().all().size(), size_t(12));
         QCOMPARE(nova::EditorTestAccess::active(window), doc);
         QCOMPARE(QImage(root + '/' + plain).convertToFormat(QImage::Format_RGBA8888), doc->image.convertToFormat(QImage::Format_RGBA8888));
         QCOMPARE(at(doc->image, 0, 0), qRgba(0, 0, 0, 0));

@@ -4,7 +4,7 @@ Nova Studio's MCP Phase 3 tools help an agent understand a resource pack before 
 **read-only**: they never change the pack, Nova's caches or any other file, never start a download, and never
 accept a filesystem path. They work in read-only and editing connections alike and follow the same rules as every
 other Nova tool: the user authorizes one project at a time, revocation and project switches end access, and each
-call needs the `generation` and `projectId` from `nova.project.info`.
+project-scoped call uses `generation` and, where the tool requires it, `projectId` from `nova.project.info`.
 
 | Tool | What it answers |
 | --- | --- |
@@ -12,6 +12,7 @@ call needs the `generation` and `projectId` from `nova.project.info`.
 | `nova.vanilla.texture` | Give me one cached vanilla texture (PNG), with its hash, size and provenance. |
 | `nova.asset.relationships` | How is this pack asset selected and used: definitions, models, variables, faces, companions? |
 | `nova.pack.validate` | What is wrong in the saved files *and* the open unsaved drafts, and how do I know? |
+| `nova.texture.analyze` | How do the palette, luminance, tile edges and frame layout read, and which assets look alike? |
 
 ## Preparing assets for edits
 
@@ -29,8 +30,9 @@ call needs the `generation` and `projectId` from `nova.project.info`.
   call preserves existing pack metadata. Get a fresh `indexRevision` after initialization before
   creating assets.
 
-Use `nova.texture.read` for indexed pixels and `nova.asset.preview_image` for labelled contact
-sheets or revision comparisons. See [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+Use `nova.texture.read` for indexed pixels, `nova.asset.preview_image` for labelled contact sheets or
+revision comparisons, and `nova.texture.analyze` for palette and layout checks. See
+[MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
 
 ## Where the data comes from
 
@@ -42,16 +44,15 @@ Nova uses these sources, in this order of precedence. The first source that has 
    Minecraft version, in their configured order. A folder made with `prepare-vanilla-cache.py` counts as a
    *verified vanilla resource source* only if its `nova-vanilla.json` matches the official client Nova pins for that
    version; otherwise Nova refuses it and reports it as unavailable.
-4. **Nova's vanilla texture cache**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
-   Baseline). It holds **textures and their `.png.mcmeta` only**. It contains no models, item definitions,
-   blockstates or equipment definitions and is never used as a model source.
+4. **Nova's vanilla baseline**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
+   Baseline). Current entries hold textures, animation metadata, models, item definitions and blockstates.
+   Older entries can hold just textures and animation metadata.
 
 Consequences an agent must respect:
 
-- Vanilla *models* (for example `minecraft:item/generated` or `minecraft:block/cube_all`) are available only when
-  the user configured a verified vanilla resource source. Without one, Nova reports links to them as unresolved or
-  unchecked. It never guesses a model, never treats a texture as a cube, and never reads a Minecraft JAR, the
-  `.minecraft` folder or any other location.
+- Vanilla models such as `minecraft:item/generated` and `minecraft:block/cube_all` resolve from a verified
+  source on the resource stack or a verified baseline with model data. When neither source supplies the
+  model, Nova reports the link as unresolved or unchecked.
 - If the cache has no entry for a version, Nova says so (`vanilla_not_cached`). Only the user can add a version, in
   Nova, which asks before downloading. An MCP request never downloads anything.
 - Responses name resource paths (`assets/<namespace>/...`), stack positions and folder names. They never contain
@@ -330,6 +331,25 @@ vanilla resource source is configured; `limitations` gives their count instead.
 
 `nova.workflow.validate_changes` is unchanged: it validates selected project assets without the resource stack.
 
+## `nova.texture.analyze`
+
+Pass `generation`, `projectId`, and either one pack `assetId` or `assetIds` with up to 16 distinct
+pack texture IDs. The result preserves input order and includes an `error` on any unavailable asset.
+Nova analyzes the visible composite of an open draft's active frame or the first source frame of a
+saved PNG. Pixel metrics cover frames up to 256 × 256. Visible colour counts include distinct RGBA
+values with nonzero alpha. The luminance range uses the 10th and 90th percentiles of encoded Rec.
+709 luma, and reports gaps between occupied levels.
+
+For textures under `textures/block/`, Nova compares opposite edges to ordinary adjacent pairs inside
+the tile and flags unusually strong seams. For a matching Minecraft texture in the locally verified
+baseline, it compares sheet dimensions and frame grid. A draft's animated layout uses Nova's
+one-column export. A missing baseline leaves the comparison unavailable.
+
+When two sampled frames have the same dimensions, Nova checks colour distance and transparency over
+the pixels occupied by either frame. Near-duplicate, luminance and seam findings are advisory. Each
+finding includes a rule, evidence and a next step. Use `nova.pack.validate` for pack references and
+metadata errors.
+
 ## Version-specific rules
 
 Rules depend on the project's Minecraft version (`minecraftVersion`), and Nova never applies a 1.21.11 fact to
@@ -437,6 +457,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -566,6 +592,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -716,6 +748,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -815,6 +853,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maximum": 200,
         "minimum": 1,
         "type": "integer"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [

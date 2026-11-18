@@ -95,7 +95,16 @@ QString revisionToken(const mcp::Snapshot &scope, const DocumentType &doc) {
     return QString::fromLatin1(QMessageAuthenticationCode::hash(
         payload, scope.idKey, QCryptographicHash::Sha256).toHex());
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
+template <typename DocumentType>
+QJsonObject editRevisionState(const mcp::Snapshot &scope, const DocumentType &doc) {
+    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
+            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
+            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)}};
+}
+QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (!details)
+        return state;
     QJsonArray layers, frames;
     for (const auto &layer : doc.layers())
         layers.append(QJsonObject{{"id", layer.id.toString(QUuid::WithoutBraces)}, {"name", layer.name},
@@ -106,21 +115,24 @@ QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
             break;
         frames.append(QJsonObject{{"id", frame.id.toString(QUuid::WithoutBraces)}, {"name", frame.name}});
     }
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"width", doc.image.width()}, {"height", doc.image.height()},
-            {"animated", doc.animated()}, {"layers", layers}, {"frames", frames},
-            {"frameCount", qint64(animation.frames.size())}, {"playbackCount", qint64(animation.entries.size())},
-            {"defaultTicks", animation.defaultTicks}, {"interpolate", animation.interpolate},
-            {"activeFrame", doc.activeFrame().toString(QUuid::WithoutBraces)},
-            {"activeLayer", doc.activeLayer().toString(QUuid::WithoutBraces)}};
+    state["width"] = doc.image.width();
+    state["height"] = doc.image.height();
+    state["animated"] = doc.animated();
+    state["layers"] = layers;
+    state["frames"] = frames;
+    state["frameCount"] = qint64(animation.frames.size());
+    state["playbackCount"] = qint64(animation.entries.size());
+    state["defaultTicks"] = animation.defaultTicks;
+    state["interpolate"] = animation.interpolate;
+    state["activeFrame"] = doc.activeFrame().toString(QUuid::WithoutBraces);
+    state["activeLayer"] = doc.activeLayer().toString(QUuid::WithoutBraces);
+    return state;
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc) {
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"elementCount", doc.authoritative()["elements"].toArray().size()}};
+QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (details)
+        state["elementCount"] = doc.authoritative()["elements"].toArray().size();
+    return state;
 }
 QJsonArray describeOperations(const QJsonArray &operations) {
     QJsonArray description;
@@ -137,6 +149,34 @@ QJsonArray describeOperations(const QJsonArray &operations) {
         description.append(item);
     }
     return description;
+}
+
+QJsonObject nativeOperation(QJsonObject command) {
+    const auto name = command["command"].toString();
+    const auto &info = *ops::find(name);
+    auto params = command["params"].toObject();
+    // MCP uses CSS RGBA. The image operation registry uses QColor's ARGB strings.
+    const auto argb = [](const QString &color) {
+        return color.size() == 9 ? '#' + color.right(2) + color.mid(1, 6) : color;
+    };
+    for (const auto &param : info.params) {
+        if (!params.contains(param.key))
+            continue;
+        if (param.type == ops::ParamType::Color)
+            params[param.key] = argb(params[param.key].toString());
+        if (param.type == ops::ParamType::Palette) {
+            QStringList colors;
+            for (const auto &color : params[param.key].toArray())
+                colors.append(argb(color.toString()));
+            params[param.key] = colors.join(',');
+        }
+    }
+    command["command"] = "operation";
+    command["operation"] = name;
+    command["params"] = params;
+    if (info.generator)
+        command["fitCanvas"] = true;
+    return command;
 }
 
 QJsonObject encodePreview(const QImage &image, const QString &asset = {}, const QString &revision = {}) {
@@ -695,7 +735,8 @@ void Window::ensureMcpService() {
                 }
                 describeVanillaCache(target);
             };
-            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool.startsWith("nova.drafts.") ||
+            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool == "nova.texture.adjust_bulk" ||
+                tool.startsWith("nova.drafts.") ||
                 tool == "nova.asset.create" || tool.endsWith(".edit") || tool.startsWith("nova.edit.") ||
                 !mcp::compactTextureCommand(tool).isEmpty()) {
                 auto addOpen = [&](const QString &path) {
@@ -716,7 +757,8 @@ void Window::ensureMcpService() {
                 tool == "nova.pack.validate" || tool == "nova.workflow.validate_changes")
                 snapshot.models = modelPanel->documentSources();
             if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla.") ||
-                snapshot.textureReadTarget.startsWith("vanilla:"))
+                tool == "nova.texture.analyze" || (!snapshot.textureTargets.isEmpty() &&
+                    snapshot.textureTargets.cbegin()->startsWith("vanilla:")))
                 describeSources(snapshot);
             if (revisions)
                 for (const auto &path : modelPanel->openModelAssets())
@@ -724,18 +766,18 @@ void Window::ensureMcpService() {
                         snapshot.revisions.insert(path, revisionToken(snapshot, *doc));
             const bool rasterMetadata = tool == "nova.texture.inspect" || tool == "nova.animation.inspect" ||
                 tool == "nova.asset.inspect" || batch || context;
-            if (!snapshot.textureReadTarget.isEmpty() && !snapshot.textureReadTarget.startsWith("vanilla:")) {
+            if (!snapshot.textureTargets.isEmpty()) {
                 for (const auto &doc : session.all()) {
                     const auto relative = QDir(project).relativeFilePath(doc->path);
                     if (baselineDocs.contains(doc->id()) || !snapshot.index.records.contains(relative) ||
-                        mcp::assetIdentifier(snapshot, relative) != snapshot.textureReadTarget)
+                        !snapshot.textureTargets.contains(mcp::assetIdentifier(snapshot, relative)))
                         continue;
-                    snapshot.textureReadBusy = doc->strokeOpen();
-                    if (!snapshot.textureReadBusy) {
-                        snapshot.textureReadDocument = doc->recoverySnapshot();
+                    if (doc->strokeOpen()) {
+                        snapshot.busyTextures.insert(relative);
+                    } else {
+                        snapshot.textureDocuments.insert(relative, doc->recoverySnapshot());
                         snapshot.revisions.insert(relative, revisionToken(snapshot, *doc));
                     }
-                    break;
                 }
             }
             if (rasterMetadata || revisions) {
@@ -1133,7 +1175,7 @@ void Window::ensureMcpService() {
                 {"tools", QJsonArray{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
                                      "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo",
                                      "nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map",
-                                     "nova.texture.erase", "nova.asset.open"}}};
+                                     "nova.texture.erase", "nova.texture.adjust_bulk", "nova.asset.open"}}};
             if (capabilities && asset.isEmpty())
                 return result;
             if (!capabilities && QApplication::activeModalWidget())
@@ -1154,11 +1196,13 @@ void Window::ensureMcpService() {
 
             const bool redo = request.tool == "nova.edit.redo";
             const bool history = redo || request.tool == "nova.edit.undo";
+            const bool includeDocument = request.arguments["include"] != "summary";
             // A compact texture tool is one native command built from its own arguments.
             const auto compact = mcp::compactTextureCommand(request.tool);
             auto compactOperation = [&] {
                 auto operation = request.arguments;
-                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview"})
+                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview",
+                                       "verbosity", "include"})
                     operation.remove(key);
                 operation["command"] = compact;
                 return operation;
@@ -1288,7 +1332,7 @@ void Window::ensureMcpService() {
                 if (preview)
                     return previewResult(*model);
                 const auto revision = revisionToken(snapshot, *model);
-                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview,
+                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview, includeDocument,
                           changes = summary(path, revision),
                           operations, count = operations.size()]() -> QJsonObject {
                     if (modelPanel->openModelDocument(path) != model ||
@@ -1358,7 +1402,7 @@ void Window::ensureMcpService() {
                     }
                     metrics.record("mcp_model_native_mutation", publication);
                     const bool changed = revisionToken(snapshot, *model) != revision;
-                    auto response = documentState(snapshot, *model);
+                    auto response = documentState(snapshot, *model, includeDocument);
                     completeEdit(response, transaction, history ? 1 : count, changed);
                     response["changeSummary"] = changes;
                     if (changed) {
@@ -1459,15 +1503,17 @@ void Window::ensureMcpService() {
                 if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
                     doc->pixelBytes() > MaxEditPixelBytes)
                     return toolError("edit_limit", "The document exceeds the editing budget.");
+                QJsonArray nativeCommands;
+                auto canvas = doc->image.rect();
                 for (const auto &value : operations) {
                     if (modelOperation(value))
                         return toolError("invalid_asset_type", "This command requires a model document.");
                     const auto op = value.toObject();
                     const auto name = op["command"].toString();
-                    auto inside = [&](int x, int y) { return doc->image.rect().contains(x, y); };
+                    auto inside = [&](int x, int y) { return canvas.contains(x, y); };
                     if (name == "fill" && !inside(op["x"].toInt(), op["y"].toInt()))
                         return toolError("invalid_arguments", "The seed lies outside the canvas.");
-                    if (name == "fill_rect" && !doc->image.rect().contains(
+                    if (name == "fill_rect" && !canvas.contains(
                             QRect(op["x"].toInt(), op["y"].toInt(), op["width"].toInt(), op["height"].toInt())))
                         return toolError("invalid_arguments", "The rectangle lies outside the canvas.");
                     for (const auto &point : op["points"].toArray()) {
@@ -1478,7 +1524,7 @@ void Window::ensureMcpService() {
                     for (const auto &key : {"layer", "frame"})
                         if (op.contains(key) && QUuid(op[key].toString()).isNull())
                             return toolError("invalid_arguments", "The layer or frame identifier is invalid.");
-                    if (texture::compactCommand(name)) {
+                    if (!compact.isEmpty()) {
                         // Everything that needs the canvas is checked here, before any draft exists.
                         if (op.contains("layer") && !doc->layer(QUuid(op["layer"].toString())))
                             return toolError("invalid_arguments", "Invalid argument at /layer: the layer is not in this document.",
@@ -1486,11 +1532,23 @@ void Window::ensureMcpService() {
                         if (const auto failure = texture::validate(name, op, doc->image.size()); !failure.ok())
                             return toolError("invalid_arguments", failure.message, {{"pointer", failure.pointer}});
                     }
+                    if (name == "directional_shading") {
+                        const auto source = op["params"].toObject()["height_source"].toString();
+                        const bool needsMap = source == "Heightmap layer" || source == "Normal map layer";
+                        if (needsMap != op.contains("mapLayer"))
+                            return toolError("invalid_arguments",
+                                "Supply mapLayer exactly when height_source is Heightmap layer or Normal map layer.");
+                    }
+                    if (name == "resize_image") {
+                        const auto params = op["params"].toObject();
+                        canvas.setSize(QSize(params["width"].toInt(), params["height"].toInt()));
+                    }
+                    nativeCommands.append(mcp::nativeTextureCommand(name) ? nativeOperation(op) : op);
                 }
                 QString error;
                 QElapsedTimer staging;
                 staging.start();
-                prepared = session.prepareBatch(doc, operations, &error, snapshot.generation, MaxEditPixelBytes,
+                prepared = session.prepareBatch(doc, nativeCommands, &error, snapshot.generation, MaxEditPixelBytes,
                                                 request.continuePreparation);
                 metrics.record(doc->animated() ? "mcp_animation_prepare" : "mcp_texture_prepare", staging);
                 if (!prepared)
@@ -1501,7 +1559,7 @@ void Window::ensureMcpService() {
             const auto revision = revisionToken(snapshot, *doc);
             commit = [this, doc, relative, snapshot, revision, interactionActive, prepared, history, provisional,
                       changes = summary(relative, revision), compact, asset,
-                      operations, redo, returnPreview, workflowStage = request.workflowStage,
+                      operations, redo, returnPreview, includeDocument, workflowStage = request.workflowStage,
                       count = operations.size()]() -> QJsonObject {
                 if (!session.owns(doc) || revisionToken(snapshot, *doc) != revision)
                     return toolError("revision_conflict", "The texture changed before commit.");
@@ -1572,7 +1630,7 @@ void Window::ensureMcpService() {
                     return toolError("edit_rejected", error.isEmpty() ? QString("The commit budget changed.") : error);
                 }
                 metrics.record(doc->animated() ? "mcp_animation_native_publication" : "mcp_texture_native_publication", publication);
-                auto response = documentState(snapshot, *doc);
+                auto response = documentState(snapshot, *doc, includeDocument);
                 completeEdit(response, transaction, history ? 1 : count, revisionToken(snapshot, *doc) != revision);
                 response["changeSummary"] = changes;
                 if (!compact.isEmpty())

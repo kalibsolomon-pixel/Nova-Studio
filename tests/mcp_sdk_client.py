@@ -769,7 +769,7 @@ async def phase1(client: ClientSession, initialized) -> dict:
     assert templates[0].uriTemplate == "nova://rules/{version}/{topic}"
     catalog = await client.call_tool("nova.guide.list", {})
     topics = [entry["topic"] for entry in catalog.structuredContent["topics"]]
-    assert topics == ["pack", "items", "textures", "armor", "trims", "animations", "pvp"], topics
+    assert topics == ["pack", "items", "textures", "armor", "trims", "animations", "pixel-art", "pvp"], topics
     for topic in topics:
         read = await client.read_resource(f"nova://rules/1.21.11/{topic}")
         tool = await client.call_tool("nova.guide.get", {"topic": topic, "version": "1.21.11"})
@@ -810,6 +810,10 @@ async def phase1(client: ClientSession, initialized) -> dict:
     return {"saved": draft["path"], "unsavedCount": saved.structuredContent["unsavedCount"], "topics": len(topics)}
 
 
+def wire_bytes(message):
+    return len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+
+
 def cycle_bytes(frames, native_preview=False):
     """Count compact UTF-8 JSON-RPC lines reconstructed from SDK request and response frames."""
     calls = {frame["message"]["id"] for frame in frames
@@ -830,7 +834,7 @@ def cycle_bytes(frames, native_preview=False):
             kind = "responseBytes"
             sizes["responseTextBytes"] += sum(len(block["text"].encode("utf-8"))
                                               for block in message["result"]["content"] if block["type"] == "text")
-        sizes[kind] += len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+        sizes[kind] += wire_bytes(message)
     return sizes
 
 
@@ -848,10 +852,18 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
     legacy_target = {**target, "maxEdge": 16}
     pixels = await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": revision})
     assert pixels.structuredContent["width"] == pixels.structuredContent["height"] == 16
-    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision})
+    edit_start = len(wire)
+    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision, "include": "summary"})
+    typical = cycle_bytes(wire[edit_start:])
     assert edit.structuredContent["changed"]
+    assert "layers" not in edit.structuredContent and "frames" not in edit.structuredContent
+    text = json.loads(edit.content[0].text)
+    assert text["revision"] == edit.structuredContent["revision"] and text["assetId"] == target["assetId"], text
+    assert "transactionId" not in text and "summary" in text, text
     await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": edit.structuredContent["revision"]})
     before = cycle_bytes(wire[start:], native_preview=True)
+    full = await call("nova.texture.read", {**target, "verbosity": "full"})
+    assert json.loads(full.content[0].text) == full.structuredContent, full
     reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
     revision = reset.structuredContent["revision"]
 
@@ -865,7 +877,7 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
     after = cycle_bytes(wire[start:])
     reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
     assert before["calls"] == 3 and after["calls"] == 2
-    return {"before": before, "after": after}, reset.structuredContent["revision"]
+    return {"before": before, "after": after, "typicalEdit": typical}, reset.structuredContent["revision"]
 
 
 async def phase2(client: ClientSession, wire) -> dict:
@@ -874,6 +886,8 @@ async def phase2(client: ClientSession, wire) -> dict:
     and reject the same arguments as Nova, except the checks that need the canvas."""
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+    listing = next(frame["message"] for frame in reversed(wire) if frame["direction"] == "server"
+                   and "tools" in frame["message"].get("result", {}))
     names = ["nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map", "nova.texture.erase"]
     validators = {}
     for name in names:
@@ -890,7 +904,8 @@ async def phase2(client: ClientSession, wire) -> dict:
         info = await client.call_tool("nova.project.info")
     scope = {"generation": info.structuredContent["generation"], "projectId": info.structuredContent["projectId"]}
     drafts = await client.call_tool("nova.drafts.list", scope)
-    row = next(entry for entry in drafts.structuredContent["drafts"] if entry["type"] == "texture")
+    row = next(entry for entry in drafts.structuredContent["drafts"]
+               if entry["path"] == "assets/nova/textures/item/plain.png")
     capabilities = await client.call_tool("nova.edit.capabilities", {"generation": scope["generation"], "assetId": row["assetId"]})
     assert set(names) <= set(capabilities.structuredContent["tools"]), capabilities.structuredContent["tools"]
     revision = capabilities.structuredContent["document"]["revision"]
@@ -935,7 +950,7 @@ async def phase2(client: ClientSession, wire) -> dict:
             assert any(item.type == "image" for item in comparison.content)
             assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"]})
             other_id = next(entry["assetId"] for entry in assets.structuredContent["assets"]
-                            if entry["type"] == "texture" and entry["assetId"] != target["assetId"])
+                            if entry["path"] == "assets/nova/textures/item/second.png")
             sheet = await client.call_tool("nova.asset.preview_image", {
                 **scope, "assetIds": [target["assetId"], other_id]})
             assert not sheet.isError and sheet.structuredContent["columns"] == 2, sheet
@@ -976,6 +991,43 @@ async def phase2(client: ClientSession, wire) -> dict:
     redone = await client.call_tool("nova.edit.redo", {**target, "expectedRevision": undone.structuredContent["revision"]})
     assert not redone.isError and redone.structuredContent["revision"] != undone.structuredContent["revision"], redone
     cycle, revision = await texture_cycle(client, wire, target, redone.structuredContent["revision"])
+    native = tools["nova.texture.edit"]
+    native_validator = jsonschema.Draft202012Validator(native.inputSchema)
+    region = {"x": 0, "y": 0, "width": 2, "height": 2}
+    before_native = await client.call_tool("nova.texture.read", target)
+    native_request = {**target, "expectedRevision": revision, "operation": {
+        "command": "gen_gui_panel", "region": region,
+        "params": {"base": "#12345680", "style": "Flat", "outline": False, "corner_radius": 0},
+    }}
+    native_validator.validate(native_request)
+    generated = await client.call_tool(native.name, native_request)
+    assert not generated.isError and generated.structuredContent["changed"], generated
+    after_native = await client.call_tool("nova.texture.read", {**target, "region": region})
+    assert "#12345680" in after_native.structuredContent["pixels"]["palette"], after_native
+    assert after_native.structuredContent["revision"] == generated.structuredContent["revision"]
+    restored_native = await client.call_tool("nova.edit.undo", {
+        **target, "expectedRevision": generated.structuredContent["revision"]})
+    assert not restored_native.isError, restored_native
+    after_undo = await client.call_tool("nova.texture.read", target)
+    assert after_undo.structuredContent["pixels"] == before_native.structuredContent["pixels"]
+    revision = restored_native.structuredContent["revision"]
+    bad = await client.call_tool(native.name, {**target, "expectedRevision": revision, "operation": {
+        "command": "resize_image", "params": {"width": 257, "height": 16}}})
+    assert tool_error(bad)["code"] == "invalid_arguments", bad
+    resized = await client.call_tool("nova.edit.batch", {**target, "expectedRevision": revision, "operations": [
+        {"command": "resize_image", "params": {"width": 24, "height": 16}},
+        {"command": "fill_rect", "layer": capabilities.structuredContent["document"]["activeLayer"],
+         "x": 23, "y": 0, "width": 1, "height": 1, "color": "#aa1122", "opacity": 255},
+        {"command": "put_pixels", "x": 22, "y": 0, "width": 1, "height": 1, "palette": ["#335577"], "rows": ["0"]},
+    ]})
+    assert not resized.isError and resized.structuredContent["width"] == 24, resized
+    expanded = await client.call_tool("nova.texture.read", {**target, "region": {
+        "x": 22, "y": 0, "width": 2, "height": 1}})
+    assert set(expanded.structuredContent["pixels"]["palette"]) == {"#aa1122", "#335577"}, expanded
+    undo_resize = await client.call_tool("nova.edit.undo", {
+        **target, "expectedRevision": resized.structuredContent["revision"]})
+    assert not undo_resize.isError and undo_resize.structuredContent["width"] == 16, undo_resize
+    revision = undo_resize.structuredContent["revision"]
     saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
                                                         "expectedRevision": revision})
     assert not saved.isError and saved.structuredContent["status"] == "saved", saved
@@ -991,8 +1043,76 @@ async def phase2(client: ClientSession, wire) -> dict:
     assert not wrote.isError and wrote.structuredContent["undoAvailable"], wrote
     restored = await client.call_tool("nova.edit.undo", {**second, "expectedRevision": wrote.structuredContent["revision"]})
     assert not restored.isError and restored.structuredContent["redoAvailable"], restored
+    bulk = await bulk_recolor(client, wire, scope, assets.structuredContent["assets"], tools)
     return {"saved": row["path"], "opened": opened["path"], "tools": len(tools),
-            "edits": len(edits), "argumentErrors": len(invalid) + len(canvas), "textureCycle": cycle}
+            "edits": len(edits), "argumentErrors": len(invalid) + len(canvas), "textureCycle": cycle,
+            "bulkRecolor": bulk, "toolsListBytes": wire_bytes(listing)}
+
+
+async def bulk_recolor(client, wire, scope, assets, tools):
+    import jsonschema
+
+    ids = {asset["path"]: asset["assetId"] for asset in assets}
+    groups = [[ids[f"assets/nova/textures/item/zbench_{group}/ore_{i}.png"] for i in range(5)]
+              for group in ("a", "b")]
+    mapping = {"mappings": [{"from": "#808080", "to": "#325681"}]}
+
+    async def call(tool, args):
+        response = await client.call_tool(tool, {**scope, **args})
+        assert not response.isError, response
+        return response.structuredContent
+
+    start = len(wire)
+    for asset in groups[0]:
+        opened = await call("nova.asset.open", {"assetId": asset})
+        assert opened["opened"], opened
+        edited = await call("nova.texture.palette_remap", {
+            "assetId": asset, "expectedRevision": opened["revision"], **mapping})
+        assert edited["pixelsChanged"] == 256, edited
+    before = cycle_bytes(wire[start:])
+
+    start = len(wire)
+    tool = tools["nova.texture.adjust_bulk"]
+    targets = [{"assetId": asset, "expectedRevision": "current"} for asset in groups[1]]
+    operation = {"command": "palette_remap", **mapping}
+    requests = {"targets": targets, "operations": [operation]}
+    jsonschema.Draft202012Validator(tool.inputSchema).validate({**scope, **requests})
+    result = await call(tool.name, requests)
+    after = cycle_bytes(wire[start:])
+    assert result["committed"] == 5 and result["rejected"] == 0, result
+    assert [row["assetId"] for row in result["results"]] == groups[1]
+    for row in result["results"]:
+        assert row["opened"] and row["changed"] and row["undoAvailable"], row
+        read = await call("nova.texture.read", {"assetId": row["assetId"]})
+        assert read["revision"] == row["revision"] and read["pixels"]["palette"] == ["#325681"], read
+
+    first, second, third = result["results"][:3]
+    mixed = await call(tool.name, {"targets": [
+        {"assetId": first["assetId"], "expectedRevision": "f" * 64},
+        {"assetId": second["assetId"], "expectedRevision": second["revision"]},
+    ], "operations": [{"command": "colorize", "params": {"color": "#00ff00"}}]})
+    assert mixed["committed"] == 1 and mixed["rejected"] == 1, mixed
+    assert mixed["results"][0]["error"]["code"] == "revision_conflict", mixed
+    assert mixed["results"][1]["changed"] and not mixed["results"][1]["opened"], mixed
+
+    stages = [{"assetId": row["assetId"], "expectedRevision": row["revision"], "operations": [
+        {"command": "put_pixels", "x": 0, "y": 0, "width": 1, "height": 1,
+         "rows": ["0"], "palette": ["#ff0000"]},
+        {"command": "erase", "region": {"x": 1, "y": 0, "width": 1, "height": 1}},
+    ]} for row in (first, third)]
+    bad = await client.call_tool("nova.edit.batch", {**scope, **stages[0], "operations": [
+        stages[0]["operations"][0], {"command": "erase", "region": {"x": 16, "y": 0, "width": 1, "height": 1}},
+    ]})
+    assert tool_error(bad)["code"] == "edit_rejected", bad
+    planned = await call("nova.workflow.plan", {"stages": stages})
+    assert planned["status"] == "ready", planned
+    workflow = await call("nova.workflow.execute", {"stages": stages})
+    assert workflow["status"] == "complete" and len(workflow["stages"]) == 2, workflow
+    for stage, edited in zip(stages, workflow["stages"]):
+        assert edited["appliedOperations"] == 2, edited
+        restored = await call("nova.edit.undo", {"assetId": stage["assetId"], "expectedRevision": edited["revision"]})
+        assert restored["redoAvailable"], restored
+    return {"before": before, "after": after}
 
 
 async def phase3(client: ClientSession) -> dict:
@@ -1001,7 +1121,8 @@ async def phase3(client: ClientSession) -> dict:
     import hashlib
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-    names = ["nova.vanilla.list", "nova.vanilla.texture", "nova.asset.relationships", "nova.pack.validate"]
+    names = ["nova.vanilla.list", "nova.vanilla.texture", "nova.asset.relationships", "nova.pack.validate",
+             "nova.texture.analyze"]
     for name in names:
         tool = tools[name]
         assert tool.outputSchema and tool.annotations.readOnlyHint is True, name
@@ -1057,6 +1178,15 @@ async def phase3(client: ClientSession) -> dict:
     if "NOVA_PHASE3_TEXTURE" in os.environ:
         assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"], "search": target})
         asset = next(row["assetId"] for row in assets.structuredContent["assets"] if row["path"] == target)
+        analysis = await client.call_tool("nova.texture.analyze", {**scope, "assetId": asset})
+        assert not analysis.isError, analysis
+        sampled = analysis.structuredContent["assets"][0]
+        assert sampled["source"] == "disk" and sampled["layout"]["animated"], sampled
+        assert sampled["colorCount"] >= 1, sampled
+        denied = await client.call_tool("nova.texture.adjust_bulk", {**scope,
+            "targets": [{"assetId": asset, "expectedRevision": "current"}],
+            "operations": [{"command": "hue_saturation", "params": {"hue": 25}}]})
+        assert tool_error(denied)["code"] == "permission_denied", denied
         disk = await client.call_tool("nova.texture.read", {**scope, "assetId": asset, "frame": 1})
         assert not disk.isError and disk.structuredContent["source"] == "disk", disk
         assert disk.structuredContent["frame"] == 1 and disk.structuredContent["pixels"]["height"] == 16, disk
@@ -1100,14 +1230,16 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 42
+            assert len(tools.tools) == 44
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")
                 return
             if mode == "phase2":
-                print(json.dumps(await phase2(client, wire)), flush=True)
-                save_wire("sdk-phase2.jsonl")
+                try:
+                    print(json.dumps(await phase2(client, wire)), flush=True)
+                finally:
+                    save_wire("sdk-phase2.jsonl")
                 return
             if mode == "phase1":
                 print(json.dumps(await phase1(client, initialized)), flush=True)

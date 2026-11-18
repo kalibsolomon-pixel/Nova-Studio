@@ -69,11 +69,17 @@ class Service : public QObject {
         QJsonArray results;
         int total = 0;
         QJsonObject stopReason;
+        QJsonArray bulkTargets;
+        QElapsedTimer elapsed;
+        int committed = 0;
+        bool fullText = false;
     };
     std::shared_ptr<Workflow> workflow;
     QJsonObject workflowResult(const QString &status, const QJsonObject &failure = {}) const;
     void publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> &state,
                          const std::shared_ptr<QList<Commit>> &commits);
+    void publishBulk(quint64 sequence, const std::shared_ptr<Workflow> &state,
+                     const std::shared_ptr<Snapshot> &scope, const QJsonArray &operations);
   public:
     explicit Service(std::function<bool(Snapshot &, const QString &)> snapshot, QObject *parent);
     ~Service() override;

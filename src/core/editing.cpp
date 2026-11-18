@@ -361,9 +361,18 @@ bool Document::applyOperation(QUuid id, const ops::Spec &input, QString *error,
         return failWith(error, "Show the selected layer before editing it");
     finish();
     ops::Context ctx = context ? *context : ops::Context{};
-    if (hasSelection() && ops::maskEmpty(selectionMask))
+    if (ctx.mask && ctx.mask->size() != image.size())
+        return failWith(error, "The operation mask must match the canvas size");
+    QImage clippedSelection;
+    if (hasSelection() && ctx.mask) {
+        clippedSelection = ops::combine(selectionMask, *ctx.mask, ops::Combine::Intersect);
+        ctx.mask = &clippedSelection;
+    } else if (hasSelection()) {
+        ctx.mask = &selectionMask;
+    }
+    const auto mask = ctx.mask;
+    if (mask && ops::maskEmpty(*mask))
         return true; // no selected pixels: no effect, generator or empty shading layer
-    ctx.mask = hasSelection() ? &selectionMask : nullptr;
     if (info->generator) {
         if (spec.params["width"].toInt() != image.width() || spec.params["height"].toInt() != image.height())
             return failWith(error, "Generator size must match the document dimensions");
@@ -377,11 +386,11 @@ bool Document::applyOperation(QUuid id, const ops::Spec &input, QString *error,
     if (!result.ok())
         return failWith(error, result.canceled ? "Operation canceled" : result.error);
     QImage out = result.image;
-    if (info->generator && hasSelection())
-        out = ops::applyMask(target->pixels, out, &selectionMask);
+    if (info->generator && mask)
+        out = ops::applyMask(target->pixels, out, mask);
     if (shadingLayer) {
-        if (hasSelection())
-            out = ops::maskAlpha(out, selectionMask);
+        if (mask)
+            out = ops::maskAlpha(out, *mask);
         const auto name = target->name.left(200) + " shading";
         const bool ok = addLayerWithPixels(name, out, {{"nova.effect", spec.toJson()}}, error, createdLayer);
         if (ok && !compoundDepth && !history.empty())

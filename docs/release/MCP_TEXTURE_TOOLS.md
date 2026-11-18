@@ -1,4 +1,4 @@
-# Compact texture editing tools (MCP)
+# Texture authoring tools (MCP)
 
 Four MCP tools change many pixels of an open texture in one call:
 
@@ -104,6 +104,15 @@ Every tool returns the usual edit result (`revision`, `dirty`, `undoAvailable`, 
 | `pixelsChanged` | How many pixels of that layer changed (stored bytes compared). |
 
 Use the returned `revision` as `expectedRevision` for the next edit.
+
+Edit tools accept `include: "summary"` to omit document details such as dimensions, layers and
+frames from the result. The default `include: "document"` returns the usual state. Both forms keep
+the new revision, draft status and undo availability. On `nova.workflow.execute`, `include` applies
+to every stage.
+
+Successful tool replies contain the result in `structuredContent` and a compact JSON summary in
+the text block. Clients that only consume text can read the summary's IDs and revisions, or pass
+`verbosity: "full"` to get the complete result as JSON text. `verbosity` also works on read tools.
 
 ## Read exact pixels
 
@@ -235,6 +244,30 @@ full canvas.
  "region": {"x": 0, "y": 12, "width": 16, "height": 4}, "strength": 255}
 ```
 
+## Native adjustments and generators
+
+Use `nova.texture.edit` with an `operation` such as
+`{"command":"hue_saturation","params":{"hue":-25,"saturation":10}}`. The same
+commands work in `nova.edit.batch`, `nova.edit.preview`, and workflow stages. Each
+operation accepts only the parameters in `tools/list`. Optional parameters use
+Nova's editor defaults. Colours use the same CSS order as the compact tools.
+
+- Colour and tone: `hue_saturation`, `levels`, `colorize`, `quantize`, `palette_map`.
+  `levels` requires `input_white` to exceed `input_black`. `palette_map` requires
+  an explicit `palette` of 1–256 colours.
+- Effects: `outline`, `directional_shading`, `seamless`. For a heightmap or normal
+  map source, set `mapLayer` to a layer in the active frame. Set `output` to
+  `Modify pixels` to shade the target in place. The default adds a shading layer.
+- Generators: `gen_stone`, `gen_bricks`, `gen_tiles`, `gen_wood`, `gen_ore`,
+  `gen_metal`, `gen_gui_panel`, `gen_item`, `gen_noise`. They render at the current
+  canvas size and replace pixels on the target layer.
+- `resize_image` requires `params.width` and `params.height` (1–256). It resizes
+  every layer and frame together and uses nearest-neighbour resampling by default.
+
+Except for `resize_image`, choose an optional visible `layer` in the active frame
+and an optional `region` inside the canvas. Nova computes the effect at canvas
+size and clips the result to the region and the active selection.
+
 ## Errors
 
 Errors are tool results with `isError: true` and a text block `{"error": {"code", "message",
@@ -262,12 +295,55 @@ field in the message and in `details.pointer`, and never echo the value.
 
 A revoked authorization closes the connection; no further call reaches Nova Studio.
 
-## Not included
+## Combine edits and recolour multiple textures
 
-These tools do not create assets, read the vanilla cache, edit several documents in one call, or run
-inside `nova.edit.batch` / `nova.workflow.*` stages. There is no PNG input: palette rows are what an
-agent can write directly, and a PNG would need compression and checksums for no gain at 256 × 256 or
-below.
+In `nova.edit.batch`, `nova.edit.preview` or a workflow stage, use `put_pixels`, `palette_remap`,
+`gradient_map` and `erase` as `command` values. Copy each standalone tool's pixel arguments into
+the command object. The enclosing batch or stage supplies the target and revision. Commands see
+the canvas left by preceding commands, and the whole batch is one undoable step per document.
+
+Use `nova.texture.adjust_bulk` to apply up to eight shared operations to 1–64 distinct pack textures.
+It accepts `palette_remap`, `gradient_map`, `hue_saturation`, `levels`, `colorize`, `palette_map`
+and `quantize`. Each target uses its own active visible layer and frame, and an optional per-operation
+region clips against that target's selection. For example, pass these fields with `generation` and
+`projectId`:
+
+```json
+{"targets":[{"assetId":"…","expectedRevision":"current"}],
+ "operations":[{"command":"palette_remap","mappings":[{"from":"#808080","to":"#325681"}]}]}
+```
+
+Use a live revision to require an open document at that revision. The explicit value `current` takes
+the revision at preparation and opens a background tab when needed, within Nova's 32-document opening
+limit. Each asset commits independently in input order. A failed asset leaves its pixels unchanged
+and may leave a newly opened tab. The remaining assets still run. Results report `committed` or
+`rejected` with an error code such as `revision_conflict`, `open_limit` or `edit_rejected`.
+Cancellation, a project switch or the 30-second deadline stops at an asset boundary and marks the
+remaining targets `not_run`. Earlier commits stay available for individual undo and save.
+
+## SDK wire measurements
+
+The SDK fixture uses 16 × 16 textures. Counts are compact UTF-8 JSON-RPC lines and sampled
+`o200k_base` tokens. Transaction IDs and revisions vary between runs. The edit compares a
+one-pixel `put_pixels` with default document state before and `include: "summary"` after.
+
+| Measurement | Before bytes / tokens | After bytes / tokens |
+| --- | ---: | ---: |
+| `tools/list`, expanded schemas before deduplication | 239,176 / 68,282 | 187,042 / 50,371 |
+| `tools/list`, brief preview and workflow operations | 187,042 / 50,371 | 121,095 / not resampled |
+| One edit reply | 2,868 / 1,148 | 1,513 / 566 |
+| Edit text block | 1,321 / 556 | 458 / 173 |
+| Five-texture recolour requests | 4,060 / 1,815 | 908 / 386 |
+| Five-texture recolour replies | 24,240 / 9,525 | 3,296 / 1,292 |
+
+The recolour compares five separate open-and-remap pairs (10 calls) with one bulk call. The
+original 42-tool listing was 113,065 bytes. The expanded measurement includes the new command
+schemas, and the final listing also includes the analyzer.
+
+`nova.edit.preview`, `nova.workflow.plan` and `nova.workflow.execute` list each operation by its
+`command` name only, because their full schemas repeat `nova.edit.batch`. Nova still checks their
+calls against the full command schemas, so an invalid operation fails with the same pointer as in a
+batch.
 
 ## Exact definitions
 
@@ -367,6 +443,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -654,6 +743,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -952,6 +1054,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -1206,6 +1321,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
