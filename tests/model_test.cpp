@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
+#include "vanilla/cache.h"
+#include "vanilla/metadata.h"
+#include <QBuffer>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest>
 using namespace nova;
 #include "model_test.h"
@@ -163,5 +169,71 @@ void ModelTest::rescaleUvlockAndModernShading() {
     QCOMPARE(mc::mesh(modified).faces.size(), 1);
     modified.version = "26.1";
     QVERIFY(mc::mesh(modified).faces.isEmpty());
+}
+void ModelTest::vanillaParentsFromBaselineCache() {
+    QTemporaryDir dir;
+    const auto r = dir.path();
+    write(r, "pack.mcmeta", "{}");
+    write(r, "assets/demo/models/item/gem.json",
+          R"({"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/apple"}})");
+    // A synthetic baseline-cache entry (hand-written JSON and a generated PNG; never a real
+    // Mojang file) standing in for a verified schema-2 cache, as the installer would build it.
+    vanilla::VersionMetadata m;
+    m.id = "1.21.11";
+    m.client = {QUrl("https://piston-data.mojang.com/v1/objects/x/client.jar"), QString(40, '1'), 4096};
+    m.assetIndexId = "29";
+    m.assetIndex = {QUrl("https://piston-meta.mojang.com/v1/packages/x/29.json"), QString(40, '2'), 512};
+    vanilla::BaselineEntry entry;
+    entry.root = dir.path() + "/cache";
+    entry.version = "1.21.11";
+    entry.identity = vanilla::identityKey(m);
+    entry.created = QDateTime::currentDateTimeUtc();
+    entry.schema = 2;
+    entry.source = QJsonObject{
+        {"manifest_url", QString(vanilla::defaultManifestUrl)},
+        {"version_url", "https://piston-meta.mojang.com/v1/packages/x/1.21.11.json"},
+        {"version_sha1", QString(40, '3')},
+        {"client", QJsonObject{{"url", m.client.url.toString()}, {"sha1", m.client.sha1}, {"size", m.client.size}}},
+        {"asset_index", QJsonObject{{"id", m.assetIndexId}, {"url", m.assetIndex.url.toString()},
+                                    {"sha1", m.assetIndex.sha1}, {"size", m.assetIndex.size}}}};
+    const vanilla::BaselineCache cache(entry.root);
+    auto add = [&](const QString &rel, const QByteArray &bytes) {
+        QString error;
+        QVERIFY2(cache.publishObject(bytes, vanilla::sha256Hex(bytes), rel, &error), qPrintable(error));
+        entry.files.insert(rel, {vanilla::sha256Hex(bytes), bytes.size(), "jar"});
+    };
+    add("assets/minecraft/models/item/generated.json", R"({"parent":"builtin/generated"})");
+    add("assets/minecraft/blockstates/stone.json", R"({"variants":{"":{"model":"minecraft:block/stone"}}})");
+    add("assets/minecraft/items/apple.json", R"({"model":{"type":"minecraft:model","model":"minecraft:item/generated"}})");
+    QImage sprite(16, 16, QImage::Format_ARGB32);
+    sprite.fill(Qt::red);
+    QByteArray png;
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::WriteOnly);
+    sprite.save(&buffer, "PNG");
+    add("assets/minecraft/textures/item/apple.png", png);
+    QString error;
+    QVERIFY2(cache.writeManifest(entry, &error), qPrintable(error));
+    QVERIFY(entry.hasModelData());
+
+    // No user vanilla folder configured: the vanilla parent cannot resolve, as today.
+    mc::Library plain("1.21.11");
+    plain.update(r, Index::scan(r));
+    QVERIFY(!plain.model("demo:item/gem").valid);
+
+    // With the cache entry as the model source, item/generated resolves from the verified
+    // objects and the texture reference lands on the cache's copy.
+    mc::Library library("1.21.11");
+    library.update(r, Index::scan(r));
+    library.setFallbacks({mc::ResourceSource::fromBaseline(entry)}, "1.21.11");
+    const auto model = library.model("demo:item/gem");
+    QVERIFY2(model.valid, qPrintable(model.diagnostics.join(' ')));
+    QVERIFY(model.parents.contains("minecraft:item/generated"));
+    QCOMPARE(model.textures["layer0"], QString("assets/minecraft/textures/item/apple.png"));
+    const auto path = library.assetPath("assets/minecraft/models/item/generated.json");
+    QVERIFY(path.startsWith(dir.path() + "/cache/objects/"));
+    QVERIFY(path.endsWith(".json"));
+    QVERIFY(!library.editable("assets/minecraft/models/item/generated.json"));
+    QCOMPARE(library.dispatch("assets/minecraft/items/apple.json").instances.size(), 1);
 }
 QTEST_GUILESS_MAIN(ModelTest)

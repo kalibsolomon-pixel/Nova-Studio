@@ -262,14 +262,21 @@ struct Mojang {
     }
 };
 
-// Typical client jar: textures (one animated), plus content that must never be stored.
+// Typical client jar: textures (one animated) and vanilla model data (models, blockstates,
+// item definitions), plus content that must never be stored.
 Entries clientEntries(int variant = 0) {
     return {{"META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n"},
             {"net/minecraft/client/Main.class", QByteArray(64, 'c')},
             {"assets/minecraft/models/block/stone.json", "{\"parent\":\"block/cube_all\"}"},
-            {"assets/minecraft/blockstates/stone.json", "{}"},
+            {"assets/minecraft/models/block/cube_all.json",
+             "{\"parent\":\"block/block\",\"textures\":{\"all\":\"block/stone\"}}"},
+            {"assets/minecraft/models/item/generated.json", "{\"parent\":\"builtin/generated\"}"},
+            {"assets/minecraft/blockstates/stone.json", "{\"variants\":{\"\":{\"model\":\"block/stone\"}}}"},
+            {"assets/minecraft/items/apple.json",
+             "{\"model\":{\"type\":\"minecraft:model\",\"model\":\"minecraft:item/generated\"}}"},
             {"assets/minecraft/texturesx/not_a_texture.png", png(90)},
             {"assets/realms/textures/realms.png", png(91)},
+            {"assets/realms/models/realms.json", "{}"},
             {"data/minecraft/recipe/stone.json", "{}"},
             {"pack.png", png(92)},
             {"assets/minecraft/textures/block/stone.png", png(1)},
@@ -286,7 +293,12 @@ QMap<QString, QByteArray> assetObjects() {
             {"minecraft/lang/de_de.json", "{}"},
             {"icons/icon_16x16.png", png(50)}};
 }
-const QStringList expectedTextures{
+const QStringList expectedFiles{
+    "assets/minecraft/blockstates/stone.json",
+    "assets/minecraft/items/apple.json",
+    "assets/minecraft/models/block/cube_all.json",
+    "assets/minecraft/models/block/stone.json",
+    "assets/minecraft/models/item/generated.json",
     "assets/minecraft/textures/block/stone.png",
     "assets/minecraft/textures/block/water_still.png",
     "assets/minecraft/textures/block/water_still.png.mcmeta",
@@ -581,6 +593,32 @@ class BaselineCacheTest : public QObject {
         QCOMPARE(error.isEmpty(), valid);
     }
 
+    void modelPathRules_data() {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<bool>("valid");
+        QTest::newRow("model") << "assets/minecraft/models/block/stone.json" << true;
+        QTest::newRow("item model") << "assets/minecraft/models/item/generated.json" << true;
+        QTest::newRow("nested") << "assets/minecraft/models/block/outer/inner.json" << true;
+        QTest::newRow("blockstate") << "assets/minecraft/blockstates/stone.json" << true;
+        QTest::newRow("item definition") << "assets/minecraft/items/apple.json" << true;
+        QTest::newRow("png suffix") << "assets/minecraft/models/block/x.png" << false;
+        QTest::newRow("mcmeta suffix") << "assets/minecraft/models/block/x.mcmeta" << false;
+        QTest::newRow("texture json") << "assets/minecraft/textures/block/x.json" << false;
+        QTest::newRow("other namespace") << "assets/realms/models/x.json" << false;
+        QTest::newRow("prefix lookalike") << "assets/minecraft/modelsx/x.json" << false;
+        QTest::newRow("uppercase") << "assets/minecraft/models/Stone.json" << false;
+        QTest::newRow("traversal") << "assets/minecraft/models/../x.json" << false;
+        QTest::newRow("device") << "assets/minecraft/models/con.json" << false;
+        QTest::newRow("empty") << QString() << false;
+    }
+    void modelPathRules() {
+        QFETCH(QString, path);
+        QFETCH(bool, valid);
+        QString error;
+        QCOMPARE(validBaselineModelPath(path, &error), valid);
+        QCOMPARE(error.isEmpty(), valid);
+    }
+
     void downloadPolicyIsPinned() {
         const auto p = vanillaPolicy();
         QCOMPARE(p.hosts, QStringList({"piston-meta.mojang.com", "piston-data.mojang.com",
@@ -653,7 +691,10 @@ class BaselineCacheTest : public QObject {
         const auto entry = installer.entry();
         QCOMPARE(entry.version, QString("1.21.11"));
         QCOMPARE(entry.identity, published.identity);
-        QCOMPARE(QStringList(entry.files.keys()), expectedTextures);
+        QCOMPARE(entry.schema, 2);
+        QVERIFY(entry.hasModelData());
+        QCOMPARE(QStringList(entry.files.keys()), expectedFiles);
+        QCOMPARE(entry.files.value("assets/minecraft/models/block/stone.json").origin, QString("jar"));
         QCOMPARE(entry.files.value("assets/minecraft/textures/gui/title/background/panorama_0.png").origin,
                  QString("asset-index"));
         QCOMPARE(entry.files.value("assets/minecraft/textures/gui/title/background/panorama_1.png").origin,
@@ -663,6 +704,7 @@ class BaselineCacheTest : public QObject {
         const auto loaded = cache.load("1.21.11", published.identity, Check::Full, &error);
         QVERIFY2(loaded, qPrintable(error));
         QCOMPARE(loaded->files.keys(), entry.files.keys());
+        QCOMPARE(loaded->schema, 2);
         QCOMPARE(loaded->source.value("client").toObject().value("sha1").toString(),
                  sha1(published.jar));
         QByteArray bytes;
@@ -675,10 +717,12 @@ class BaselineCacheTest : public QObject {
                                    "assets/minecraft/textures/gui/title/background/panorama_0.png",
                                    &bytes));
         QCOMPARE(bytes, png(30, 32, 32));
-        QVERIFY(!cache.readVerified(*loaded, "assets/minecraft/models/block/stone.json", &bytes));
+        QVERIFY(cache.readVerified(*loaded, "assets/minecraft/models/item/generated.json", &bytes));
+        QCOMPARE(bytes, QByteArray("{\"parent\":\"builtin/generated\"}"));
+        QVERIFY(!cache.readVerified(*loaded, "net/minecraft/client/Main.class", &bytes));
         QVERIFY(cache.verify(*loaded).isEmpty());
         // Layout: read-only content-addressed objects, one manifest, no jar, no staging.
-        for (const auto &rel : expectedTextures) {
+        for (const auto &rel : expectedFiles) {
             const auto object = loaded->objectPath(rel);
             QVERIFY(object.startsWith(root + "/objects/"));
             QVERIFY2(readOnlyAttribute(object), qPrintable(rel));
@@ -688,16 +732,18 @@ class BaselineCacheTest : public QObject {
         QVERIFY(all.filter(".jar").isEmpty());
         QVERIFY(all.filter(".part").isEmpty());
         QVERIFY(all.filter(".tmp").isEmpty());
-        QCOMPARE(all.filter("objects/").size(), expectedTextures.size());
+        QCOMPARE(all.filter("objects/").size(), expectedFiles.size());
         QVERIFY(noStaging(root));
-        // Nothing but texture bytes is stored: the class file and models never appear.
+        // Nothing but baseline bytes is stored: the class file, recipes and other namespaces
+        // never appear.
         for (const auto &file : all.filter("objects/"))
-            QVERIFY(file.endsWith(".png") || file.endsWith(".mcmeta"));
+            QVERIFY(file.endsWith(".png") || file.endsWith(".mcmeta") || file.endsWith(".json"));
         const auto summaries = cache.list();
         QCOMPARE(summaries.size(), 1);
         QCOMPARE(summaries[0].status, BaselineSummary::Status::Complete);
         QCOMPARE(summaries[0].identity, published.identity);
-        QCOMPARE(summaries[0].files, int(expectedTextures.size()));
+        QCOMPARE(summaries[0].models, true);
+        QCOMPARE(summaries[0].files, int(expectedFiles.size()));
         QCOMPARE(summaries[0].sharedBytes, qint64(0));
         QCOMPARE(summaries[0].uniqueBytes, summaries[0].bytes);
         QVERIFY(cache.totalBytes() > summaries[0].bytes);
@@ -811,6 +857,9 @@ class BaselineCacheTest : public QObject {
         QTest::newRow("space") << p + "block/a b.png" << false;
         QTest::newRow("other suffix") << p + "block/readme.txt" << false;
         QTest::newRow("link") << p + "block/link.png" << true;
+        QTest::newRow("model traversal") << "assets/minecraft/models/../evil.json" << false;
+        QTest::newRow("model uppercase") << "assets/minecraft/models/Stone.json" << false;
+        QTest::newRow("model device") << "assets/minecraft/items/con.json" << false;
     }
     void maliciousJarEntriesFail() {
         QFETCH(QString, name);
@@ -887,6 +936,63 @@ class BaselineCacheTest : public QObject {
         QVERIFY(!retry.reusedExisting());
         QVERIFY(BaselineCache(root).load("1.21.11", published.identity, Check::Full));
         QCOMPARE(mojang.server.count(published.clientPath), 2);
+    }
+
+    void textureOnlyEntryKeepsWorkingUntilRepaired() {
+        QTemporaryDir temp;
+        const auto root = temp.path() + "/cache";
+        Mojang mojang;
+        const auto published = mojang.publish("1.21.11", clientEntries(), assetObjects());
+        BaselineInstaller first(options(mojang, root));
+        QCOMPARE(run(first, "1.21.11"), QString());
+        BaselineCache cache(root);
+        auto current = cache.load("1.21.11", published.identity, Check::Full);
+        QVERIFY(current);
+        QVERIFY(current->hasModelData());
+        QCOMPARE(current->schema, 2);
+        // Rewrite the manifest as an old (schema 1, textures-only) Nova would have left it.
+        BaselineEntry old = *current;
+        old.schema = 1;
+        for (auto it = old.files.begin(); it != old.files.end();)
+            it = validBaselineModelPath(it.key()) ? old.files.erase(it) : it + 1;
+        QVERIFY(!old.hasModelData());
+        QVERIFY(cache.writeManifest(old));
+        QString error;
+        auto loaded = cache.load("1.21.11", published.identity, Check::Full, &error);
+        QVERIFY2(loaded, qPrintable(error));
+        QCOMPARE(loaded->schema, 1);
+        QVERIFY(!loaded->hasModelData());
+        QCOMPARE(cache.list()[0].models, false);
+        // A plain population reuses the texture-only entry unchanged: metadata only, no
+        // jar or object download.
+        mojang.server.requests.clear();
+        BaselineInstaller reuse(options(mojang, root));
+        QCOMPARE(run(reuse, "1.21.11"), QString());
+        QVERIFY(reuse.reusedExisting());
+        QCOMPARE(mojang.server.requests.size(), 2); // version manifest + version JSON
+        QCOMPARE(mojang.server.count(published.clientPath), 0);
+        QCOMPARE(cache.load("1.21.11", published.identity, Check::Full)->schema, 1);
+        // Repair re-extracts the verified client and republishes the entry with model data.
+        auto o = options(mojang, root);
+        o.repair = true;
+        BaselineInstaller repair(o);
+        QCOMPARE(run(repair, "1.21.11"), QString());
+        QVERIFY(!repair.reusedExisting());
+        QCOMPARE(mojang.server.count(published.clientPath), 1);
+        auto upgraded = cache.load("1.21.11", published.identity, Check::Full, &error);
+        QVERIFY2(upgraded, qPrintable(error));
+        QCOMPARE(upgraded->schema, 2);
+        QVERIFY(upgraded->hasModelData());
+        QCOMPARE(QStringList(upgraded->files.keys()), expectedFiles);
+        QVERIFY(cache.verify(*upgraded).isEmpty());
+        QCOMPARE(cache.list()[0].models, true);
+        // A second repair of the now-current entry reuses it (nothing left to upgrade).
+        mojang.server.requests.clear();
+        BaselineInstaller again(o);
+        QCOMPARE(run(again, "1.21.11"), QString());
+        QVERIFY(again.reusedExisting());
+        QCOMPARE(mojang.server.requests.size(), 2); // version manifest + version JSON
+        QCOMPARE(mojang.server.count(published.clientPath), 0);
     }
 
     void corruptObjectIsDetectedAndRepaired() {
@@ -1133,7 +1239,7 @@ class BaselineCacheTest : public QObject {
         QVERIFY(cache.remove("26.1", corrupt[0].identity, &error, &report));
         QVERIFY(!report.collectionSkipped);
         QVERIFY(cache.list().isEmpty());
-        QVERIFY(filesUnder(root + "/objects").filter(QRegularExpression("\\.(png|mcmeta)$")).isEmpty());
+        QVERIFY(filesUnder(root + "/objects").filter(QRegularExpression("\\.(png|mcmeta|json)$")).isEmpty());
         QCOMPARE(readAll(stray), QByteArray("user note"));
         QCOMPARE(readAll(projectFile), png(1));
     }

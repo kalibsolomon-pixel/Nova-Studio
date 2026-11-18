@@ -21,7 +21,8 @@ add_library(nova-application STATIC app/settings.cpp app/settings.h app/session.
   app/project_config.cpp app/project_config.h app/baseline_reset.cpp app/baseline_reset.h)
 target_link_libraries(nova-application PUBLIC nova-core nova-asset-index)
 target_include_directories(nova-application PUBLIC app)
-target_link_libraries(nova-models PRIVATE nova-application)
+# ResourceSource::fromBaseline exposes the verified baseline cache as a model source.
+target_link_libraries(nova-models PRIVATE nova-application nova-vanilla)
 
 # Phase 3-D: hand-off of the current pack to a launcher that signs in and
 # starts Minecraft (Nova never handles Microsoft or Minecraft credentials).

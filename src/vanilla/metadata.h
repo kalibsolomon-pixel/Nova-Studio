@@ -22,6 +22,9 @@ inline constexpr auto metaHost = "piston-meta.mojang.com";
 inline constexpr auto dataHost = "piston-data.mojang.com";
 inline constexpr auto resourcesHost = "resources.download.minecraft.net";
 inline constexpr auto texturePrefix = "assets/minecraft/textures/";
+inline constexpr auto modelPrefix = "assets/minecraft/models/";
+inline constexpr auto blockstatePrefix = "assets/minecraft/blockstates/";
+inline constexpr auto itemPrefix = "assets/minecraft/items/";
 inline constexpr qint64 maxClientBytes = 256LL * 1024 * 1024;
 inline constexpr qint64 maxAssetIndexBytes = 4LL * 1024 * 1024;
 inline constexpr qint64 maxTextureBytes = 16LL * 1024 * 1024; // per file (jar entry or object)
@@ -72,6 +75,9 @@ std::optional<QList<AssetTexture>> parseAssetIndexTextures(const QByteArray &byt
 
 // DESIGN "Path rules" for every baseline path.
 bool validBaselinePath(const QString &relative, QString *error = nullptr);
+// Same segment rules for the vanilla model data kept from the jar (schema 2):
+// assets/minecraft/{models,blockstates,items}/**.json.
+bool validBaselineModelPath(const QString &relative, QString *error = nullptr);
 // Lowercase release-style ids only ("1.21.11", "26.1", "25w14a", "1.21.11-pre1").
 bool validVersionId(const QString &version);
 bool validSha1(const QString &hex);

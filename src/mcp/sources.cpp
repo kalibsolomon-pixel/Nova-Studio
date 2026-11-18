@@ -129,6 +129,14 @@ SourceSet::SourceSet(const Snapshot &snapshot, Scope &projectScope, const std::s
         fallbacks.append(source);
         vanillaModels |= source.vanilla;
     }
+    // The verified baseline cache is the lowest-priority source once its entry also holds
+    // vanilla model data; a texture-only (schema 1) entry behaves as before.
+    const auto &selected = textureCache();
+    if (selected.entry && selected.entry->hasModelData()) {
+        baselineRoot = selected.entry->root;
+        fallbacks.append(mc::ResourceSource::fromBaseline(*selected.entry));
+        vanillaModels = true;
+    }
     catalog.setFallbacks(fallbacks, s.version);
     // Project files as indexed; never-saved documents only through their live model source, and only
     // while nothing occupies their path on disk (the same rule as nova.pack.validate).
@@ -205,6 +213,11 @@ QList<Provider> SourceSet::providers(const QString &path) const {
             p.unsavedDraft = draft != s.drafts.cend() && !live;
             if (draft != s.drafts.cend())
                 p.revision = draft->revision;
+        } else if (!baselineRoot.isEmpty() && candidate.root == baselineRoot) {
+            // The baseline cache's own model source: verified like the cache itself.
+            p.source = "vanilla_texture_cache";
+            p.verified = true;
+            p.label = "Vanilla Java " + s.version;
         } else {
             p.source = "resource_stack";
             p.stackIndex = stackRoots.value(candidate.root, -1);
@@ -301,7 +314,8 @@ QByteArray SourceSet::read(const QString &path, qint64 limit, QString *why, bool
 
 QJsonObject SourceSet::summary() {
     const auto &selected = textureCache();
-    QJsonObject cacheState{{"status", selected.status}, {"providesModels", false}};
+    QJsonObject cacheState{{"status", selected.status},
+                           {"providesModels", selected.entry && selected.entry->hasModelData()}};
     if (selected.entry) {
         cacheState["identity"] = selected.entry->identity;
         cacheState["selection"] = selected.selection;
