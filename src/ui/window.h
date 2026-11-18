@@ -53,8 +53,7 @@ class Window : public QMainWindow {
     void showMcpAccess(int page = 0); // 0 Access, 1 Agent Setup
     void ensureMcpService();
     void createMcpAccessDialog(int page);
-    void showAgentSession(); // ACP prototype: a Nova-launched agent with Nova's MCP bridge attached
-    void updateExperimentalActions(); // shows or hides the experimental Agent Session command
+    void showAgentSession();
     void endAgentSessionForProjectChange();
     struct Comparison {
         QString path, beforeRevision, afterRevision, detail, owner;

@@ -143,16 +143,7 @@ class AgentSessionDialog : public QDialog {
 };
 } // namespace
 
-void Window::updateExperimentalActions() {
-    if (auto a = findChild<QAction *>("acpSession")) {
-        a->setVisible(preferences.experimentalAgentSession);
-        a->setEnabled(preferences.experimentalAgentSession);
-    }
-}
-
 void Window::showAgentSession() {
-    if (!preferences.experimentalAgentSession)
-        return;
     if (auto existing = findChild<QDialog *>("acpSessionDialog")) {
         existing->raise();
         existing->activateWindow();
@@ -161,9 +152,13 @@ void Window::showAgentSession() {
     ensureMcpService();
     auto dialog = new AgentSessionDialog(this);
     dialog->setObjectName("acpSessionDialog");
-    dialog->setWindowTitle("Agent Session (ACP, Experimental)");
+    dialog->setWindowTitle("Agent Session");
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     auto layout = new QVBoxLayout(dialog);
+    auto experimental = new QLabel("Experimental", dialog);
+    experimental->setObjectName("acpExperimental");
+    experimental->setProperty("role", "badge");
+    layout->addWidget(experimental, 0, Qt::AlignLeft);
     auto form = new QFormLayout;
     dialog->agentPicker = new QComboBox(dialog);
     dialog->agentPicker->setObjectName("acpAgentPicker");
@@ -266,6 +261,9 @@ void Window::showAgentSession() {
     for (auto button : {dialog->start, dialog->edit, dialog->revoke, dialog->stop})
         controls->addWidget(button);
     layout->addLayout(controls);
+    auto projectHint = ui::hint("Open a resource pack to start a session.", dialog);
+    projectHint->setObjectName("acpProjectHint");
+    layout->addWidget(projectHint);
 
     dialog->conversation = new Conversation(dialog);
     dialog->conversation->setObjectName("acpConversation");
@@ -308,13 +306,13 @@ void Window::showAgentSession() {
                            "It works in an empty folder outside the project.", dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
-    dialog->resize(720, 560);
+    dialog->resize(760, 640);
 
     auto ours = [this, dialog] {
         return mcpService && dialog->grant && mcpService->grantSerial() == dialog->grant &&
                !mcpService->authorizedProject().isEmpty();
     };
-    auto refresh = [this, dialog, ours, choose] {
+    auto refresh = [this, dialog, ours, choose, projectHint] {
         const auto state = dialog->session ? dialog->session->state() : acp::Session::State::Idle;
         const bool live = state == acp::Session::State::Starting || state == acp::Session::State::Ready ||
                           state == acp::Session::State::Prompting;
@@ -342,6 +340,7 @@ void Window::showAgentSession() {
         const bool canStart = (state == acp::Session::State::Idle || state == acp::Session::State::Ended) &&
                               !project.isEmpty() && !dialog->program->text().trimmed().isEmpty();
         dialog->start->setEnabled(canStart);
+        projectHint->setVisible(project.isEmpty());
         const bool configuring = state == acp::Session::State::Idle || state == acp::Session::State::Ended;
         dialog->agentPicker->setEnabled(configuring);
         dialog->program->setEnabled(configuring);
@@ -551,6 +550,7 @@ void Window::showAgentSession() {
     connect(dialog->allow, &QPushButton::clicked, dialog, [answer] { answer(true); });
     connect(dialog->reject, &QPushButton::clicked, dialog, [answer] { answer(false); });
     connect(mcpService, &mcp::Service::changed, dialog, refresh);
+    connect(this, &QWidget::windowTitleChanged, dialog, refresh);
     // Closing the window ends the agent and the grant it held.
     connect(dialog, &QDialog::finished, dialog, [this, dialog, release] {
         if (dialog->session)

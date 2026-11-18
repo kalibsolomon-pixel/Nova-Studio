@@ -636,13 +636,6 @@ void Window::preferencesDialog(const QString &focus) {
     manageCache->setToolTip("Review, verify or remove cached vanilla textures");
     connect(manageCache, &QPushButton::clicked, this, [this] { manageBaselines(); });
     textures->addRow("Cached baselines", manageCache);
-    auto experimental = form("Experimental");
-    auto agentSession = new QCheckBox("Show Agent Session (ACP) in the Resources menu");
-    agentSession->setObjectName("preferenceExperimentalAgentSession");
-    agentSession->setChecked(preferences.experimentalAgentSession);
-    agentSession->setToolTip("Experimental: tested only with a scripted agent and OpenCode start-up. Conversations "
-                             "with a real AI model and other agents have not been tested.");
-    experimental->addRow(agentSession);
     v->addStretch();
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -656,8 +649,6 @@ void Window::preferencesDialog(const QString &focus) {
         return;
     preferences.reopenLast = reopen->isChecked();
     preferences.showTips = tips->isChecked();
-    preferences.experimentalAgentSession = agentSession->isChecked();
-    updateExperimentalActions();
     if (preferences.historyMiB != history->value()) {
         preferences.historyMiB = history->value();
         for (auto &doc : session.all())

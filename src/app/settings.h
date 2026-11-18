@@ -35,7 +35,6 @@ struct Preferences {
     QString fabricLocation;   // empty = %LOCALAPPDATA%/NovaStudio/fabric-runtime
     bool fabricDetailedLogs = false;
     bool fabricOpenTestWorld = true;
-    bool experimentalAgentSession = false; // shows Resources › Agent Session (ACP, experimental)
     QString acpAgent = "opencode", acpProgram, acpArguments;
 };
 class Settings {

@@ -81,7 +81,6 @@ Preferences Settings::load() const {
     p.fabricLocation = s.value("fabric/location").toString().left(1024);
     p.fabricDetailedLogs = s.value("fabric/detailedLogs", false).toBool();
     p.fabricOpenTestWorld = s.value("fabric/openTestWorld", true).toBool();
-    p.experimentalAgentSession = s.value("experimental/agentSession", false).toBool();
     p.acpAgent = s.value("acp/agent", "opencode").toString().left(64);
     p.acpProgram = s.value("acp/program").toString().left(32767);
     p.acpArguments = s.value("acp/arguments").toString().left(32767);
@@ -133,7 +132,6 @@ bool Settings::save(const Preferences &p) const {
     s.setValue("fabric/location", p.fabricLocation);
     s.setValue("fabric/detailedLogs", p.fabricDetailedLogs);
     s.setValue("fabric/openTestWorld", p.fabricOpenTestWorld);
-    s.setValue("experimental/agentSession", p.experimentalAgentSession);
     writeAgentSetup(s, p);
     s.setValue("editor/historyMiB", p.historyMiB);
     s.setValue("workspace/geometry", p.geometry);

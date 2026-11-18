@@ -151,9 +151,6 @@ class AcpSessionTest : public QObject {
             QVERIFY(image.save(pack + "/assets/nova/textures/block/plain.png"));
         }
         qApp->setProperty("settingsFile", base + "/settings/studio.ini");
-        // Agent Session is experimental and off by default; every other slot turns it on.
-        if (QTest::currentTestFunction() != QByteArray("hiddenUntilEnabled"))
-            QSettings(base + "/settings/studio.ini", QSettings::IniFormat).setValue("experimental/agentSession", true);
         qunsetenv("FAKE_ACP_SKIP_MCP");
         const auto evidence = qEnvironmentVariable("NOVA_EVIDENCE_DIR");
         if (!evidence.isEmpty())
@@ -166,43 +163,34 @@ class AcpSessionTest : public QObject {
         window.reset();
     }
 
-    // Off by default: the command is hidden, cannot be triggered and is not offered by Search until
-    // Preferences › Experimental turns it on.
-    void hiddenUntilEnabled() {
+    void experimentalSessionIsDiscoverableWithoutAProject() {
         QElapsedTimer timer;
         timer.start();
-        window = std::make_unique<nova::Window>(root, QString{}, timer);
+        window = std::make_unique<nova::Window>(QString{}, QString{}, timer);
         window->show();
         auto command = window->findChild<QAction *>("acpSession");
         QVERIFY(command);
-        QVERIFY(!command->isVisible());
-        QVERIFY(!command->isEnabled());
-        command->trigger();
-        QVERIFY(!window->findChild<QDialog *>("acpSessionDialog"));
+        QVERIFY(command->isVisible());
+        QVERIFY(command->isEnabled());
         const auto offered = [this] {
             for (const auto &entry : window->searchIndex().entries)
                 if (entry.action && entry.action->objectName() == "acpSession")
                     return true;
             return false;
         };
-        QVERIFY(!offered());
-
-        QTimer::singleShot(150, window.get(), [] {
-            auto preferences = qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            QVERIFY(preferences && preferences->objectName() == "preferencesDialog");
-            auto box = preferences->findChild<QCheckBox *>("preferenceExperimentalAgentSession");
-            QVERIFY(box && !box->isChecked());
-            box->setChecked(true);
-            preferences->accept();
-        });
-        window->findChild<QAction *>("preferencesCommand")->trigger();
-        QVERIFY(command->isVisible());
-        QVERIFY(command->isEnabled());
         QVERIFY(offered());
-        command->trigger();
+        window->findChild<QAction *>("mcpAccess")->trigger();
+        auto mcp = window->findChild<QDialog *>("mcpAccessDialog");
+        QVERIFY(mcp);
+        auto entry = mcp->findChild<QPushButton *>("mcpOpenAgentSession");
+        QVERIFY(entry && entry->isVisible());
+        entry->click();
         dialog = window->findChild<QDialog *>("acpSessionDialog");
         QVERIFY(dialog);
-        QVERIFY(dialog->windowTitle().contains("Experimental"));
+        QVERIFY(!dialog->isModal());
+        QCOMPARE(dialog->findChild<QLabel *>("acpExperimental")->text(), "Experimental");
+        QVERIFY(dialog->findChild<QLabel *>("acpProjectHint")->isVisible());
+        QVERIFY(!button("acpStart")->isEnabled());
         QVERIFY(!session());
     }
 

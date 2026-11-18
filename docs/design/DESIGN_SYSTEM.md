@@ -101,6 +101,7 @@ document at 1280×900.
 | Section title | `ui::sectionTitle("Document")` |
 | Text command beside a heading | `QPushButton[role="link"]`: frameless `accentHover` text that tints `accentMuted` on hover; a menu on it opens without a drop-down arrow (Welcome's "View all") |
 | Hint / secondary text | `ui::hint(text)`, or `QLabel[role="hint"]` |
+| Feature badge | `QLabel[role="badge"]` marks a feature as experimental in a neutral chip. |
 | Status value | `QLabel[role="warning"]` (needs attention, e.g. unsaved), `"error"`, or `"info"` (an available action, e.g. an export update) |
 | Empty state | `ui::emptyState(text, parent, icon)`: centred text with an optional large muted Material glyph above it |
 | Inline warning notice | `QLabel[role="notice"]`, or `QFrame[role="notice"]` |

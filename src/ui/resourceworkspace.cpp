@@ -40,8 +40,7 @@ void Window::buildResourceTools(QMenu *view) {
     action("Related Assets…", "relatedAssets", [this] { showRelatedAssets(); });
     action("MCP Integration…", "mcpAccess", [this] { showMcpAccess(); });
     // Experimental and off by default: shown only when Preferences › Experimental turns it on.
-    action("Agent Session (ACP, Experimental)…", "acpSession", [this] { showAgentSession(); });
-    updateExperimentalActions();
+    action("Agent Session (Experimental)…", "acpSession", [this] { showAgentSession(); });
     menu->addSeparator();
     auto test = action("Test in Minecraft…", "testInMinecraft", [this] { minecraftTesting(false); });
     test->setShortcut(QKeySequence("Ctrl+Shift+M"));

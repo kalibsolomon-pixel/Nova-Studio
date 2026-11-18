@@ -433,6 +433,7 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"hint\"]{color:@muted}"
         "QLabel:disabled{color:@disabled}"
         "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
+        "QLabel[role=\"badge\"]{background:@raised;color:@muted;border-radius:@rS;padding:2px 6px}"
         "QLabel[role=\"keycap\"]{color:@muted;background:@surface;border:1px solid @borderStrong;"
         "border-radius:@rS;padding:1px 6px}"
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
