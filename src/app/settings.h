@@ -35,7 +35,7 @@ struct Preferences {
     QString fabricLocation;   // empty = %LOCALAPPDATA%/NovaStudio/fabric-runtime
     bool fabricDetailedLogs = false;
     bool fabricOpenTestWorld = true;
-    bool experimentalAgentSession = false; // shows Resources › Agent Session (ACP, experimental)
+    QString acpAgent = "opencode", acpProgram, acpArguments;
 };
 class Settings {
     QString path;
@@ -45,6 +45,7 @@ class Settings {
     QString fileName() const { return path; }
     Preferences load() const;
     bool save(const Preferences &preferences) const;
+    void saveAgentSetup(const Preferences &preferences) const;
     QJsonObject projectPreview(const QString &project) const;
     bool saveProjectPreview(const QString &project, const QJsonObject &state) const;
     static QRect visibleGeometry(QRect requested, const QList<QRect> &screens);

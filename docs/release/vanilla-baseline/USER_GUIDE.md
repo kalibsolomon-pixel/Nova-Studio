@@ -3,7 +3,9 @@
 A resource pack usually changes a few textures and leaves the rest to Minecraft. With a vanilla
 baseline, Nova Studio shows the game's own textures for one Minecraft Java version next to your
 pack's files, so you can find, open and edit any of them. Only the textures you actually change are
-added to your pack.
+added to your pack. The same cache also keeps the version's vanilla model data (models, blockstates
+and item definitions) so the Model panel and AI agents can resolve vanilla parents such as
+`item/generated` without a separate vanilla folder.
 
 ## Creating a pack
 
@@ -13,7 +15,8 @@ File › New Resource Pack… has a **Textures** choice:
 - **Use vanilla textures as baseline**: the selected Minecraft version's textures are shown under
   your files. Below the choice Nova says whether that version is already in your local cache (date,
   number of files, size). If it is not, Nova asks before downloading: it downloads the official
-  Minecraft Java client from Mojang (about 30 MB), keeps only its textures and deletes the rest.
+  Minecraft Java client from Mojang (about 30 MB), keeps only its textures and vanilla model data,
+  and deletes the rest.
 
 The download shows its stage and progress and can be cancelled. Nothing is created until it has
 finished and every file has been verified; if it fails or you cancel, you can create a blank pack
@@ -36,8 +39,9 @@ The baseline is recorded in `.nova/project.json` and shown in File › Project P
 | Your own new texture | normal | its path |
 
 The Inspector's **Origin** row says the same for the open texture: "Vanilla Java <v> (not in
-project)", "Override of vanilla Java <v>" or "Project asset". Ctrl+K search, validation, batch
-processing and MCP agents see only your pack's own files.
+project)", "Override of vanilla Java <v>" or "Project asset". Ctrl+K search, validation and batch
+processing see only your pack's own files. MCP agents see your pack's files and, read-only, the
+verified cache's vanilla model data for the target version.
 
 ## Editing creates an override
 
@@ -87,6 +91,19 @@ space only it uses and the space it shares with other versions. **Verify** re-ch
 version shows only its own files until you choose **Download / Repair Baseline…**.
 [CACHE.md](CACHE.md) describes the location, structure and privacy in detail.
 
+## Vanilla models for the Model panel and agents
+
+The cache is the default lowest-priority model source: with a current entry for the target version,
+vanilla parents (`block/cube_all`, `item/generated`, blockstates, item definitions) resolve in the
+Model panel and for AI agents without any extra setup. A folder you add under Models › Resource
+stack… still takes precedence, and vanilla files stay read-only outside your pack.
+
+A cache written by an older Nova holds textures only. It keeps working; the status bar shows
+"Baseline: Vanilla Java <version> · textures only" with a one-line hint, and **Resources › Vanilla
+Baseline › Download / Repair Baseline…** downloads the verified client once more and adds the model
+data. Export never includes cache content: data is downloaded locally from Mojang at your request
+only, and nothing vanilla is added to your pack unless you edit it.
+
 ## Offline
 
 Once a version is cached, baseline projects work without an internet connection. Nova contacts
@@ -97,6 +114,7 @@ Mojang only when you agree to a download or repair, and only Mojang's official s
 | Message | Meaning |
 |---|---|
 | Vanilla Java <v> baseline not available | The cache entry is missing or damaged. Your files are untouched; use Download / Repair Baseline…. |
+| Baseline: Vanilla Java <v> · textures only | An older cache without model data works as before; Download / Repair Baseline… adds vanilla models. |
 | Could not download … from Mojang's servers | Network problem; nothing was kept. |
 | … did not match its published checksum | A download was corrupted or unexpected; nothing was kept. |
 | Not enough free disk space | Free some space and try again. |

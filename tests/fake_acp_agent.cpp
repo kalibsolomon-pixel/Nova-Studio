@@ -120,16 +120,29 @@ int main(int argc, char **argv) {
     std::vector<Server> servers;
     std::vector<std::unique_ptr<QProcess>> children;
     QString session;
+    const bool requireAuth = app.arguments().contains("--require-auth");
+    bool authenticated = false;
     bool eof = false;
     while (!eof) {
         const auto message = readMessage(&eof);
         const auto method = message["method"].toString();
         const auto params = message["params"].toObject();
         if (method == "initialize") {
+            QJsonArray methods;
+            if (requireAuth)
+                methods.append(QJsonObject{{"id", "fake-sign-in"}, {"name", "Scripted sign-in"}});
             reply(message["id"], {{"protocolVersion", 1}, {"agentInfo", QJsonObject{{"name", "fake-acp-agent"}, {"version", "1"}}},
                                   {"agentCapabilities", QJsonObject{{"sessionCapabilities", QJsonObject{{"close", QJsonObject{}}}}}},
-                                  {"authMethods", QJsonArray{}}});
+                                  {"authMethods", methods}});
+        } else if (method == "authenticate" && params["methodId"] == "fake-sign-in") {
+            authenticated = true;
+            reply(message["id"], {});
         } else if (method == "session/new") {
+            if (requireAuth && !authenticated) {
+                send({{"jsonrpc", "2.0"}, {"id", message["id"]},
+                      {"error", QJsonObject{{"code", -32000}, {"message", "Sign-in needed"}}}});
+                continue;
+            }
             session = "fake-session-1";
             if (qEnvironmentVariable("FAKE_ACP_SKIP_MCP") != "1")
                 for (const auto &value : params["mcpServers"].toArray()) {
@@ -190,21 +203,54 @@ int main(int argc, char **argv) {
                 // A code block, so the window's Markdown rendering keeps the JSON as written.
                 say(session, QString("RESULT %1\n\n```\n%2\n```\n").arg(failed ? "error" : "ok",
                     QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)).left(4000)));
-            } else if (text == "ask") {
-                send({{"jsonrpc", "2.0"}, {"id", "perm-1"}, {"method", "session/request_permission"},
-                      {"params", QJsonObject{{"sessionId", session},
-                          {"toolCall", QJsonObject{{"toolCallId", "c2"}, {"title", "write notes.txt"}, {"kind", "edit"},
-                                                   {"rawInput", QJsonObject{{"path", "notes.txt"}}}}},
-                          {"options", QJsonArray{QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}},
-                                                 QJsonObject{{"optionId", "no"}, {"name", "Reject"}, {"kind", "reject_once"}}}}}}});
-                for (;;) {
+            } else if (text == "ask" || text == "ask-queue" || text == "Review local notes before updating the draft.") {
+                const int count = text == "ask" ? 1 : 2;
+                const QJsonArray options{
+                    QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}},
+                    QJsonObject{{"optionId", "no"}, {"name", "Reject"}, {"kind", "reject_once"}},
+                    QJsonObject{{"optionId", "yes-always"}, {"name", "Always allow"}, {"kind", "allow_always"}},
+                    QJsonObject{{"optionId", "no-always"}, {"name", "Always reject"}, {"kind", "reject_always"}}};
+                QStringList unanswered;
+                for (int i = 1; i <= count; ++i) {
+                    const auto id = QString("perm-%1").arg(i);
+                    unanswered.append(id);
+                    const QString path = i == 1 ? "notes.txt" : "draft.txt";
+                    send({{"jsonrpc", "2.0"}, {"id", id}, {"method", "session/request_permission"},
+                          {"params", QJsonObject{{"sessionId", session},
+                              {"toolCall", QJsonObject{{"toolCallId", id}, {"title", "Write " + path}, {"kind", "edit"},
+                                                       {"rawInput", QJsonObject{{"path", path}}}}},
+                              {"options", options}}}});
+                }
+                while (!unanswered.isEmpty()) {
                     const auto answer = readMessage(&eof);
-                    if (eof || answer["id"] == "perm-1") {
-                        const auto outcome = answer["result"].toObject()["outcome"].toObject();
-                        say(session, "PERMISSION " + outcome["outcome"].toString() + " " + outcome["optionId"].toString());
+                    if (eof)
                         break;
+                    if (unanswered.removeOne(answer["id"].toString())) {
+                        const auto outcome = answer["result"].toObject()["outcome"].toObject();
+                        say(session, "PERMISSION " + outcome["outcome"].toString() + " " + outcome["optionId"].toString() +
+                                     " " + answer["id"].toString() + "\n");
                     }
                 }
+            } else if (text == "activity" || text == "Show your plan and texture checks.") {
+                update(session, {{"sessionUpdate", "plan"}, {"entries", QJsonArray{
+                    QJsonObject{{"content", "Inspect pack assets"}, {"priority", "high"}, {"status", "completed"}},
+                    QJsonObject{{"content", "Review texture sizes"}, {"priority", "medium"}, {"status", "in_progress"}}}}});
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "activity-1"},
+                                 {"title", "nova.assets.list"}, {"status", "in_progress"}});
+                update(session, {{"sessionUpdate", "tool_call_update"}, {"toolCallId", "activity-1"},
+                                 {"status", "completed"}, {"rawOutput", QJsonObject{{"textures", 1}}}});
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "activity-2"},
+                                 {"title", "Review notes"}, {"status", "failed"}, {"content", QJsonArray{
+                    QJsonObject{{"type", "diff"}, {"path", "notes.txt"}, {"oldText", "Before text"}, {"newText", "After text"}}}}});
+                say(session, "Review finished.\n\n```text\nplain.png: 16x16\n```\n");
+            } else if (text == "turn-error") {
+                send({{"jsonrpc", "2.0"}, {"id", message["id"]},
+                      {"error", QJsonObject{{"code", -32001}, {"message", "Scripted upstream failure."}}}});
+                continue;
+            } else if (text == "stream") {
+                say(session, "First chunk");
+                QThread::msleep(450);
+                say(session, " and the next chunk.");
             } else if (text == "wait") {
                 for (;;) {
                     const auto next = readMessage(&eof);
@@ -219,6 +265,11 @@ int main(int argc, char **argv) {
                 say(session, QString("SPAWNED %1").arg(child->processId()));
                 children.push_back(std::move(child));
             } else if (text == "crash") {
+                std::fputs("discarded startup message\n", stderr);
+                const QByteArray filler(20 * 1024, 'x');
+                std::fwrite(filler.constData(), 1, size_t(filler.size()), stderr);
+                std::fputs("\n\x1b[31mScripted failure: missing dependency.\x1b[0m\n", stderr);
+                std::fflush(stderr);
                 std::fflush(stdout);
                 std::_Exit(3);
             } else if (text.startsWith("Please ")) {
@@ -232,6 +283,8 @@ int main(int argc, char **argv) {
                              "Nothing needs changing. Tell me if you'd like me to look at the models next.");
             } else if (text == "env") {
                 say(session, QString("ENV NOVA_MCP_CODE=%1").arg(qEnvironmentVariableIsSet("NOVA_MCP_CODE") ? "present" : "absent"));
+            } else if (text == "args") {
+                say(session, "ARGUMENTS " + app.arguments().mid(1).join(" | "));
             }
             reply(message["id"], {{"stopReason", stop}});
         } else if (method == "session/close") {

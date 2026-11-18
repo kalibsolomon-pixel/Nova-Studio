@@ -69,8 +69,8 @@ std::function<void(vanilla::InstallerOptions &)> baselineInstallerHook;
 
 QString baselineConsentText(const QString &version) {
     return QString("Nova will download the official Minecraft Java %1 client from Mojang (≈%2) and keep "
-                   "only its textures in your local cache. Vanilla textures are Mojang content for your own "
-                   "use; they are never added to your pack unless you edit them.")
+                   "only its textures and model data in your local cache. Vanilla content is Mojang material "
+                   "for your own use; it is never added to your pack unless you edit it.")
         .arg(version, QString(baselineDownloadSize).remove("about "));
 }
 QString baselineAttribution() {
@@ -333,9 +333,15 @@ void Window::updateBaselineStatus() {
         tip = QString("Vanilla Java %1 · identity %2").arg(v, baseline.ref->identity.left(12));
         if (baseline.loading)
             text = QString("Baseline: Vanilla Java %1 · loading…").arg(v);
-        else if (baseline.entry)
+        else if (baseline.entry) {
             text = QString("Baseline: Vanilla Java %1").arg(v);
-        else {
+            if (!baseline.entry->hasModelData()) {
+                // A texture-only (old) cache keeps working; one line points at the update path.
+                text += " · textures only";
+                tip += "\nUpdate baseline to add vanilla models: Resources › Vanilla Baseline › Download / "
+                       "Repair Baseline… downloads the client once more and also keeps its model data.";
+            }
+        } else {
             text = QString("Vanilla Java %1 baseline not available · Resources › Vanilla Baseline › Download…").arg(v);
             role = "warning";
             tip += "\n" + baseline.unavailable;
@@ -849,8 +855,9 @@ void Window::repairBaseline() {
     }
     const auto ref = *baseline.ref;
     if (QMessageBox::question(this, "Download / repair baseline?",
-                              QString("Check the vanilla Java %1 textures (identity %2) in the local cache and download "
-                                      "any that are missing or damaged from Mojang? Every file is verified; project "
+                              QString("Check the vanilla Java %1 baseline (identity %2) in the local cache and "
+                                      "download anything missing or damaged from Mojang? A texture-only baseline is "
+                                      "updated to also keep vanilla model data. Every file is verified; project "
                                       "files are not changed.").arg(ref.version, ref.identity.left(12)),
                               QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
         return;
@@ -889,8 +896,11 @@ void Window::manageBaselines() {
     dialog.setWindowTitle("Manage Cached Baselines");
     auto v = new QVBoxLayout(&dialog);
     v->setSpacing(ui::SpaceL);
-    v->addWidget(ui::hint("Vanilla textures downloaded for baseline projects. Projects never contain these files; "
-                          "removing a baseline only changes what the asset browser shows until it is downloaded again."));
+    v->addWidget(ui::hint("Vanilla content downloaded for baseline projects: textures, and model data for "
+                          "model preview, from the official client. Entries marked “textures only” predate model "
+                          "data; Download / Repair Baseline… in a project using that version updates it. Projects "
+                          "never contain these files; removing a baseline only changes what the asset browser shows "
+                          "until it is downloaded again."));
     auto table = new QTableWidget(0, 8);
     table->setObjectName("baselineCacheTable");
     table->setHorizontalHeaderLabels({"Version", "Identity", "Downloaded", "Files", "Size", "Unique", "Shared", "Status"});
@@ -946,7 +956,9 @@ void Window::manageBaselines() {
                 const QStringList cells{"Java " + s.version, s.identity.left(12),
                                         s.created.isValid() ? s.created.toLocalTime().toString("yyyy-MM-dd HH:mm") : "—",
                                         QString::number(s.files), megabytes(s.bytes), megabytes(s.uniqueBytes),
-                                        megabytes(s.sharedBytes), complete ? "Complete" : "Damaged: " + s.error};
+                                        megabytes(s.sharedBytes),
+                                        complete ? QString(s.models ? "Complete" : "Complete · textures only")
+                                                 : "Damaged: " + s.error};
                 for (int c = 0; c < cells.size(); ++c)
                     table->setItem(row, c, new QTableWidgetItem(cells[c]));
             }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "display.h"
+#include "special_models.h"
 #include "edit.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -176,6 +177,50 @@ QMatrix4x4 itemPose(const QMatrix4x4 &display, const QMatrix4x4 &item) {
     fromBlock.scale(2.f);
     fromBlock.translate(-.5f, -.5f, -.5f);
     return display * fromBlock * item * toBlock;
+}
+QMatrix4x4 displayContextPose(const QString &context, float modelMinY) {
+    QMatrix4x4 m;
+    const float hand = leftHandContext(context) ? -1.f : 1.f;
+    if (context == "ground") {
+        // One item at rest, floor at -1 in centred mesh units.
+        m.translate(0, -1 - modelMinY + 2.f / 16, 0);
+    } else if (context == "fixed") {
+        // A visible south-facing frame at rotation zero, in frame-local coordinates.
+        m.translate(0, 0, 2.f * .4375f);
+        m.scale(.5f);
+    } else if (context == "head" || context.startsWith("thirdperson_")) {
+        // Upright adult player, facing the viewer, with the head pivot at the origin.
+        m.rotate(180, 0, 1, 0);
+        m.scale(-1, -1, 1);
+        if (context == "head") {
+            m.translate(0, -.5f, 0);
+            m.rotate(180, 0, 1, 0);
+            m.scale(.625f, -.625f, -.625f);
+        } else {
+            // Classic arm: 5 px out, 2 px down, idle ITEM arm pose with bob disabled.
+            m.translate(-hand * 5 / 8, 2.f / 8, 0);
+            m.rotate(-18, 1, 0, 0);
+            m.rotate(-90, 1, 0, 0);
+            m.rotate(180, 0, 1, 0);
+            m.translate(hand / 8, .25f, -1.25f);
+        }
+    } else if (context.startsWith("firstperson_")) {
+        // Held item fully raised, swing zero, camera pitch zero.
+        m.translate(hand * 1.12f, -1.04f, -1.44f);
+    }
+    return m;
+}
+Mesh displayMesh(const Model &model, const Instance &instance, const QString &context,
+                 const QMap<QString, QImage> &materials, const QMap<QString, QVector<QImage>> &frames) {
+    auto mesh = instance.special.isEmpty() ? generatedMesh(model, materials, frames)
+                                          : specialMesh(model, instance.special);
+    mesh = transformed(std::move(mesh), instance);
+    mesh = applyTransform(std::move(mesh),
+                          itemPose(displayTransform(model, context), instance.transformation));
+    for (auto &face : mesh.faces)
+        if (face.tint >= 0 && face.tint < instance.tints.size())
+            face.color = instance.tints[face.tint];
+    return mesh;
 }
 DisplayResolution resolveDisplay(const Model &model, const QString &context) {
     DisplayResolution r;

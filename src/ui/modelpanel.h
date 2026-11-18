@@ -27,6 +27,8 @@ class ModelPanel : public QWidget {
     // target: "model:<id>", "definition:<asset>", "cube:" (explicit generic cube) or empty
     // (no model: the texture is shown flat with fallbackReason).
     QString root, activeAsset, target, fallbackReason;
+    // Target version whose baseline-cache model source was last merged into the library.
+    QString cacheVersion;
     QComboBox *targets, *versions, *contexts;
     QLineEdit *inputs;
     QLabel *diagnostics, *faceInfo;
@@ -103,11 +105,13 @@ class ModelPanel : public QWidget {
     std::function<void(const QString &)> navigate;
     ModelPanel(Cube *, DocumentSession *, QWidget *parent = nullptr);
     void setLibrary(std::shared_ptr<mc::Library>, const QString &project);
+    void setMinecraftVersion(const QString &version);
     void setDocument(std::shared_ptr<Document>, Canvas *);
     void openAsset(const QString &asset, bool showMaterial = true);
     std::shared_ptr<mc::ModelEdit> editableModel(const QString &asset, QString *error);
     std::function<void(const std::shared_ptr<mc::ModelEdit> &)> modelOpened;
     std::function<void()> modelChanged;
+    std::function<void(const std::shared_ptr<mc::Library> &)> previewResourcesChanged;
     std::function<void(const QElapsedTimer &)> modelCheckpointed;
     bool closeModel(const std::shared_ptr<mc::ModelEdit> &);
     void discardModelRecovery();

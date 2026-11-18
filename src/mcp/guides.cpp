@@ -124,6 +124,20 @@ const Entry entries[] = {
      "- Nova edits frames and timing natively.\n"
      "- Saving an animation writes the PNG and its `.png.mcmeta` together (one column, vertical) and saves the "
      "editable animation. Check the save result for both.\n"},
+    {"pixel-art", "Pixel art for items and tiles",
+     "- **Palette.** Start with 3–5 shades per material and reuse swatches across the texture. Match the "
+     "reference palette and dimensions. For example, `block/stone.png` and `item/diamond_sword.png` are 16×16. "
+     "`nova.texture.read` reports the reference's actual shades.\n"
+     "- **Light.** Start with a top-left light for painted items. Group highlights and shadows into clusters. "
+     "Try a cooler hue in the shadows and a warmer one in the highlights, then check the luminance steps at native size.\n"
+     "- **Edges.** On item icons, use a darker outline where the silhouette needs separation, with a lighter edge "
+     "on lit surfaces. On repeating block tiles, carry clusters across opposite edges and check a 2×2 repeat for seams.\n"
+     "- **Frames.** Match the reference frame grid and `.png.mcmeta` when replacing an animation. "
+     "`block/magma.png` is 16×48: 3 frames. Keep shared shapes registered across frames and preserve the playback "
+     "order and timing unless changing the motion is part of the brief.\n"
+     "- **Loop.** Read the pack texture or vanilla reference, plan the palette, and edit with `put_pixels`, "
+     "adjustments, or `nova.texture.adjust_bulk` for related textures. Use `nova.asset.preview_image` with `compare`, "
+     "then `nova.texture.analyze` for contrast, seam and layout feedback.\n"},
     {"pvp", "PvP-oriented packs",
      "Nova guidance for packs used in player-versus-player play. These are policy recommendations, not game facts.\n\n"
      "- **Keep silhouettes recognizable.** Players, armor, weapons, projectiles and blocks should keep their "
@@ -238,22 +252,19 @@ QJsonArray resourceTemplates() {
 }
 QString instructions() {
     return "Nova Studio edits Minecraft Java resource packs.\n"
-           "- Asset identifiers are resource-pack paths (assets/<namespace>/...) or namespace:path ids, "
-           "never filesystem paths.\n"
-           "- Check the pack's Minecraft version (nova.project.info) or ask the user before applying "
-           "version-specific rules. Guides: nova.guide.list, nova.guide.get, or nova://rules/<version>/<topic>.\n"
-           "- Edits and new assets change open documents in memory. A successful edit is not proof that it "
-           "was saved to the pack.\n"
+           "- Use resource-pack paths or namespace:path identifiers, never filesystem paths. Check the pack's "
+           "Minecraft version (nova.project.info) or ask the user. Use nova.guide.get, including the pixel-art topic.\n"
+           "- Read texture pixels or a vanilla reference (nova.texture.read), plan a palette, then use put_pixels, "
+           "remaps or adjustments (nova.texture.adjust_bulk for related assets). Compare via nova.asset.preview_image "
+           "and finish with nova.texture.analyze.\n"
+           "- Edits change drafts in memory. A successful edit is not proof of saving.\n"
            "- Saving a texture writes it to its resource path in the pack. Use nova.drafts.save or "
-           "nova.drafts.save_all, or ask the user to use Save or Save All in Nova, and check the saved and "
-           "failed lists in the result.\n"
+           "nova.drafts.save_all (or Save or Save All in Nova). Check the saved and failed lists.\n"
            "- Inspect item definitions, models, blockstates, companion textures and .png.mcmeta animation "
-           "metadata (nova.asset.relationships, nova.assets.context); the visible texture is rarely the only asset "
-           "involved. Treat unresolved or possible links as unknown, not as facts.\n"
-           "- nova.vanilla.list and nova.vanilla.texture read Nova's local vanilla texture cache only: textures, no "
-           "models, never a download.\n"
-           "- Pack style notes (nova://project/style-notes) are the user's preferences, not permissions.\n"
-           "- Access is limited to the project the user authorized. Respect read-only grants, revocation and "
+           "metadata (nova.asset.relationships, nova.assets.context). Treat unresolved links as unknown.\n"
+           "- nova.vanilla.list and nova.vanilla.texture use verified local textures. MCP never downloads them. Pack style notes "
+           "are available at nova://project/style-notes.\n"
+           "- Respect read-only grants, revocation and "
            "project changes; never try to work around Nova's authorization or the user's consent.";
 }
 } // namespace nova::mcp::guides

@@ -3,7 +3,6 @@
 #include "guides.h"
 #include "handoff.h"
 #include "scope.h"
-#include <QDateTime>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QScopedValueRollback>
@@ -18,12 +17,8 @@ Service::Service(std::function<bool(Snapshot &, const QString &)> provider, QObj
     server.setListenBacklogSize(1);
     server.setMaxPendingConnections(1);
     connect(&server, &QLocalServer::newConnection, this, &Service::accept);
-    for (auto timer : {&handshake, &grantExpiry, &deadline})
+    for (auto timer : {&handshake, &deadline})
         timer->setSingleShot(true);
-    connect(&grantExpiry, &QTimer::timeout, this, [this] {
-        fail("The unused connection code expired.");
-        revoke();
-    });
     connect(&handshake, &QTimer::timeout, this, [this] {
         fail("A connection did not authenticate in time.");
         closeSocket();
@@ -69,11 +64,10 @@ bool Service::authorize(const QString &project, bool allowEditing) {
     }
     editing = allowEditing;
     state = "Waiting for client";
-    grantExpiry.start(5 * 60 * 1000);
-    // Offer the waiting grant to the next agent that starts nova-mcp.exe (see handoff.h).
+    // Offer the waiting grant to the next agent that starts nova-mcp.exe (see handoff.h). The offer
+    // does not expire: access lasts until Revoke, a project change or shutdown.
     offerFailure.clear();
-    if (handoff::publish({grant, QFileInfo(project).fileName(),
-                          QDateTime::currentMSecsSinceEpoch() + 5 * 60 * 1000}, &offerFailure))
+    if (handoff::publish({grant, QFileInfo(project).fileName(), 0}, &offerFailure))
         offered = grant;
     emit changed();
     return true;
@@ -85,7 +79,6 @@ void Service::withdrawOffer() {
 void Service::revoke() {
     clientFilter = nullptr;
     editing = false;
-    grantExpiry.stop();
     withdrawOffer();
     server.close();
     grant.clear();
@@ -95,6 +88,36 @@ void Service::revoke() {
     lastEdit.clear();
     stale = false;
     state = "Disabled";
+    emit changed();
+}
+// A connected client went away. The authorization is a user decision that outlives one agent
+// process, so unless the project changed or Nova is closing, offer the same project and permission
+// again under a fresh single-use code and wait for the next bridge. The used code stays invalid
+// because the pipe is named after the new code, and a client filter keeps restricting who may
+// connect. Revoke, a project change and shutdown still end the access.
+void Service::dropConnection() {
+    if (!authenticated)
+        return closeSocket();
+    closeSocket();
+    if (shuttingDown || root.isEmpty() || stale)
+        revoke();
+    else
+        rearm();
+}
+void Service::rearm() {
+    if (shuttingDown || root.isEmpty() || stale || socket || !grant.isEmpty())
+        return;
+    grant = randomToken();
+    if (!server.listen("nova-mcp-" + grant.left(32))) {
+        grant.clear();
+        revoke();
+        fail("The local MCP endpoint could not be reopened.");
+        return;
+    }
+    state = "Waiting for client";
+    offerFailure.clear();
+    if (handoff::publish({grant, QFileInfo(root).fileName(), 0}, &offerFailure))
+        offered = grant;
     emit changed();
 }
 void Service::shutdown() {
@@ -128,7 +151,8 @@ void Service::projectChanged() {
         } else {
             pendingEdit = false;
             ++editSequence;
-            send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error));
+            send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error,
+                           workflow && workflow->fullText));
             workflow.reset();
         }
     }
@@ -175,12 +199,7 @@ void Service::accept() {
         protocol = Protocol{};
         handshake.start(5000);
         connect(socket, &QLocalSocket::readyRead, this, &Service::receive);
-        connect(socket, &QLocalSocket::disconnected, this, [this] {
-            if (authenticated)
-                revoke();
-            else
-                closeSocket();
-        });
+        connect(socket, &QLocalSocket::disconnected, this, [this] { dropConnection(); });
         receive();
     }
 }
@@ -195,7 +214,7 @@ void Service::send(const QJsonObject &message) {
             toolError("response_limit", "The result exceeded the response budget.")))
             .toJson(QJsonDocument::Compact) + '\n';
     if (socket->bytesToWrite() + line.size() > ResponseLimit * 2 || socket->write(line) < 0)
-        revoke();
+        dropConnection();
     emit responseQueued(queue);
 }
 void Service::receive() {
@@ -219,7 +238,6 @@ void Service::receive() {
             }
             authenticated = true;
             handshake.stop();
-            grantExpiry.stop();
             withdrawOffer();
             grant.clear();
             server.close();
@@ -256,7 +274,8 @@ void Service::receive() {
                     const auto error = toolError("operation_canceled", "Publication stopped at the next document boundary.");
                     if (reviewingEdit)
                         stopReview("operation_canceled");
-                    send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error));
+                    send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error,
+                                   workflow && workflow->fullText));
                     workflow.reset();
                     emit changed();
                 } else if (workflow) {
@@ -280,6 +299,8 @@ void Service::receive() {
 void Service::beginReview(const Request &request) {
     review = {randomToken(), root, clientName(), request.tool, "Preparing", {}, {}};
     auto stages = request.arguments["stages"].toArray();
+    if (request.tool == "nova.texture.adjust_bulk")
+        stages = request.arguments["targets"].toArray();
     if (stages.isEmpty())
         stages.append(request.arguments);
     for (const auto &value : stages) {
@@ -287,6 +308,8 @@ void Service::beginReview(const Request &request) {
         ReviewStage stage;
         stage.assetId = args["assetId"].toString();
         auto operations = args["operations"].toArray();
+        if (request.tool == "nova.texture.adjust_bulk")
+            operations = request.arguments["operations"].toArray();
         if (args.contains("operation"))
             operations.append(args["operation"]);
         if (args.contains("parameters"))
@@ -321,6 +344,8 @@ void Service::stopReview(const QString &code, bool rejected) {
     for (auto &stage : review.stages) {
         if (stage.state == "Committed") {
             committed = true;
+        } else if (stage.state == "Rejected") {
+            continue;
         } else if (rejected && (stage.state == "Pending" || stage.state == "Executing")) {
             stage.state = "Rejected";
             rejected = false;
@@ -333,6 +358,18 @@ void Service::stopReview(const QString &code, bool rejected) {
     review.state = committed ? "Partially committed" : hasRejection ? QString("Rejected") : stopped;
 }
 QJsonObject Service::workflowResult(const QString &status, const QJsonObject &failure) const {
+    if (!workflow->bulkTargets.isEmpty()) {
+        auto results = workflow->results;
+        for (qsizetype i = results.size(); i < workflow->bulkTargets.size(); ++i) {
+            results.append(QJsonObject{{"assetId", workflow->bulkTargets.at(i).toObject()["assetId"]},
+                                       {"status", "not_run"}});
+        }
+        QJsonObject result{{"status", status}, {"results", results}, {"committed", workflow->committed},
+                           {"rejected", workflow->results.size() - workflow->committed}};
+        if (!failure.isEmpty())
+            result["failure"] = failure["error"];
+        return result;
+    }
     QJsonObject result{{"status", status}, {"stages", workflow->results}, {"totalStages", workflow->total}};
     const auto code = failure["error"].toObject()["code"].toString();
     if (!failure.isEmpty())
@@ -347,6 +384,120 @@ QJsonObject Service::workflowResult(const QString &status, const QJsonObject &fa
     }
     result["stageOutcomes"] = outcomes;
     return result;
+}
+
+void Service::publishBulk(quint64 sequence, const std::shared_ptr<Workflow> &progress,
+                          const std::shared_ptr<Snapshot> &scope, const QJsonArray &operations) {
+    if (socket && socket->canReadLine())
+        receive();
+    if (!pendingEdit || sequence != editSequence)
+        return;
+    auto canContinue = [&] {
+        if (progress->elapsed.hasExpired(30000) && progress->stopReason.isEmpty())
+            progress->stopReason = toolError("operation_canceled", "The bulk edit exceeded its 30-second deadline.");
+        return pendingEdit && sequence == editSequence && progress->stopReason.isEmpty();
+    };
+    const auto index = progress->results.size();
+    const auto target = progress->bulkTargets.at(index).toObject();
+    const auto asset = target["assetId"].toString();
+    const auto reviewId = review.id;
+    if (canContinue()) {
+        review.state = "Executing";
+        updateReviewStage(index, "Executing");
+        auto args = target;
+        args["generation"] = scope->generation;
+        args["projectId"] = scope->projectId;
+        bool opened = false;
+        QString path;
+        QJsonObject result;
+        try {
+            QScopedValueRollback publication(publishingEdit, sequence);
+            result = [&]() -> QJsonObject {
+                if (args["expectedRevision"] == "current") {
+                    auto openArgs = args;
+                    openArgs.remove("expectedRevision");
+                    Commit open;
+                    const auto preflight = editHandler(*scope, Request{pendingId, "nova.asset.open", openArgs}, true, open);
+                    if (!open)
+                        return preflight;
+                    const auto document = open();
+                    if (document.contains("error"))
+                        return document;
+                    opened = document["opened"].toBool();
+                    path = document["path"].toString();
+                    args["expectedRevision"] = document["revision"];
+                }
+                auto checkpoint = [&] {
+                    if (socket && socket->canReadLine())
+                        receive();
+                    return canContinue();
+                };
+                if (!checkpoint())
+                    return {};
+                args["operations"] = operations;
+                args["include"] = "summary";
+                Commit edit;
+                const Request request{pendingId, "nova.edit.batch", args, {}, {}, false, checkpoint};
+                const auto preflight = editHandler(*scope, request, true, edit);
+                if (!checkpoint())
+                    return {};
+                return edit ? edit() : preflight;
+            }();
+        } catch (...) {
+            result = toolError("internal_failure", "Nova could not complete this asset's edit.");
+        }
+        if (!result.isEmpty()) {
+            const bool rejected = result.contains("error");
+            if (review.id == reviewId && !reviewId.isEmpty()) {
+                if (review.stages[index].path.isEmpty())
+                    review.stages[index].path = path;
+                updateReviewStage(index, rejected ? "Rejected" : "Committed", result);
+            }
+            if (!rejected && result["changed"].toBool()) {
+                validationFindings.clear();
+                lastValidation = "Edited documents have not been validated.";
+            }
+            if (!pendingEdit || sequence != editSequence) {
+                emit changed();
+                return;
+            }
+            QJsonObject row{{"assetId", asset}, {"opened", opened}, {"status", rejected ? "rejected" : "committed"}};
+            if (rejected) {
+                row["error"] = result["error"];
+            } else {
+                ++progress->committed;
+                path = result["changeSummary"].toObject()["assetPath"].toString(path);
+                for (const auto key : {"revision", "dirty", "changed", "undoAvailable"})
+                    row[key] = result[key];
+            }
+            if (path.isEmpty() && review.id == reviewId && !reviewId.isEmpty())
+                path = review.stages[index].path;
+            if (!path.isEmpty())
+                row["path"] = path;
+            progress->results.append(row);
+        }
+    }
+    if (!pendingEdit || sequence != editSequence)
+        return;
+    const bool complete = progress->results.size() == progress->total;
+    lastEdit = QString("Bulk adjustment · %1/%2 committed").arg(progress->committed).arg(progress->total);
+    if (complete || !canContinue()) {
+        pendingEdit = false;
+        if (complete) {
+            if (!review.id.isEmpty())
+                review.state = progress->committed == progress->total ? "Completed" : "Completed with failures";
+        } else {
+            stopReview(progress->stopReason["error"].toObject()["code"].toString());
+        }
+        const auto response = workflowResult(complete ? "complete" : "stopped", complete ? QJsonObject{} : progress->stopReason);
+        workflow.reset();
+        send(toolReply(pendingId, response, progress->fullText));
+    }
+    emit changed();
+    if (pendingEdit && sequence == editSequence)
+        QTimer::singleShot(0, this, [this, sequence, progress, scope, operations] {
+            publishBulk(sequence, progress, scope, operations);
+        });
 }
 
 void Service::publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> &progress,
@@ -407,7 +558,7 @@ void Service::publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> 
         }
         const auto response = workflowResult(complete ? "complete" : "stopped", failure);
         workflow.reset();
-        send(toolReply(pendingId, response));
+        send(toolReply(pendingId, response, progress->fullText));
     }
     emit changed();
     if (pendingEdit && sequence == editSequence)
@@ -459,11 +610,13 @@ void Service::dispatch(const Request &request) {
     const bool save = request.tool == "nova.drafts.save" || request.tool == "nova.drafts.save_all";
     const bool plan = request.tool == "nova.workflow.plan";
     const bool execute = request.tool == "nova.workflow.execute";
+    const bool bulk = request.tool == "nova.texture.adjust_bulk";
     const bool preview = request.tool == "nova.edit.preview" || plan || request.tool == "nova.asset.preview_image" ||
         request.tool == "nova.asset.create_preview";
     const bool prepare = request.tool == "nova.workflow.prepare";
     const bool validate = request.tool == "nova.workflow.validate_changes";
-    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool.endsWith(".edit") ||
+    const bool mutation = execute || bulk || save || request.tool == "nova.asset.create" || request.tool == "nova.asset.open" ||
+        request.tool == "nova.pack.bootstrap" || request.tool.endsWith(".edit") ||
         !compactTextureCommand(request.tool).isEmpty() ||
         (request.tool.startsWith("nova.edit.") && !capability && !preview);
     if ((mutation || adopt) && !editing)
@@ -474,6 +627,16 @@ void Service::dispatch(const Request &request) {
     if (request.arguments.contains("projectId") && request.arguments["projectId"] != projectId)
         return reject("stale_project", "The projectId does not belong to this connection. Call nova.project.info "
                                        "and use its projectId.");
+    if (bulk) {
+        QSet<QString> targets;
+        const auto rows = request.arguments["targets"].toArray();
+        for (const auto &row : rows) {
+            const auto asset = row.toObject()["assetId"].toString();
+            if (targets.contains(asset))
+                return reject("invalid_arguments", "Use each assetId once per bulk edit.");
+            targets.insert(asset);
+        }
+    }
     Snapshot data;
     data.root = root;
     data.rootIdentity = rootIdentity;
@@ -481,6 +644,12 @@ void Service::dispatch(const Request &request) {
     data.projectId = projectId;
     data.generation = generation;
     data.relationships = relationships;
+    if (request.tool == "nova.texture.read" || request.tool == "nova.texture.analyze") {
+        if (request.arguments.contains("assetId"))
+            data.textureTargets.insert(request.arguments["assetId"].toString());
+        for (const QJsonValue &asset : request.arguments["assetIds"].toArray())
+            data.textureTargets.insert(asset.toString());
+    }
     if (!mutation && !preview && !snapshot(data, request.tool))
         return reject("validation_unavailable", "The project index is updating (for example after a save or a file change). Retry shortly.");
     if (mutation || capability || preview) {
@@ -488,7 +657,7 @@ void Service::dispatch(const Request &request) {
             return reject("editing_unavailable", "No editor is available for this project.");
         if (capability) {
             Commit unused;
-            send(toolReply(request.id, editHandler(data, request, editing, unused)));
+            send(toolReply(request.id, editHandler(data, request, editing, unused), request.arguments["verbosity"] == "full"));
             return;
         }
         pendingEdit = true;
@@ -499,7 +668,7 @@ void Service::dispatch(const Request &request) {
             beginReview(request);
             emit changed();
         }
-        QTimer::singleShot(0, this, [this, request, sequence, preview, plan, execute, mutation] {
+        QTimer::singleShot(0, this, [this, request, sequence, preview, plan, execute, mutation, bulk] {
             if (!pendingEdit || sequence != editSequence)
                 return;
             auto finish = [this, request, sequence, mutation, plan](const QJsonObject &result) {
@@ -543,7 +712,7 @@ void Service::dispatch(const Request &request) {
                 if (mutation || plan)
                     emit changed();
                 if (authenticated && generation == replyGeneration)
-                    send(toolReply(request.id, result));
+                    send(toolReply(request.id, result, request.arguments["verbosity"] == "full"));
             };
             if (stale || (!editing && !preview))
                 return finish(toolError("stale_project", "Editing authorization expired."));
@@ -562,6 +731,17 @@ void Service::dispatch(const Request &request) {
                 for (auto &stage : review.stages)
                     stage.path = current.openAssetPaths.value(stage.assetId);
             try {
+                if (bulk) {
+                    const auto progress = std::make_shared<Workflow>();
+                    progress->fullText = request.arguments["verbosity"] == "full";
+                    progress->bulkTargets = request.arguments["targets"].toArray();
+                    progress->total = int(progress->bulkTargets.size());
+                    progress->elapsed.start();
+                    workflow = progress;
+                    publishBulk(sequence, progress, std::make_shared<Snapshot>(std::move(current)),
+                                request.arguments["operations"].toArray());
+                    return;
+                }
                 if (plan || execute) {
                     const auto stages = request.arguments["stages"].toArray();
                     QSet<QString> targets;
@@ -585,6 +765,8 @@ void Service::dispatch(const Request &request) {
                         targets.insert(asset);
                         args["generation"] = current.generation;
                         args["projectId"] = current.projectId;
+                        if (request.arguments.contains("include"))
+                            args["include"] = request.arguments["include"];
                         Commit commit;
                         const Request stage{request.id, plan ? "nova.edit.preview" : "nova.edit.batch",
                                             args, {}, {}, execute, continuePreparation};
@@ -604,6 +786,7 @@ void Service::dispatch(const Request &request) {
                     if (plan)
                         return finish({{"status", "ready"}, {"stages", previews}, {"totalStages", stages.size()}});
                     auto state = std::make_shared<Workflow>();
+                    state->fullText = request.arguments["verbosity"] == "full";
                     state->total = int(stages.size());
                     workflow = state;
                     review.state = "Prepared";
@@ -726,12 +909,14 @@ void Service::dispatch(const Request &request) {
                 }
                 emit changed();
             }
-            send(toolReply(pendingId, result));
+            send(toolReply(pendingId, result, request.arguments["verbosity"] == "full"));
         }
         active->deleteLater();
     });
     // Relationship and cache requests may resolve a full vanilla resource stack (thousands of JSON files).
-    const bool sourced = request.tool == "nova.asset.relationships" || request.tool.startsWith("nova.vanilla.");
+    const bool sourced = request.tool == "nova.asset.relationships" || request.tool == "nova.texture.analyze" ||
+        request.tool.startsWith("nova.vanilla.") || (request.tool == "nova.texture.read" &&
+            request.arguments["assetId"].toString().startsWith("vanilla:"));
     deadline.start(validate || request.tool == "nova.pack.validate" ? 60000 : sourced ? 30000 : 10000);
     worker->setFuture(QtConcurrent::run(
         [data = std::move(data), tool = request.tool, args = request.arguments, cancellation = cancel] {

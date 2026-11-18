@@ -356,6 +356,7 @@ QString styleSheet(const Tokens &t) {
         "QToolButton[role=\"disclosure\"]{border:0;padding:4px 2px;font-weight:600;color:@muted}"
         "QToolButton[role=\"disclosure\"]:hover{color:@text;background:transparent}"
         "QToolButton[role=\"disclosure\"]:checked{background:transparent;color:@text}"
+        "QToolButton[role=\"disclosure\"]:focus{border:1px solid @accent}"
         // Line edits, spin boxes and combo boxes are drawn by NovaStyle (one field shape
         // with token borders); only their popup list is styled here.
         "QComboBox QAbstractItemView{background:@raised;border:1px solid @borderStrong;padding:4px;outline:0;"
@@ -364,6 +365,9 @@ QString styleSheet(const Tokens &t) {
         "QPlainTextEdit,QTextEdit{background:@base;border:1px solid @border;border-radius:@rS;"
         "selection-background-color:@selection;selection-color:@selectionText}"
         "QPlainTextEdit[role=\"path\"]{background:@surface}"
+        "QScrollArea[role=\"transcript\"]{background:@base;border:1px solid @border;border-radius:@rS}"
+        "QWidget[role=\"transcriptContent\"]{background:@base}"
+        "QTextEdit[role=\"transcriptBody\"]{background:transparent;border:0;border-radius:0}"
         "QCheckBox,QRadioButton{spacing:8px}"
         "QCheckBox[role=\"toggle\"]{spacing:0;padding:4px;border:1px solid transparent;border-radius:@rS}"
         "QCheckBox[role=\"toggle\"]::indicator{width:0;height:0}"
@@ -433,6 +437,10 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"hint\"]{color:@muted}"
         "QLabel:disabled{color:@disabled}"
         "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
+        "QLabel[role=\"badge\"]{background:@raised;color:@muted;border-radius:@rS;padding:2px 6px}"
+        "QLabel[role=\"statusPill\"]{background:@raised;color:@muted;border-radius:@rM;padding:2px 8px;font-weight:600}"
+        "QLabel[role=\"statusPill\"][severity=\"info\"]{background:@infoSurface;color:@info}"
+        "QLabel[role=\"statusPill\"][severity=\"success\"]{background:@statusSuccessFill;color:@success}"
         "QLabel[role=\"keycap\"]{color:@muted;background:@surface;border:1px solid @borderStrong;"
         "border-radius:@rS;padding:1px 6px}"
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
@@ -441,7 +449,10 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"info\"]{color:@info}"
         "QLabel[role=\"error\"]{color:@danger}"
         "QLabel[role=\"notice\"]{background:@warningSurface;color:@text;border:1px solid @noticeBorder;"
-        "border-radius:@rM;padding:0}");
+        "border-radius:@rM;padding:0}"
+        "QLabel[role=\"notice\"][severity]{padding:4px 8px}"
+        "QLabel[role=\"notice\"][severity=\"info\"]{background:@infoSurface;border-color:@infoBorder}"
+        "QLabel[role=\"notice\"][severity=\"error\"]{background:@dangerSurface;border-color:@dangerBorder}");
     const QColor sliderHandle = t.dark ? t.text : QColor(Qt::white);
     const std::pair<const char *, QColor> values[] = {
         {"@borderStrong", t.borderStrong},
@@ -462,7 +473,7 @@ QString styleSheet(const Tokens &t) {
         {"@accent", t.accent},
         {"@onAccent", t.onAccent},
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
-        {"@primaryDisabledText", mix(t.accent, t.onAccent, 0.45)},
+        {"@primaryDisabledText", t.dark ? mix(t.accent, t.onAccent, 0.45) : mix(t.text, t.muted, 0.65)},
         {"@primaryDisabledFill", mix(t.window, t.accent, 0.42)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
@@ -472,8 +483,14 @@ QString styleSheet(const Tokens &t) {
         {"@warningSurface", t.warningSurface},
         {"@noticeBorder", mix(t.warningSurface, t.warning, 0.45)},
         {"@warning", t.warning},
+        {"@dangerSurface", t.dangerSurface},
+        {"@dangerBorder", mix(t.dangerSurface, t.danger, 0.45)},
         {"@danger", t.danger},
+        {"@infoSurface", t.infoSurface},
+        {"@infoBorder", mix(t.infoSurface, t.info, 0.45)},
         {"@info", t.info},
+        {"@statusSuccessFill", mix(t.surface, t.success, 0.12)},
+        {"@success", t.success},
         {"@sliderHandle", sliderHandle},
         {"@sliderTrack", mix(t.borderStrong, t.muted, 0.55)},
         {"@scrollThumb", t.dark ? mix(t.borderStrong, t.muted, 0.25) : mix(t.borderStrong, t.window, 0.15)},
@@ -565,6 +582,11 @@ QChar materialGlyph(const QString &name) {
         {"search", QChar(0xef7a)},
         {"command", QChar(0xef7a)},
         {"close", QChar(0xe5cd)},
+        {"check", QChar(0xe5ca)},
+        {"pending", QChar(0xe835)}, // check_box_outline_blank
+        {"in-progress", QChar(0xe8b5)}, // schedule
+        {"error", QChar(0xe000)},
+        {"chat", QChar(0xe0b7)},
         {"add", QChar(0xe145)},
         {"duplicate", QChar(0xe14d)},
         {"delete", QChar(0xe92e)},

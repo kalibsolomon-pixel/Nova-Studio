@@ -2,8 +2,10 @@
 #include "agent_client.h"
 #include "build_identity.h"
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 namespace nova::testing {
@@ -16,14 +18,75 @@ static bool operator==(const ProcessIdentity &a, const ProcessIdentity &b) {
 namespace nova::acp {
 namespace {
 constexpr int ProtocolVersion = 1;
+constexpr int StartupTimeout = 30000, AuthenticateTimeout = 180000, CancelTimeout = 8000;
 QString text(const QJsonObject &error) {
     return error["message"].toString().left(300);
 }
 } // namespace
 
 QString findAgentExecutable(const QString &name) {
-    const auto found = QStandardPaths::findExecutable(name + ".exe");
-    return acceptableExecutable(found, nullptr) ? QDir::toNativeSeparators(found) : QString{};
+    for (const auto *suffix : {".exe", ".cmd"}) {
+        const auto found = QStandardPaths::findExecutable(name + suffix);
+        if (!resolveAgentProgram(found, {}).executable.isEmpty())
+            return QDir::toNativeSeparators(found);
+    }
+    return {};
+}
+
+AgentProgram resolveAgentProgram(const QString &path, const QStringList &arguments, QString *problem) {
+    const QFileInfo file(path);
+    if (file.suffix().compare("cmd", Qt::CaseInsensitive) != 0)
+        return acceptableExecutable(path, problem) ? AgentProgram{path, arguments} : AgentProgram{};
+    auto fail = [problem](const QString &message) -> AgentProgram {
+        if (problem)
+            *problem = message;
+        return {};
+    };
+    if (!file.isAbsolute() || !file.isFile())
+        return fail("Choose an existing agent program with its full path.");
+    QFile shim(path);
+    if (!shim.open(QIODevice::ReadOnly) || shim.size() > 16384)
+        return fail("Nova could not read the npm launcher.");
+    // npm's current and older cmd-shim forms. Extract only a quoted script under the
+    // shim's node_modules directory. No batch statement or expansion is executed.
+    constexpr auto insensitive = QRegularExpression::CaseInsensitiveOption;
+    static const QRegularExpression invocation(
+        R"rx(^\s*(?:endLocal\s*&\s*goto\s+[^\r\n]+?\s*\|\|\s*title\s+%COMSPEC%\s*&\s*)?)rx"
+        R"rx(@?(?<program>"%_prog%"|node(?:\.exe)?|"%~dp0\\node\.exe")\s+)rx"
+        R"rx("(?:%dp0%|%~dp0)\\(?<script>node_modules\\[^"%\r\n<>:|?*]+\.(?:js|cjs|mjs))"\s+%\*\s*$)rx", insensitive);
+    static const QRegularExpression programAssignment(R"rx(^\s*@?SET\s+"_prog=([^"]+)"\s*$)rx", insensitive);
+    bool hasNodeAssignment = false, usesProgramVariable = false;
+    QString target;
+    for (const auto &line : QString::fromUtf8(shim.read(16384)).split('\n')) {
+        if (const auto assignment = programAssignment.match(line); assignment.hasMatch()) {
+            const auto program = assignment.captured(1).toLower();
+            if (program != "node" && program != "node.exe" && program != "%dp0%\\node.exe")
+                return fail("The npm launcher does not use Node.js.");
+            hasNodeAssignment = true;
+        }
+        const auto match = invocation.match(line);
+        if (!match.hasMatch())
+            continue;
+        usesProgramVariable |= match.captured("program").compare("\"%_prog%\"", Qt::CaseInsensitive) == 0;
+        const auto relative = QDir::fromNativeSeparators(match.captured("script"));
+        if (relative != QDir::cleanPath(relative) || (!target.isEmpty() && target != relative))
+            return fail("The npm launcher has an unsupported script path.");
+        for (const auto &component : relative.split('/'))
+            if (component.endsWith('.') || component.endsWith(' '))
+                return fail("The npm launcher has an unsupported script path.");
+        target = relative;
+    }
+    if (target.isEmpty() || (usesProgramVariable && !hasNodeAssignment))
+        return fail("Choose a native .exe or a standard npm .cmd launcher.");
+    const auto script = file.absoluteDir().absoluteFilePath(target);
+    if (!QFileInfo(script).isFile())
+        return fail("The npm package script is missing. Reinstall the agent adapter.");
+    auto node = file.absoluteDir().absoluteFilePath("node.exe");
+    if (!acceptableExecutable(node, nullptr))
+        node = QStandardPaths::findExecutable("node.exe");
+    if (!acceptableExecutable(node, nullptr))
+        return fail("Install Node.js or add node.exe to PATH, then reopen Nova Studio.");
+    return {QDir::toNativeSeparators(node), QStringList{QDir::toNativeSeparators(script)} + arguments};
 }
 
 bool acceptableExecutable(const QString &path, QString *problem) {
@@ -36,7 +99,7 @@ bool acceptableExecutable(const QString &path, QString *problem) {
     if (path.isEmpty() || !file.isAbsolute())
         return refuse("Choose the agent program with its full path.");
     if (file.suffix().compare("exe", Qt::CaseInsensitive) != 0)
-        return refuse("Choose the agent's .exe program, not a script or .cmd/.bat shim.");
+        return refuse("Choose a native .exe or a standard npm .cmd launcher.");
     if (!file.isFile() || !file.isExecutable())
         return refuse("The agent program does not exist.");
     return true;
@@ -56,18 +119,21 @@ QJsonObject stdioServer(const QString &name, const QString &command) {
 Session::Session(QObject *parent) : QObject(parent) {
     process.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&process, &QProcess::readyReadStandardOutput, this, &Session::readOutput);
-    // The agent's diagnostics may contain credentials or prompts: drained, never stored or shown.
-    connect(&process, &QProcess::readyReadStandardError, this, [this] { process.readAllStandardError(); });
+    connect(&process, &QProcess::readyReadStandardError, this, &Session::readError);
     connect(&process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        finish(status == QProcess::NormalExit ? QString("The agent exited (code %1).").arg(code)
-                                              : QString("The agent stopped unexpectedly."));
+        readError();
+        finish((status == QProcess::NormalExit ? QString("The agent exited (code %1).").arg(code)
+                                              : QString("The agent stopped unexpectedly.")) +
+               " Open Show agent output, correct the reported problem, then start again.");
     });
     connect(&process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart)
-            finish("The agent program could not be started.");
+            finish("Windows could not start the agent. Check the program path and reinstall its adapter or runtime.");
     });
     shutdownTimer.setSingleShot(true);
     connect(&shutdownTimer, &QTimer::timeout, this, &Session::endTree);
+    replyTimer.setSingleShot(true);
+    connect(&replyTimer, &QTimer::timeout, this, [this] { stop(timeoutReason); });
     // Remember the processes the agent starts (such as Nova's bridge), so stopping ends them too
     // even after the agent itself has exited.
     treeTimer.setInterval(500);
@@ -104,18 +170,22 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
     setState(State::Starting);
     process.start();
     if (!process.waitForStarted(10000)) {
-        finish("The agent program could not be started.");
+        finish("The agent program did not start. Check the program path and runtime, then retry.");
         if (problem)
             *problem = reason;
         return false;
     }
     identity = testing::identifyProcess(process.processId());
     treeTimer.start();
+    expectReply(StartupTimeout, "The agent did not answer the ACP handshake. Check the adapter and its launch arguments.");
     request("initialize", {{"protocolVersion", ProtocolVersion},
                            {"clientCapabilities", QJsonObject{{"fs", QJsonObject{{"readTextFile", false}, {"writeTextFile", false}}},
                                                               {"terminal", false}}},
                            {"clientInfo", QJsonObject{{"name", "nova-studio"}, {"title", "Nova Studio"}, {"version", AppVersion}}}},
             [this](const QJsonObject &reply) {
+        if (current != State::Starting)
+            return;
+        replyTimer.stop();
         if (reply.contains("error"))
             return stop("The agent refused to start a session: " + text(reply["error"].toObject()));
         const auto result = reply["result"].toObject();
@@ -124,28 +194,75 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
         const auto info = result["agentInfo"].toObject();
         agent = (info["title"].toString(info["name"].toString("Agent")) + ' ' + info["version"].toString()).trimmed().left(120);
         canClose = result["agentCapabilities"].toObject()["sessionCapabilities"].toObject().contains("close");
-        request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
-            if (reply.contains("error")) {
-                const auto error = reply["error"].toObject();
-                return stop(error["code"].toInt() == -32000
-                    ? "The agent needs you to sign in with its own tool first."
-                    : "The agent could not start a session: " + text(error));
-            }
-            session = reply["result"].toObject()["sessionId"].toString();
-            if (session.isEmpty())
-                return stop("The agent did not return a session.");
-            setState(State::Ready);
-        });
+        for (const auto &value : result["authMethods"].toArray()) {
+            const auto method = value.toObject();
+            if (!method["id"].toString().isEmpty() && authMethods.size() < 32)
+                authMethods.append(method);
+        }
+        createSession();
     });
     return true;
+}
+
+void Session::createSession() {
+    if (current != State::Starting)
+        return;
+    expectReply(StartupTimeout, "The agent did not open a session. Check sign-in and agent output, then retry.");
+    request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
+        if (current != State::Starting)
+            return;
+        replyTimer.stop();
+        if (reply.contains("error")) {
+            const auto error = reply["error"].toObject();
+            if (error["code"].toInt() != -32000)
+                return stop("The agent could not start a session: " + text(error));
+            waitingForAuth = !authMethods.isEmpty();
+            emit authenticationRequired(authMethods);
+            if (!waitingForAuth)
+                stop("Sign-in required.");
+            return;
+        }
+        session = reply["result"].toObject()["sessionId"].toString();
+        if (session.isEmpty())
+            return stop("The agent did not return a session.");
+        setState(State::Ready);
+    });
+}
+
+bool Session::authenticate(const QString &methodId) {
+    if (current != State::Starting || !waitingForAuth)
+        return false;
+    for (const auto &value : authMethods) {
+        if (value.toObject()["id"].toString() != methodId)
+            continue;
+        waitingForAuth = false;
+        expectReply(AuthenticateTimeout, "The agent did not finish signing in. Complete sign-in in its own tool, then retry.");
+        request("authenticate", {{"methodId", methodId}}, [this](const QJsonObject &reply) {
+            if (current != State::Starting)
+                return;
+            replyTimer.stop();
+            if (reply.contains("error")) {
+                waitingForAuth = true;
+                emit authenticationRequired(authMethods);
+                emit problem("Sign-in failed: " + text(reply["error"].toObject()));
+                return;
+            }
+            createSession();
+        });
+        return true;
+    }
+    return false;
 }
 
 bool Session::prompt(const QString &message) {
     if (current != State::Ready || message.trimmed().isEmpty())
         return false;
+    cancellingTurn = false;
     setState(State::Prompting);
     request("session/prompt", {{"sessionId", session}, {"prompt", QJsonArray{QJsonObject{{"type", "text"}, {"text", message}}}}},
             [this](const QJsonObject &reply) {
+        replyTimer.stop();
+        cancelPermissions();
         if (current == State::Prompting)
             setState(State::Ready);
         emit turnEnded(reply.contains("error") ? "error: " + text(reply["error"].toObject())
@@ -155,11 +272,18 @@ bool Session::prompt(const QString &message) {
 }
 
 void Session::cancel() {
+    cancelPermissions();
+    if (current == State::Prompting && !cancellingTurn) {
+        cancellingTurn = true;
+        notify("session/cancel", {{"sessionId", session}});
+        expectReply(CancelTimeout, "The agent ignored cancellation. Nova ended the session. Start again to continue.");
+    }
+}
+
+void Session::cancelPermissions() {
     // Pending permission questions are answered "cancelled", as the protocol requires.
     for (const auto &id : std::exchange(permissions, {}))
         write({{"jsonrpc", "2.0"}, {"id", id}, {"result", QJsonObject{{"outcome", QJsonObject{{"outcome", "cancelled"}}}}}});
-    if (current == State::Prompting)
-        notify("session/cancel", {{"sessionId", session}});
 }
 
 void Session::answerPermission(const QJsonValue &requestId, const QString &optionId) {
@@ -175,6 +299,7 @@ void Session::stop(const QString &why) {
         return;
     reason = why;
     cancel();
+    replyTimer.stop();
     setState(State::Stopping);
     if (canClose && !session.isEmpty())
         request("session/close", {{"sessionId", session}}, [](const QJsonObject &) {});
@@ -232,6 +357,11 @@ void Session::readOutput() {
     buffer += process.readAllStandardOutput();
     qsizetype end;
     while ((end = buffer.indexOf('\n')) >= 0) {
+        if (end > LineLimit) {
+            buffer.clear();
+            stop("The agent sent an oversized message.");
+            return;
+        }
         const auto line = buffer.left(end).trimmed();
         buffer.remove(0, end + 1);
         if (line.isEmpty())
@@ -250,12 +380,43 @@ void Session::readOutput() {
         stop("The agent sent an oversized message.");
 }
 
+void Session::readError() {
+    const auto chunk = process.readAllStandardError();
+    if (chunk.isEmpty())
+        return;
+    if (chunk.size() >= OutputLimit)
+        stderrTail = chunk.last(OutputLimit);
+    else {
+        stderrTail += chunk;
+        if (stderrTail.size() > OutputLimit)
+            stderrTail.remove(0, stderrTail.size() - OutputLimit);
+    }
+    emit agentOutputChanged();
+}
+
+void Session::expectReply(int timeoutMs, const QString &failure) {
+    timeoutReason = failure;
+    replyTimer.start(timeoutMs);
+}
+
 void Session::handle(const QJsonObject &message) {
     const auto method = message["method"].toString();
     if (message.contains("method") && message.contains("id")) {
-        if (method == "session/request_permission" && current != State::Stopping) {
-            permissions << message["id"];
-            emit permissionRequested(message["id"], message["params"].toObject());
+        if (method == "session/request_permission") {
+            const auto id = message["id"];
+            const auto params = message["params"].toObject();
+            if (permissions.contains(id))
+                return;
+            if (current != State::Prompting || cancellingTurn || params["sessionId"].toString() != session ||
+                permissions.size() >= 32) {
+                write({{"jsonrpc", "2.0"}, {"id", id}, {"result", QJsonObject{
+                    {"outcome", QJsonObject{{"outcome", "cancelled"}}}}}});
+                if (permissions.size() >= 32)
+                    emit problem("The agent sent too many tool permission requests. Additional requests were cancelled.");
+                return;
+            }
+            permissions << id;
+            emit permissionRequested(id, params);
             return;
         }
         write({{"jsonrpc", "2.0"}, {"id", message["id"]},
@@ -285,6 +446,8 @@ void Session::update(const QJsonObject &params) {
             emit agentThought(content["text"].toString());
     } else if (kind == "tool_call" || kind == "tool_call_update") {
         emit toolCall(change);
+    } else if (kind == "plan") {
+        emit planChanged(change["entries"].toArray());
     }
 }
 
@@ -295,6 +458,7 @@ void Session::finish(const QString &why) {
         reason = why;
     shutdownTimer.stop();
     treeTimer.stop();
+    replyTimer.stop();
     endTree();
     pending.clear();
     permissions.clear();

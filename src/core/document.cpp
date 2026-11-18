@@ -53,9 +53,9 @@ Document::Document(QString p, QImage im)
     savedRevision = Revision::read(path);
     exportedPixels = pixelDigest();
 }
-std::shared_ptr<Document> Document::open(const QString &path, QString *error) {
+std::shared_ptr<Document> Document::open(const QString &path, QString *error, bool includeMetadata) {
     QJsonObject metadata;
-    Revision metaRevision = Revision::read(path + ".mcmeta");
+    Revision metaRevision = includeMetadata ? Revision::read(path + ".mcmeta") : Revision{};
     if (metaRevision.exists) {
         QFile file(path + ".mcmeta");
         if (!metaRevision.readable || metaRevision.size > 512 * 1024 || !file.open(QIODevice::ReadOnly)) {
@@ -127,17 +127,18 @@ std::shared_ptr<Document> Document::fromBaseline(const QString &target, const QB
             return reject("The project already contains this texture's .mcmeta; open the project file instead");
         // Unprofiled versions use the same animation profile Document::open applies to every file.
         const auto profile = supportedAnimationTarget(version) ? version : QString("26.1");
-        doc = std::make_shared<Document>(target, QImage(1, 1, QImage::Format_RGBA8888));
+        doc = std::make_shared<Document>(QString{}, QImage(1, 1, QImage::Format_RGBA8888));
         if (!doc->importAnimation(pixels, metadata, profile, error))
             return {};
         doc->acceptAnimationExport(Revision{}, Revision{});
         doc->markOpenedBaseline();
     } else {
-        doc = std::make_shared<Document>(target, pixels);
+        doc = std::make_shared<Document>(QString{}, pixels);
         if (doc->image.isNull())
             return reject("Baseline texture exceeds the 4096 px editing limit");
         doc->animation.metadata = metadata;
     }
+    doc->path = target;
     doc->savedRevision = Revision{};
     doc->metadataRevision = Revision{};
     if (occupied(QFileInfo(target)))

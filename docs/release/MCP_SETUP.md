@@ -9,9 +9,11 @@ if you allow editing, change it through Nova Studio's normal undo, save and reco
 - **Setup** tells an agent where `nova-mcp.exe` is. It does not grant access to anything.
 - **Access is off until you choose Allow** in Resources › MCP Integration › Access, for the
   project that is open now. **Allow read-only** lets the agent inspect; **Allow editing…** also lets
-  it change open documents (you confirm this separately).
-- An authorization is used by one agent session. It ends when the agent disconnects, when you open
-  another project, when you choose **Revoke access**, or after five minutes if no agent connects.
+  it open textures, change documents and initialize an authorized pack folder (you confirm this
+  separately).
+- An authorization stays on until you choose **Revoke access**, open another project, or close Nova
+  Studio. One agent is connected at a time; when it disconnects, Nova Studio offers a fresh
+  connection code so the agent's next session reconnects on its own.
 - Agents never get file-system access outside the open pack through Nova Studio.
 
 ## Set up an agent
@@ -36,7 +38,8 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 
 1. In Nova Studio, open the pack, then **Resources › MCP Integration › Access › Allow read-only**
    (or **Allow editing…**).
-2. Within five minutes, start your agent or reconnect its `nova-studio` server.
+2. Start your agent or reconnect its `nova-studio` server. This works at any time while the access
+   is on; after a disconnect the agent reconnects with the freshly offered code.
 3. The Access tab shows **Client connected** with the agent's name. Workflow activity and **Review
    changes** list what the agent did; every edit can be undone.
 
@@ -51,20 +54,33 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   their editable layers, and animations write the PNG and its `.png.mcmeta` (one column) plus their
   editable source. If any part fails, the document stays unsaved and keeps its recovery copy.
   **Save All is not atomic:** each document is saved separately and the result shows which failed.
-- **Compact texture editing.** With editing access, an agent can paint a whole region from a palette
+- **Texture editing.** With editing access, an agent can paint a whole region from a palette
   (`nova.texture.put_pixels`), replace colours (`nova.texture.palette_remap`), recolour by brightness
-  (`nova.texture.gradient_map`) or erase (`nova.texture.erase`) in one call each. Each call is one
-  undoable step on the open document and follows its selection and active layer; like every agent
-  edit, it is not saved until you or the agent save. Exact rules and schemas:
+  (`nova.texture.gradient_map`) or erase (`nova.texture.erase`) in one call each. Combine these tools
+  with native adjustments, generators and resize commands in a batch or workflow stage. Use
+  `nova.texture.adjust_bulk` for up to 64 related textures. Each texture has its own result, revision
+  and undo step. Exact rules and schemas are in
   [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+- **Texture workflow.** Read pack or cached vanilla pixels with `nova.texture.read` and plan a palette.
+  Edit using the current revision, opening the texture with `nova.asset.open` if needed. Use
+  `nova.asset.preview_image` with `compare` to review the edit and `nova.texture.analyze` to check
+  contrast, seams and layout. Request `returnPreview` during an edit to get an enlarged image immediately.
+- **Response size.** Edits accept `include: "summary"` to omit editor state. Clients that read only
+  text can pass `verbosity: "full"` for the complete JSON result. The default text summary keeps
+  essential handles and revisions.
+- **Starting a pack or copying a texture.** With editing permission, an agent can initialize an
+  authorized folder with Java 1.21.11 pack metadata using `nova.pack.bootstrap`. Use
+  `nova.asset.create` with `source` to copy a pack or cached vanilla texture and its animation into
+  an unsaved draft.
 - **Vanilla textures, relationships and validation (read-only).** Any connected agent can list and
   read the vanilla textures in Nova's verified local cache (`nova.vanilla.list`,
   `nova.vanilla.texture`), see how an asset is selected and used (`nova.asset.relationships`), and
-  validate saved files together with open unsaved drafts (`nova.pack.validate`). The cache holds
-  textures only; vanilla models are available only from a verified vanilla source you add under
-  **Models › Resource stack**. Agents cannot download a version: add it in Nova (Resources ›
+  validate saved files together with open unsaved drafts (`nova.pack.validate`). A baseline
+  downloaded or repaired with this version also holds vanilla models, blockstates and item
+  definitions, so vanilla parents resolve without setup; a verified vanilla source you add under
+  **Models › Resource stack** takes precedence. Agents cannot download a version: add it in Nova (Resources ›
   Vanilla Baseline). Details: [MCP_ASSET_TOOLS.md](MCP_ASSET_TOOLS.md).
-- **Guides.** Agents can read Nova's resource-pack guides (`nova.guide.get`, or the MCP resources
+- **Guides.** Agents can read Nova's resource-pack guides, including `pixel-art` (`nova.guide.get`, or the MCP resources
   `nova://rules/<version>/<topic>`). Guides exist for Minecraft Java 1.21.11 only, checked against
   the official 1.21.11 client; other versions return "no verified guide".
 - **Style notes.** **File › Project Properties › Edit style notes…** stores an optional style brief
@@ -73,25 +89,32 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 
 ## Agent Session (ACP, experimental)
 
-Agent Session is experimental and off by default. Turn it on in **Edit › Preferences ›
-Experimental**; see KNOWN_LIMITATIONS.md for what has and has not been tested.
+Open **Resources › Agent Session (Experimental)…**, search for **Agent Session**, or choose
+**Open Agent Session…** from **MCP Integration**. Open a resource pack before starting a session.
 
-**Resources › Agent Session (ACP, Experimental)…** starts an agent that speaks the Agent Client Protocol, such as
-OpenCode's `opencode acp`, and attaches this `nova-mcp.exe` to that one session. Choose the agent's
-`.exe` (not a `.cmd` shim), then **Start read-only session…**; the question names the program, the
-project and the access, and nothing starts until you agree.
+The agent picker detects OpenCode (`opencode acp`), the Claude Code and Codex ACP adapters,
+and Gemini CLI (`gemini --experimental-acp`). If an agent is missing, copy its install command
+from the picker and run it in your terminal. Restart Nova Studio if the install changed your
+PATH. Sign in with the agent’s advertised method or follow the login command shown by Nova.
 
-- Only a bridge started by that agent can use the access; Nova refuses any other program.
-- **Allow editing…** becomes available once the read-only session has connected. It asks again and
-  restarts the agent with editing access, which includes saving into the pack.
-- **Revoke Nova access** ends Nova access but leaves the agent running; **Stop session**, closing the
-  window, switching projects or the agent exiting ends the agent, everything it started, and the access.
-- The agent works in an empty temporary folder, not in the project. Its own tools (files, shell, web)
-  follow its own settings; Nova shows its permission requests and never answers them for you.
-- The window shows the conversation: your messages, the agent's replies and, in lighter text, its
-  reasoning. Tool activity is not listed there; edits made through Nova appear in **MCP Integration ›
-  Review changes**, and the session and access lines show what the agent may do.
-- Nova keeps the conversation in the window only and passes no connection code to the agent.
+**Custom** accepts an absolute path to an `.exe` or a standard npm `.cmd` launcher. Put arguments
+containing spaces in double quotes. Nova resolves npm launchers to `node.exe` and their package
+script. Nova saves the agent choice, custom path, and arguments in its settings.
+
+- **Start read-only…** asks you to approve the program, project, and access. Only a bridge
+  from that agent’s process tree can use the grant. **Allow editing…** asks separately and
+  restarts the agent with access to edit and save in the pack.
+- **Revoke access** leaves the agent running. **Stop session**, closing the window, switching
+  projects, or the agent exiting ends the agent session and its Nova access.
+- The agent starts in an empty temporary folder. Its file, shell, and web tools follow its
+  settings. When the agent requests permission, Nova presents its choices in order, including
+  any always-allow or always-reject options the agent supplies.
+- The conversation shows plans, collapsible reasoning and tool cards, and formatted replies.
+  Enter sends, Shift+Enter inserts a line break, and Up recalls previous prompts.
+  **Cancel turn** asks the agent to stop its current response. Edits through Nova appear in
+  **MCP Integration › Review changes**.
+- **Show agent output** displays the last 16 KB of the agent’s standard error. Nova keeps that
+  output and the conversation in memory and passes no connection code to the agent.
 
 ## Diagnostics
 
@@ -109,8 +132,9 @@ These checks are local. Only **Client connected** on the Access tab shows a real
 ## Troubleshooting
 
 - **The agent says the server failed or disconnected:** choose Allow in Nova Studio first, then
-  reconnect within five minutes. The agent's log shows the reason, for example "Nova Studio has not
-  offered a connection".
+   start or reconnect the server; access stays on until you revoke it, so an agent that reconnected
+   on its own needs no new Allow. The agent's log shows the reason, for example "Nova Studio has not
+   offered a connection".
 - **Configured for a different copy of Nova Studio:** you moved or reinstalled Nova Studio. Choose
   **Update Nova Studio…**.
 - **Claude Desktop is running:** quit it from the notification area, then Check again.

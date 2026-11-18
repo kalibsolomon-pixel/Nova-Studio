@@ -27,7 +27,7 @@ void addAncestors(QMap<QString, QStringList> &directories, const QString &path,
 }
 } // namespace
 
-Index baselineIndex(const BaselineEntry &entry) {
+Index baselineIndex(const BaselineEntry &entry, bool includeModelData) {
     Index index;
     const BaselineCache cache(entry.root);
     const auto modified = entry.created.toMSecsSinceEpoch();
@@ -35,6 +35,8 @@ Index baselineIndex(const BaselineEntry &entry) {
     index.files.reserve(entry.files.size());
     for (auto it = entry.files.cbegin(); it != entry.files.cend(); ++it) {
         const auto &relative = it.key();
+        if (!includeModelData && !relative.startsWith(QLatin1String(texturePrefix)))
+            continue;
         AssetIdentity a;
         a.origin = AssetIdentity::Origin::Baseline;
         a.state = AssetIdentity::FileState::Present;

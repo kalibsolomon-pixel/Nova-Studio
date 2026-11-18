@@ -3,8 +3,8 @@
 // MCP Phase 3: the sources a read-only relationship or validation request may use, in Nova's
 // precedence order: the authorized project's files (open drafts first), then the resource stack
 // the user configured for the project and version (Models › Resource stack), then Nova's verified
-// vanilla *texture* cache. The cache holds textures only and is never a model source. Nothing here
-// accepts a path from an agent, crawls the disk or downloads anything.
+// vanilla baseline cache when its entry also holds model data (models, item definitions,
+// blockstates). Nothing here accepts a path from an agent, crawls the disk or downloads anything.
 #include "models.h"
 #include <QJsonArray>
 #include <QJsonObject>
@@ -77,6 +77,7 @@ class SourceSet {
     Scope &scope;
     mc::Library catalog;
     QMap<QString, int> stackRoots; // canonical root -> stack index
+    QString baselineRoot;          // cache root when its model source is part of the catalog
     bool vanillaModels = false, stopped = false, complete = true;
     std::optional<CacheSelection> cache;
 };

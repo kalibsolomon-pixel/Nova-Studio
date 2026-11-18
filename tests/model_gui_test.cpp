@@ -99,7 +99,7 @@ class ModelGuiTest : public QObject {
         QVERIFY(panel->findChild<QLabel *>("modelDiagnostics")->text().contains("Missing"));
         capture("model-missing-texture");
         panel->openAsset("assets/nova/items/gem.json");
-        QCOMPARE(cube->meshData().faces.size(), 6); // C6: front/back and four opaque contour walls.
+        QCOMPARE(cube->meshData().faces.size(), 2 + 4 * 16); // Front/back and one wall per edge texel.
         const auto deps = panel->findChild<QListWidget *>("modelDependencies");
         for (int row = 0; row < deps->count(); ++row)
             QVERIFY(!deps->item(row)->text().contains("builtin/generated"));

@@ -182,6 +182,24 @@ QJsonObject parse(const QByteArray &json) { return QJsonDocument::fromJson(json)
 // Round-trips through text so integer and floating-point JSON numbers compare alike.
 QJsonObject canonical(const QJsonObject &object) { return parse(QJsonDocument(object).toJson(QJsonDocument::Compact)); }
 
+QJsonValue expandSchema(const QJsonValue &value, const QJsonObject &defs) {
+    if (value.isObject()) {
+        auto object = value.toObject();
+        if (object.contains("$ref"))
+            return defs[object["$ref"].toString().mid(8)];
+        for (auto it = object.begin(); it != object.end(); ++it)
+            it.value() = expandSchema(it.value(), defs);
+        return object;
+    }
+    if (value.isArray()) {
+        QJsonArray array;
+        for (const QJsonValue &item : value.toArray())
+            array.append(expandSchema(item, defs));
+        return array;
+    }
+    return value;
+}
+
 // ---- Synthetic benchmark textures: opaque pixel-art-like patterns from a fixed seed.
 QImage synthetic(int width, int height, int colors, quint32 seed) {
     std::mt19937 random(seed);
@@ -678,19 +696,64 @@ class TexturePixelsTest : public QObject {
         QVERIFY(cursor < doc->historyCursor());
     }
 
-    // The 32 Phase 1 tools are byte-for-byte the same definitions, except MCP Phase 3's intended change to
-    // nova.pack.validate (description and output schema; same input schema and annotations); the four new
-    // ones match the published schemas.
+    // Phase 1 tool definitions stay compatible outside the intentional validation and preview changes.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 39);
+        QCOMPARE(definitions.size(), 44);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
+        const QSet<QString> previewEdits{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
+            "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo"};
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
         for (auto it = phase1.begin(); it != phase1.end(); ++it) {
             auto now = runtime.value(it.key()), then = canonical(it.value().toObject());
+            auto input = now["inputSchema"].toObject();
+            const auto defs = input.take("$defs").toObject();
+            input = expandSchema(input, defs).toObject();
+            auto fields = input["properties"].toObject();
+            QVERIFY(!fields.take("verbosity").isUndefined());
+            fields.remove("include");
+            if (it.key() == "nova.vanilla.texture") // The legacy include controls image data.
+                fields["include"] = then["inputSchema"].toObject()["properties"].toObject()["include"];
+            input["properties"] = fields;
+            now["inputSchema"] = input;
+            auto oldCommands = [](QJsonObject variants) {
+                QJsonArray commands;
+                for (const QJsonValue &variant : variants["oneOf"].toArray()) {
+                    const auto name = variant["properties"]["command"]["enum"].toArray().at(0).toString();
+                    if (!nativeTextureCommand(name) && !nova::texture::compactCommand(name))
+                        commands.append(variant);
+                }
+                variants["oneOf"] = commands;
+                return variants;
+            };
+            if (it.key() == "nova.texture.edit" || it.key() == "nova.edit.preview" || it.key() == "nova.edit.batch" ||
+                it.key() == "nova.workflow.plan" || it.key() == "nova.workflow.execute") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                auto stripBatch = [&](QJsonObject &properties) {
+                    auto operations = properties["operations"].toObject();
+                    operations["items"] = oldCommands(operations["items"].toObject());
+                    properties["operations"] = operations;
+                };
+                if (fields.contains("operation")) {
+                    fields["operation"] = oldCommands(fields["operation"].toObject());
+                } else if (fields.contains("stages")) {
+                    auto stages = fields["stages"].toObject();
+                    auto stage = stages["items"].toObject();
+                    auto stageFields = stage["properties"].toObject();
+                    stripBatch(stageFields);
+                    stage["properties"] = stageFields;
+                    stages["items"] = stage;
+                    fields["stages"] = stages;
+                } else {
+                    stripBatch(fields);
+                }
+                input["properties"] = fields;
+                now["inputSchema"] = input;
+            }
             if (it.key() == "nova.pack.validate") {
                 QCOMPARE(now["inputSchema"], then["inputSchema"]);
                 QCOMPARE(now["annotations"], then["annotations"]);
@@ -698,6 +761,38 @@ class TexturePixelsTest : public QObject {
                     definition->remove("description");
                     definition->remove("outputSchema");
                 }
+            }
+            if (previewEdits.contains(it.key()) || it.key() == "nova.asset.preview_image") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                if (previewEdits.contains(it.key())) {
+                    QCOMPARE(fields.take("returnPreview").toObject()["type"].toString(), "boolean");
+                    auto output = now["outputSchema"].toObject();
+                    auto results = output["properties"].toObject();
+                    QCOMPARE(results.take("preview").toObject()["type"].toString(), "object");
+                    output["properties"] = results;
+                    now["outputSchema"] = output;
+                } else {
+                    for (const auto key : {"assetIds", "compare", "maxEdge", "pixelGrid"})
+                        QVERIFY(!fields.take(key).isUndefined());
+                    QCOMPARE(input["required"].toArray(), (QJsonArray{"generation", "projectId"}));
+                    input["required"] = then["inputSchema"].toObject()["required"];
+                    now["description"] = then["description"];
+                }
+                input["properties"] = fields;
+                now["inputSchema"] = input;
+            }
+            if (it.key() == "nova.asset.create" || it.key() == "nova.asset.create_preview") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                QCOMPARE(fields.take("source").toObject()["type"].toString(), "string");
+                input["properties"] = fields;
+                auto keys = input["required"].toArray();
+                QVERIFY(!keys.contains("parameters"));
+                keys.insert(4, "parameters");
+                input["required"] = keys;
+                now["inputSchema"] = input;
+                now["description"] = then["description"];
             }
             QVERIFY2(now == then, qPrintable(it.key()));
         }
@@ -770,6 +865,23 @@ class TexturePixelsTest : public QObject {
             QVERIFY2(failure == "invalid_arguments" && where == expected,
                      qPrintable(tool + ' ' + QJsonDocument(args).toJson(QJsonDocument::Compact) + " -> " + failure + ' ' + where));
         }
+        // tools/list names preview and workflow operations by command only, yet calls are checked in full.
+        const auto listing = protocol.receive(request(4, "tools/list")).response["result"].toObject()["tools"].toArray();
+        QCOMPARE(listing, toolListing());
+        QCOMPARE(listing.size(), definitions.size());
+        for (const QJsonValue &tool : listing) {
+            const auto name = tool["name"].toString();
+            if (name != "nova.edit.preview" && name != "nova.workflow.plan" && name != "nova.workflow.execute")
+                continue;
+            const auto fields = tool["inputSchema"]["properties"];
+            const auto operations = name == "nova.edit.preview" ? fields["operations"]
+                                                                : fields["stages"]["items"]["properties"]["operations"];
+            const auto commands = operations["items"]["properties"]["command"]["enum"].toArray();
+            QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") && commands.contains("hue_saturation") &&
+                     commands.contains("uv_rotate"), qPrintable(name));
+        }
+        const auto badPut = with(with(put, "command", "put_pixels"), "palette", QJsonArray{"#00000"});
+        QCOMPARE(argumentError("nova.edit.preview", {{"operations", QJsonArray{badPut}}}).first, "invalid_arguments");
         // The framing limit bounds every payload before it is parsed.
         QJsonArray rows;
         for (int i = 0; i < 256; ++i)
@@ -809,7 +921,10 @@ class TexturePixelsTest : public QObject {
             QTRY_COMPARE(reader.client.state(), QProcess::NotRunning);
         }
         QVERIFY(!nova::EditorTestAccess::dirty(window, doc));
-        QTRY_COMPARE(service()->status(), "Disabled");
+        // The read-only agent's exit left the access waiting again; end it before allowing editing.
+        QTRY_COMPARE(service()->status(), "Waiting for client");
+        window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
+        QCOMPARE(service()->status(), "Disabled");
 
         Agent agent;
         attach(window, agent, plain);
@@ -975,14 +1090,14 @@ class TexturePixelsTest : public QObject {
         window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
         QTRY_COMPARE(agent.client.state(), QProcess::NotRunning);
         {
-            QProcess expired;
-            start(expired, usedCode);
-            expired.write(request(1, "initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
-                {"clientInfo", QJsonObject{{"name", "expired"}, {"version", "1"}}}}));
-            const auto reply = receive(expired);
+            QProcess refused;
+            start(refused, usedCode);
+            refused.write(request(1, "initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+                {"clientInfo", QJsonObject{{"name", "used-code"}, {"version", "1"}}}}));
+            const auto reply = receive(refused);
             QVERIFY(!reply.contains("result"));
-            expired.write(call(2, "nova.texture.erase", {{"generation", agent.scope["generation"]}}));
-            QTRY_COMPARE(expired.state(), QProcess::NotRunning);
+            refused.write(call(2, "nova.texture.erase", {{"generation", agent.scope["generation"]}}));
+            QTRY_COMPARE(refused.state(), QProcess::NotRunning);
         }
         QCOMPARE(doc->image, beforeRevoke);
 
@@ -1176,6 +1291,17 @@ class TexturePixelsTest : public QObject {
         const auto python = qEnvironmentVariable("NOVA_MCP_SDK_PYTHON");
         if (python.isEmpty())
             QSKIP("NOVA_MCP_SDK_PYTHON is not set");
+        for (const auto suite : {"a", "b"}) {
+            const auto folder = root + "/assets/nova/textures/item/zbench_" + suite;
+            QVERIFY(QDir().mkpath(folder));
+            for (int i = 0; i < 5; ++i)
+                QVERIFY(canvas(16, 16, qRgba(128, 128, 128, 255)).save(folder + QString("/ore_%1.png").arg(i)));
+        }
+        auto layered = nova::Document::open(root + '/' + second);
+        QVERIFY(layered);
+        QString error;
+        QVERIFY2(layered->editLayer({nova::LayerCommand::Add, {}, "Overlay"}, &error), qPrintable(error));
+        QVERIFY2(layered->saveNative(root, &error), qPrintable(error));
         QElapsedTimer timer;
         timer.start();
         nova::Window window(root, {}, timer);
@@ -1191,10 +1317,105 @@ class TexturePixelsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["tools"].toInt(), 39);
+        QCOMPARE(summary["tools"].toInt(), 44);
+        QCOMPARE(summary["opened"].toString(), second);
+        QCOMPARE(window.documents().all().size(), size_t(12));
+        QCOMPARE(nova::EditorTestAccess::active(window), doc);
         QCOMPARE(QImage(root + '/' + plain).convertToFormat(QImage::Format_RGBA8888), doc->image.convertToFormat(QImage::Format_RGBA8888));
         QCOMPARE(at(doc->image, 0, 0), qRgba(0, 0, 0, 0));
         QVERIFY(!nova::EditorTestAccess::dirty(window, doc));
+    }
+
+    void copySource() {
+        auto sheet = canvas(16, 32, qRgb(240, 0, 0));
+        for (int y = 16; y < 32; ++y)
+            for (int x = 0; x < 16; ++x)
+                sheet.setPixelColor(x, y, QColor(0, 240, 0));
+        QVERIFY(sheet.save(root + '/' + second));
+        write(root + '/' + second + ".mcmeta", "{\"animation\":{\"frametime\":3}}");
+        QElapsedTimer timer;
+        timer.start();
+        nova::Window window(root, {}, timer);
+        window.show();
+        QTRY_VERIFY(nova::EditorTestAccess::indexReady(window));
+        Agent agent;
+        start(agent.client, authorize(window, true));
+        initialize(agent.client);
+        const auto info = projectInfo(agent.client);
+        agent.scope = {{"generation", info["generation"]}, {"projectId", info["projectId"]}};
+        agent.client.write(call(++agent.id, "nova.assets.list", {{"generation", info["generation"]}, {"search", "second.png"}}));
+        const auto results = payload(receive(agent.client))["assets"].toArray();
+        QJsonValue source;
+        for (const auto &value : results) {
+            const auto row = value.toObject();
+            if (row["path"] == second)
+                source = row["assetId"];
+        }
+        QVERIFY(source.isString());
+        const QJsonObject args{{"source", source}, {"indexRevision", info["indexRevision"]},
+            {"namespace", "nova"}, {"path", "item/copied"}, {"conflictPolicy", "reject"}};
+        const auto openCount = window.documents().all().size();
+        const auto planned = payload(agent.send("nova.asset.create_preview", args));
+        QVERIFY2(!planned.contains("error"), QJsonDocument(planned).toJson().constData());
+        QCOMPARE(planned["type"].toString(), "animation");
+        QCOMPARE(planned["frameCount"].toInt(), 2);
+        QCOMPARE(window.documents().all().size(), openCount);
+        const auto copied = payload(agent.send("nova.asset.create", args));
+        QVERIFY2(copied["provisional"].toBool(), QJsonDocument(copied).toJson().constData());
+        const auto pixels = payload(agent.send("nova.texture.read", {{"assetId", copied["assetId"]}, {"frame", 1}}));
+        QCOMPARE(pixels["pixels"]["palette"].toArray(), (QJsonArray{"#00f000"}));
+        QVERIFY(!QFileInfo::exists(root + "/assets/nova/textures/item/copied.png"));
+        const auto doc = nova::EditorTestAccess::active(window);
+        QVERIFY(doc && doc->animated());
+        const auto animation = doc->animationState();
+        QCOMPARE(animation.defaultTicks, 3);
+        QCOMPARE(animation.frames.size(), size_t(2));
+        const auto drafts = payload(agent.send("nova.drafts.list", {}))["drafts"].toArray();
+        QJsonObject draft;
+        for (const auto &value : drafts) {
+            const auto row = value.toObject();
+            if (row["assetId"] == copied["assetId"])
+                draft = row;
+        }
+        QVERIFY(!draft.isEmpty());
+        const auto saved = payload(agent.send("nova.drafts.save", {
+            {"documentId", draft["documentId"]}, {"expectedRevision", draft["revision"]}}));
+        QCOMPARE(saved["status"].toString(), "saved");
+        const auto meta = QJsonDocument::fromJson(bytes(root + "/assets/nova/textures/item/copied.png.mcmeta")).object();
+        QCOMPARE(meta["animation"]["frametime"].toInt(), 3);
+        agent.client.closeWriteChannel();
+        QTRY_COMPARE(agent.client.state(), QProcess::NotRunning);
+    }
+
+    void bootstrapPack() {
+        const auto blank = dir.path() + "/empty-pack";
+        QVERIFY(QDir().mkpath(blank));
+        QElapsedTimer timer;
+        timer.start();
+        nova::Window window(blank, {}, timer);
+        window.show();
+        QTRY_VERIFY(nova::EditorTestAccess::indexReady(window));
+        Agent agent;
+        start(agent.client, authorize(window, true));
+        initialize(agent.client);
+        const auto info = projectInfo(agent.client);
+        agent.scope = {{"generation", info["generation"]}, {"projectId", info["projectId"]}};
+        const auto result = payload(agent.send("nova.pack.bootstrap", {{"indexRevision", info["indexRevision"]}}));
+        QVERIFY2(result["created"].toBool(), QJsonDocument(result).toJson().constData());
+        QCOMPARE(result["packFormat"].toInt(), 75);
+        QVERIFY(QFileInfo(blank + "/assets/minecraft/textures/block").isDir());
+        QVERIFY(QFileInfo(blank + "/assets/minecraft/textures/item").isDir());
+        const auto metadata = bytes(blank + "/pack.mcmeta");
+        QVERIFY(!metadata.isEmpty());
+        QTRY_COMPARE(projectInfo(agent.client)["packFormat"].toArray(), (QJsonArray{75, 0}));
+        const auto initialized = projectInfo(agent.client);
+        QCOMPARE(initialized["minecraftVersion"].toString(), "1.21.11");
+        const auto repeated = payload(agent.send("nova.pack.bootstrap", {{"indexRevision", initialized["indexRevision"]}}));
+        QVERIFY2(!repeated.contains("error"), QJsonDocument(repeated).toJson().constData());
+        QCOMPARE(repeated["created"].toBool(), false);
+        QCOMPARE(bytes(blank + "/pack.mcmeta"), metadata);
+        agent.client.closeWriteChannel();
+        QTRY_COMPARE(agent.client.state(), QProcess::NotRunning);
     }
 };
 

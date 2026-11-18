@@ -23,8 +23,10 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
   and export.
 - **Models:** block and item models, blockstates and item definitions, with a 3D preview, UV
   editing, item display transforms and resource validation.
-- **Vanilla baseline:** an optional local texture cache and reset-to-vanilla workflow; it provides
-  textures only, not vanilla models. Item preview supports the documented Java item-definition scope.
+- **Vanilla baseline:** an optional local cache of the official client's textures and vanilla model
+  data (models, blockstates, item definitions), downloaded from Mojang only when you ask; it is the
+  default lowest-priority model source for the Model panel and agents. Item preview supports the
+  documented Java item-definition scope.
 - **Test in Minecraft:** prepares a separate, Nova-managed Minecraft Java Edition 1.21.11 runtime
   with Fabric when you ask for it. It does not touch your normal Minecraft installation and never
   asks for account credentials.

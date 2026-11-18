@@ -28,14 +28,12 @@
   A live Claude Desktop session was not tested.
 - Each authorization serves one agent session. Reconnecting an agent needs a new Allow.
 - Uninstalling Nova Studio does not remove agents' `nova-studio` entries.
-- **Agent Session (ACP) is experimental and off by default.** Turn it on in **Edit › Preferences ›
-  Experimental**. It was tested with a scripted test agent, and with OpenCode 1.19.5
-  (`opencode acp`) for start-up and attaching Nova's tools only, with no sign-in and no message
-  sent. No conversation with a real AI model has been tested, and Claude Code, Codex and other
-  agents have not been tested with it. Nova controls only its own tools: an agent's built-in file,
-  shell or web tools follow that agent's own configuration, and Nova can neither see nor limit them.
-  The window shows the agent's replies and reasoning but does not list its tool calls. Changing
-  from read-only to editing restarts the agent session.
+- **Agent Session (ACP) is experimental.** Automated tests use a scripted agent. A previous
+  smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
+  Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
+  tool details, and permission options depend on what the agent reports. Its built-in file,
+  shell, and web tools follow that agent’s configuration. Changing from read-only to editing
+  restarts the agent session.
 - MCP asset creation never creates folders; an agent must ask you to create a missing folder.
 
 ## Search

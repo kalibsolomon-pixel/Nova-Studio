@@ -12,10 +12,13 @@
 #include <QScreen>
 #include "scope.h"
 #include "texture_edit.h"
-#include "project_config.h"
+#include "minecraft_animation.h"
+#include "project.h"
+#include "vanilla_access.h"
 #include "vanilla/cache.h"
 #include <QMessageAuthenticationCode>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QMessageBox>
 #include <QClipboard>
 #include <QDialog>
@@ -24,6 +27,8 @@
 #include <QApplication>
 #include <QDir>
 #include <QBuffer>
+#include <QImageReader>
+#include <QPainter>
 #include <QRegularExpression>
 #include <algorithm>
 #include <climits>
@@ -90,7 +95,16 @@ QString revisionToken(const mcp::Snapshot &scope, const DocumentType &doc) {
     return QString::fromLatin1(QMessageAuthenticationCode::hash(
         payload, scope.idKey, QCryptographicHash::Sha256).toHex());
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
+template <typename DocumentType>
+QJsonObject editRevisionState(const mcp::Snapshot &scope, const DocumentType &doc) {
+    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
+            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
+            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)}};
+}
+QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (!details)
+        return state;
     QJsonArray layers, frames;
     for (const auto &layer : doc.layers())
         layers.append(QJsonObject{{"id", layer.id.toString(QUuid::WithoutBraces)}, {"name", layer.name},
@@ -101,21 +115,24 @@ QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
             break;
         frames.append(QJsonObject{{"id", frame.id.toString(QUuid::WithoutBraces)}, {"name", frame.name}});
     }
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"width", doc.image.width()}, {"height", doc.image.height()},
-            {"animated", doc.animated()}, {"layers", layers}, {"frames", frames},
-            {"frameCount", qint64(animation.frames.size())}, {"playbackCount", qint64(animation.entries.size())},
-            {"defaultTicks", animation.defaultTicks}, {"interpolate", animation.interpolate},
-            {"activeFrame", doc.activeFrame().toString(QUuid::WithoutBraces)},
-            {"activeLayer", doc.activeLayer().toString(QUuid::WithoutBraces)}};
+    state["width"] = doc.image.width();
+    state["height"] = doc.image.height();
+    state["animated"] = doc.animated();
+    state["layers"] = layers;
+    state["frames"] = frames;
+    state["frameCount"] = qint64(animation.frames.size());
+    state["playbackCount"] = qint64(animation.entries.size());
+    state["defaultTicks"] = animation.defaultTicks;
+    state["interpolate"] = animation.interpolate;
+    state["activeFrame"] = doc.activeFrame().toString(QUuid::WithoutBraces);
+    state["activeLayer"] = doc.activeLayer().toString(QUuid::WithoutBraces);
+    return state;
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc) {
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"elementCount", doc.authoritative()["elements"].toArray().size()}};
+QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (details)
+        state["elementCount"] = doc.authoritative()["elements"].toArray().size();
+    return state;
 }
 QJsonArray describeOperations(const QJsonArray &operations) {
     QJsonArray description;
@@ -134,14 +151,246 @@ QJsonArray describeOperations(const QJsonArray &operations) {
     return description;
 }
 
-QJsonObject encodePreview(const QImage &image, const QString &asset, const QString &revision) {
+QJsonObject nativeOperation(QJsonObject command) {
+    const auto name = command["command"].toString();
+    const auto &info = *ops::find(name);
+    auto params = command["params"].toObject();
+    // MCP uses CSS RGBA. The image operation registry uses QColor's ARGB strings.
+    const auto argb = [](const QString &color) {
+        return color.size() == 9 ? '#' + color.right(2) + color.mid(1, 6) : color;
+    };
+    for (const auto &param : info.params) {
+        if (!params.contains(param.key))
+            continue;
+        if (param.type == ops::ParamType::Color)
+            params[param.key] = argb(params[param.key].toString());
+        if (param.type == ops::ParamType::Palette) {
+            QStringList colors;
+            for (const auto &color : params[param.key].toArray())
+                colors.append(argb(color.toString()));
+            params[param.key] = colors.join(',');
+        }
+    }
+    command["command"] = "operation";
+    command["operation"] = name;
+    command["params"] = params;
+    if (info.generator)
+        command["fitCanvas"] = true;
+    return command;
+}
+
+QJsonObject encodePreview(const QImage &image, const QString &asset = {}, const QString &revision = {}) {
+    if (image.isNull())
+        return mcp::toolError("preview_unavailable", "No image is available for this revision.");
     QByteArray png;
     QBuffer buffer(&png);
     buffer.open(QIODevice::WriteOnly);
     if (!image.save(&buffer, "PNG") || png.size() > 320 * 1024)
         return mcp::toolError("preview_limit", "The PNG exceeds the response budget.");
-    return {{"assetId", asset}, {"revision", revision}, {"width", image.width()},
-            {"height", image.height()}, {"_pngImage", QString::fromLatin1(png.toBase64())}};
+    QJsonObject result{{"width", image.width()}, {"height", image.height()},
+                       {"_pngImage", QString::fromLatin1(png.toBase64())}};
+    if (!asset.isEmpty()) {
+        result["assetId"] = asset;
+        result["revision"] = revision;
+    }
+    return result;
+}
+QImage rasterPreview(const QImage &image, int edge = 256, bool grid = false) {
+    if (image.isNull())
+        return {};
+    auto result = image.scaled(edge, edge, Qt::KeepAspectRatio, Qt::FastTransformation);
+    if (grid && result.width() >= 4 * image.width() && result.height() >= 4 * image.height()) {
+        result = result.convertToFormat(QImage::Format_ARGB32);
+        QPainter painter(&result);
+        painter.setPen(QColor(0, 0, 0, 105));
+        for (int x = 1; x < image.width(); ++x) {
+            const int line = x * result.width() / image.width();
+            painter.drawLine(line, 0, line, result.height() - 1);
+        }
+        for (int y = 1; y < image.height(); ++y) {
+            const int line = y * result.height() / image.height();
+            painter.drawLine(0, line, result.width() - 1, line);
+        }
+    }
+    return result;
+}
+struct PreviewTile {
+    QImage image;
+    QString label;
+};
+QImage previewSheet(const QList<PreviewTile> &tiles, int columns) {
+    constexpr int padding = 8, labelHeight = 24;
+    QSize size(104, 16);
+    for (const auto &tile : tiles)
+        size = size.expandedTo(tile.image.size());
+    const int width = size.width() + 2 * padding, height = size.height() + padding + labelHeight;
+    const int rows = (int(tiles.size()) + columns - 1) / columns;
+    QImage sheet(columns * width, rows * height, QImage::Format_ARGB32_Premultiplied);
+    if (sheet.isNull())
+        return {};
+    sheet.fill(QColor(24, 26, 31));
+    QPainter painter(&sheet);
+    painter.setPen(QColor(236, 238, 242));
+    for (int i = 0; i < tiles.size(); ++i) {
+        const auto &tile = tiles[i];
+        const QPoint cell((i % columns) * width, (i / columns) * height);
+        const QRect area(cell + QPoint(padding, padding), size);
+        if (!tile.image.isNull())
+            painter.drawImage(area.center() - QPoint(tile.image.width() / 2, tile.image.height() / 2), tile.image);
+        const QRect label(cell + QPoint(padding, padding + size.height()), QSize(size.width(), labelHeight));
+        painter.drawText(label, Qt::AlignCenter, painter.fontMetrics().elidedText(tile.label, Qt::ElideMiddle, size.width()));
+    }
+    return sheet;
+}
+void appendPreview(QJsonObject &response, const QImage &pixels) {
+    auto preview = encodePreview(pixels);
+    const auto image = preview.take("_pngImage");
+    if (image.isString())
+        response["_pngImage"] = image;
+    response["preview"] = preview;
+}
+QJsonObject contactSheet(const mcp::Snapshot &snapshot, mcp::Scope &scope, const QJsonObject &args,
+                         const QSet<QUuid> &baselineDocs, const DocumentSession &session) {
+    const auto ids = args["assetIds"].toArray();
+    QSet<QString> wanted;
+    for (const auto &id : ids)
+        wanted.insert(id.toString());
+    QHash<QString, QString> paths;
+    for (const auto &path : snapshot.index.files) {
+        if (!path.endsWith(".png") || !mcp::logicalAsset(path))
+            continue;
+        const auto id = mcp::assetIdentifier(snapshot, path);
+        if (wanted.remove(id))
+            paths.insert(id, path);
+        if (wanted.isEmpty())
+            break;
+    }
+    if (!wanted.isEmpty())
+        return mcp::toolError("asset_not_found", "Each contact-sheet ID must refer to an indexed pack texture.");
+    QHash<QString, std::shared_ptr<Document>> openDocs;
+    for (const auto &doc : session.all())
+        if (!baselineDocs.contains(doc->id()))
+            openDocs.insert(QDir(snapshot.root).relativeFilePath(doc->path), doc);
+    QList<PreviewTile> tiles;
+    QJsonArray assets;
+    const int edge = std::min(args["maxEdge"].toInt(128), 192);
+    const bool grid = args["pixelGrid"].toBool();
+    for (const auto &id : ids) {
+        const auto path = paths.value(id.toString());
+        const auto doc = openDocs.value(path);
+        const bool provisional = snapshot.provisional.contains(path);
+        auto source = provisional ? nullptr : scope.open(path);
+        if (provisional ? !doc || !rasterDestination(scope, path) : !source)
+            return mcp::toolError("asset_unavailable", "A contact-sheet texture failed project containment.",
+                                  {{"assetId", id}});
+        QImage pixels;
+        QJsonValue revision;
+        if (doc) {
+            if (doc->strokeOpen())
+                return mcp::toolError("document_busy", "Finish the current stroke before previewing the texture.",
+                                      {{"assetId", id}});
+            pixels = doc->image;
+            revision = revisionToken(snapshot, *doc);
+        } else {
+            QImageReader reader(source.get(), "PNG");
+            reader.setAutoDetectImageFormat(false);
+            const auto size = reader.size();
+            if (!size.isEmpty() && size.width() <= MaxEditDimension && size.height() <= MaxEditDimension &&
+                source->size() <= 4 * MaxEditPixelBytes)
+                pixels = reader.read();
+        }
+        if (pixels.isNull() || pixels.width() > MaxEditDimension || pixels.height() > MaxEditDimension)
+            return mcp::toolError("preview_limit", "A contact-sheet texture is unreadable or exceeds 256 by 256.",
+                                  {{"assetId", id}});
+        const auto label = QFileInfo(path).completeBaseName();
+        tiles.append({rasterPreview(pixels, edge, grid), label});
+        assets.append(QJsonObject{{"assetId", id}, {"path", path}, {"label", label}, {"revision", revision}});
+    }
+    const int columns = std::min(4, int(tiles.size()));
+    auto result = encodePreview(previewSheet(tiles, columns));
+    if (!result.contains("error")) {
+        result["assets"] = assets;
+        result["columns"] = columns;
+    }
+    return result;
+}
+void describeVanillaCache(mcp::Snapshot &snapshot) {
+    snapshot.vanillaCacheRoot = vanilla::BaselineCache::defaultRoot();
+    if (const auto baseline = ProjectConfig::load(snapshot.root).baseline) {
+        snapshot.baselineVersion = baseline->version;
+        snapshot.baselineIdentity = baseline->identity;
+    }
+}
+QJsonObject copyTexture(const mcp::Snapshot &snapshot, mcp::Scope &scope, const QString &source,
+                        const QString &sourcePath, const std::shared_ptr<Document> &doc, const QString &destination,
+                        std::shared_ptr<Document> &draft) {
+    using mcp::toolError;
+    QByteArray png, metadata;
+    if (source.startsWith("vanilla:")) {
+        auto vanilla = snapshot;
+        describeVanillaCache(vanilla);
+        mcp::VanillaTextureData bytes;
+        const auto result = mcp::vanillaTexture(vanilla, {{"path", mcp::vanillaTexturePath(source)},
+                                                         {"version", snapshot.version}}, &bytes);
+        if (result.contains("error"))
+            return result;
+        if (result["animationMetadata"].toObject()["status"] == "integrity_failed")
+            return toolError("vanilla_integrity_failed", "The cached texture sidecar failed its SHA-256 check.");
+        png = std::move(bytes.png);
+        metadata = std::move(bytes.metadata);
+    } else {
+        if (sourcePath.isEmpty())
+            return toolError("asset_not_found", "The source asset identifier is unknown or stale.");
+        if (!sourcePath.endsWith(".png"))
+            return toolError("invalid_asset_type", "A copy source must be a texture.");
+        const bool provisional = snapshot.provisional.contains(sourcePath);
+        const auto file = provisional ? nullptr : scope.open(sourcePath);
+        if (provisional ? !doc || !rasterDestination(scope, sourcePath) : !file)
+            return toolError("asset_unavailable", "The source texture failed project containment.");
+        if (doc) {
+            if (doc->strokeOpen())
+                return toolError("document_busy", "Finish the current stroke before copying the texture.");
+            if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
+                doc->pixelBytes() > MaxEditPixelBytes)
+                return toolError("edit_limit", "The source texture exceeds the MCP editing budget.");
+            if (doc->animated()) {
+                auto animation = planAnimationExport(*doc, 1, snapshot.version);
+                if (!animation.ok())
+                    return toolError("copy_failed", "Nova could not serialize the source animation.");
+                png = std::move(animation.png);
+                metadata = std::move(animation.mcmeta);
+            } else {
+                QBuffer buffer(&png);
+                buffer.open(QIODevice::WriteOnly);
+                if (!doc->image.save(&buffer, "PNG"))
+                    return toolError("copy_failed", "Nova could not copy the source pixels.");
+            }
+        } else {
+            if (file->size() > 16 * 1024 * 1024)
+                return toolError("edit_limit", "The source PNG exceeds the 16 MiB copy budget.");
+            png = file->read(16 * 1024 * 1024 + 1);
+            if (sourcePath != "pack.png") {
+                const auto meta = sourcePath + ".mcmeta";
+                if (const auto sidecar = scope.open(meta)) {
+                    if (sidecar->size() > 512 * 1024)
+                        return toolError("edit_limit", "The source sidecar exceeds the 512 KiB copy budget.");
+                    metadata = sidecar->read(512 * 1024 + 1);
+                    if (metadata.size() != sidecar->size())
+                        return toolError("copy_failed", "Nova could not read the source texture sidecar.");
+                } else if (!scope.vacant(meta)) {
+                    return toolError("asset_unavailable", "The source texture sidecar failed project containment.");
+                }
+            }
+        }
+    }
+    auto copy = Document::fromBaseline(destination, png, metadata, snapshot.version);
+    if (!copy)
+        return toolError("copy_failed", "Nova could not copy the source pixels or animation metadata.");
+    if (copy->image.width() > MaxEditDimension || copy->image.height() > MaxEditDimension ||
+        copy->pixelBytes() > MaxEditPixelBytes)
+        return toolError("edit_limit", "The source texture exceeds the MCP editing budget.");
+    draft = copy->recoverySnapshot();
+    return {};
 }
 
 // Style notes are user content: always labelled as preferences, and never inferred when absent.
@@ -464,8 +713,11 @@ void Window::ensureMcpService() {
             // catalog's precedence order; Nova's managed texture cache; the project's baseline binding.
             auto describeSources = [this](mcp::Snapshot &target) {
                 const auto catalog = modelPanel->catalog();
+                const auto cacheRoot = vanilla::BaselineCache::defaultRoot();
                 QSet<QString> loaded;
                 for (const auto &source : catalog->resourceSources()) {
+                    if (source.root == cacheRoot)
+                        continue; // Nova's own baseline cache: reported as the cache, not a stack entry
                     loaded.insert(source.root);
                     target.resourceSources.append(source);
                     target.resourceStack.append({source.vanilla ? source.label : QFileInfo(source.root).fileName(),
@@ -481,13 +733,10 @@ void Window::ensureMcpService() {
                             reason = message.mid(path.size() + 2).left(160);
                     target.resourceStack.append({QFileInfo(path).fileName().left(80), "unavailable", reason, {}, false});
                 }
-                target.vanillaCacheRoot = vanilla::BaselineCache::defaultRoot();
-                if (const auto baseline = ProjectConfig::load(project).baseline) {
-                    target.baselineVersion = baseline->version;
-                    target.baselineIdentity = baseline->identity;
-                }
+                describeVanillaCache(target);
             };
-            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool.startsWith("nova.drafts.") ||
+            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool == "nova.texture.adjust_bulk" ||
+                tool.startsWith("nova.drafts.") ||
                 tool == "nova.asset.create" || tool.endsWith(".edit") || tool.startsWith("nova.edit.") ||
                 !mcp::compactTextureCommand(tool).isEmpty()) {
                 auto addOpen = [&](const QString &path) {
@@ -507,7 +756,9 @@ void Window::ensureMcpService() {
             if (tool == "nova.model.inspect" || tool == "nova.asset.inspect" || batch || context || related ||
                 tool == "nova.pack.validate" || tool == "nova.workflow.validate_changes")
                 snapshot.models = modelPanel->documentSources();
-            if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla."))
+            if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla.") ||
+                tool == "nova.texture.analyze" || (!snapshot.textureTargets.isEmpty() &&
+                    snapshot.textureTargets.cbegin()->startsWith("vanilla:")))
                 describeSources(snapshot);
             if (revisions)
                 for (const auto &path : modelPanel->openModelAssets())
@@ -515,6 +766,20 @@ void Window::ensureMcpService() {
                         snapshot.revisions.insert(path, revisionToken(snapshot, *doc));
             const bool rasterMetadata = tool == "nova.texture.inspect" || tool == "nova.animation.inspect" ||
                 tool == "nova.asset.inspect" || batch || context;
+            if (!snapshot.textureTargets.isEmpty()) {
+                for (const auto &doc : session.all()) {
+                    const auto relative = QDir(project).relativeFilePath(doc->path);
+                    if (baselineDocs.contains(doc->id()) || !snapshot.index.records.contains(relative) ||
+                        !snapshot.textureTargets.contains(mcp::assetIdentifier(snapshot, relative)))
+                        continue;
+                    if (doc->strokeOpen()) {
+                        snapshot.busyTextures.insert(relative);
+                    } else {
+                        snapshot.textureDocuments.insert(relative, doc->recoverySnapshot());
+                        snapshot.revisions.insert(relative, revisionToken(snapshot, *doc));
+                    }
+                }
+            }
             if (rasterMetadata || revisions) {
                 for (const auto &doc : session.all()) {
                     const auto relative = QDir(project).relativeFilePath(doc->path);
@@ -590,11 +855,124 @@ void Window::ensureMcpService() {
             using mcp::toolError;
             if (request.tool.startsWith("nova.drafts."))
                 return mcpDraftRequest(snapshot, request, editing, commit);
+            if (request.tool == "nova.pack.bootstrap") {
+                if (request.arguments["indexRevision"] != snapshot.indexRevision)
+                    return toolError("stale_index", "Inspect the current project index before initializing the pack.");
+                const auto expectedIndex = indexGeneration;
+                const auto description = request.arguments["description"].toString(QFileInfo(snapshot.root).fileName().left(128));
+                commit = [this, snapshot, expectedIndex, description]() -> QJsonObject {
+                    if (QApplication::activeModalWidget())
+                        return toolError("document_busy", "Finish the current editor dialog first.");
+                    if (indexBusy || indexGeneration != expectedIndex)
+                        return toolError("stale_index", "The project index changed before initialization.");
+                    mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+                    const QJsonObject summary{{"assetPath", "pack.mcmeta"}};
+                    if (scope.open("pack.mcmeta"))
+                        return {{"created", false}, {"changed", false}, {"createdDirectories", QJsonArray{}},
+                                {"minecraftVersion", snapshot.version}, {"packFormat", QJsonValue()},
+                                {"changeSummary", summary}};
+                    if (!scope.vacant("pack.mcmeta"))
+                        return toolError("asset_unavailable", "Pack metadata failed project containment.");
+                    const auto &versions = gameVersions();
+                    const auto version = std::find_if(versions.cbegin(), versions.cend(),
+                        [](const GameVersion &item) { return item.id == "1.21.11"; });
+                    if (version == versions.cend())
+                        return toolError("unsupported_version", "Nova has no pack profile for Java 1.21.11.");
+                    QStringList created;
+                    auto refreshIndex = [&] {
+                        fullRescan = true;
+                        indexDebounce->start();
+                    };
+                    for (const auto folder : {"block", "item", "entity", "gui", "particle", "environment"}) {
+                        const auto path = QString("assets/minecraft/textures/") + folder;
+                        if (!scope.ensureAssetDirectory(path, created)) {
+                            if (!created.isEmpty())
+                                refreshIndex();
+                            return toolError("bootstrap_failed", "Nova could not create the pack texture folders.",
+                                {{"folder", path}, {"createdDirectories", QJsonArray::fromStringList(created)}});
+                        }
+                    }
+                    const QJsonObject pack{{"description", description}, {"pack_format", version->format.major},
+                                           {"min_format", version->format.json()}, {"max_format", version->format.json()}};
+                    const auto bytes = QJsonDocument(QJsonObject{{"pack", pack}}).toJson();
+                    if (!atomicWrite(snapshot.root + "/pack.mcmeta", bytes, {})) {
+                        refreshIndex();
+                        return toolError("bootstrap_failed", "Nova could not write pack.mcmeta.",
+                                         {{"createdDirectories", QJsonArray::fromStringList(created)}});
+                    }
+                    refreshIndex();
+                    modelPanel->setMinecraftVersion(version->id);
+                    return {{"created", true}, {"changed", true}, {"createdDirectories", QJsonArray::fromStringList(created)},
+                            {"minecraftVersion", version->id}, {"packFormat", version->format.major},
+                            {"changeSummary", summary}};
+                };
+                return {};
+            }
+            if (request.tool == "nova.asset.open") {
+                const auto asset = request.arguments["assetId"].toString();
+                const auto relative = mcp::resolveAssetPath(snapshot, asset);
+                if (relative.isEmpty())
+                    return toolError("asset_not_found", "The asset identifier is unknown or stale.");
+                if (!relative.endsWith(".png"))
+                    return toolError("invalid_asset_type", "Opening an asset through MCP requires a pack PNG.");
+                commit = [this, snapshot, relative, asset]() -> QJsonObject {
+                    if (QApplication::activeModalWidget())
+                        return toolError("document_busy", "Finish the current editor dialog first.");
+                    mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+                    const auto absolute = snapshot.root + '/' + relative;
+                    auto doc = reviewRaster(relative);
+                    const bool added = !doc;
+                    const bool provisional = doc && snapshot.provisional.contains(relative) && !baselineDocs.contains(doc->id());
+                    auto source = provisional ? nullptr : scope.open(relative);
+                    if (provisional ? !rasterDestination(scope, relative) : !source)
+                        return toolError("asset_unavailable", "The source asset failed project containment.");
+                    if (doc && baselineDocs.contains(doc->id()))
+                        return toolError("document_busy", "Close the vanilla baseline tab before opening this pack texture.");
+                    QString error;
+                    if (added) {
+                        if (session.all().size() >= 32)
+                            return toolError("open_limit", "Close a texture before opening more documents.");
+                        const auto metadataPath = relative + ".mcmeta";
+                        const auto metadata = relative == "pack.png" ? nullptr : scope.open(metadataPath);
+                        if (relative != "pack.png" && !metadata && !scope.vacant(metadataPath))
+                            return toolError("asset_unavailable", "The texture metadata failed project containment.");
+                        const auto editable = nativeDocumentPath(snapshot.root, absolute);
+                        auto nativeStatus = mcp::Vacancy::Unsafe;
+                        const auto native = editable.isEmpty() ? nullptr : scope.openEditableDocument(
+                            QDir(snapshot.root).relativeFilePath(editable), nativeStatus);
+                        if (native) {
+                            doc = std::make_shared<Document>(absolute, QImage{});
+                            if (!doc->loadNative(snapshot.root, &error))
+                                return toolError("open_failed", "Nova could not load the editable texture document.");
+                        } else if (nativeStatus == mcp::Vacancy::Vacant || nativeStatus == mcp::Vacancy::Missing) {
+                            doc = Document::open(absolute, &error, bool(metadata));
+                        } else {
+                            return toolError("asset_unavailable", "The editable texture document failed project containment.");
+                        }
+                        if (!doc)
+                            return toolError("open_failed", "Nova could not open the texture or its animation metadata.");
+                    }
+                    if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
+                        doc->pixelBytes() > MaxEditPixelBytes)
+                        return toolError("edit_limit", "The texture exceeds the MCP editing budget.");
+                    if (added && !session.adopt(doc))
+                        return toolError("open_limit", "The editor could not register another texture document.");
+                    showTextureDocument(doc, false);
+                    const auto state = documentState(snapshot, *doc);
+                    return {{"assetId", asset}, {"path", relative}, {"opened", added},
+                            {"documentId", documentIdentifier(doc->instanceId())}, {"revision", state["revision"]},
+                            {"document", state}, {"changeSummary", QJsonObject{{"assetPath", relative}}}};
+                };
+                return {};
+            }
             const bool create = request.tool == "nova.asset.create";
             if (create || request.tool == "nova.asset.create_preview") {
                 const auto args = request.arguments;
                 if (args["indexRevision"] != snapshot.indexRevision)
                     return toolError("stale_index", "Inspect the current project index before creating an asset.");
+                const auto source = args["source"].toString();
+                if (args.contains("source") == args.contains("parameters"))
+                    return toolError("invalid_arguments", "Supply exactly one of parameters or source.");
                 const auto parameters = args["parameters"].toObject();
                 const bool modelCreation = parameters["command"] == "model";
                 const auto relative = creationAssetPath(args, modelCreation);
@@ -710,13 +1088,26 @@ void Window::ensureMcpService() {
                     };
                     return {};
                 }
-                const auto width = parameters["width"].toInt(), height = parameters["height"].toInt();
-                const auto frames = parameters["frames"].toInt();
+                std::shared_ptr<Document> draft;
+                if (!source.isEmpty()) {
+                    const auto from = source.startsWith("vanilla:") ? QString{} : mcp::resolveAssetPath(snapshot, source);
+                    auto doc = reviewRaster(from);
+                    if (doc && baselineDocs.contains(doc->id()))
+                        doc.reset();
+                    if (const auto error = copyTexture(snapshot, scope, source, from, doc, absolute, draft); !error.isEmpty())
+                        return error;
+                }
+                const auto width = draft ? draft->image.width() : parameters["width"].toInt();
+                const auto height = draft ? draft->image.height() : parameters["height"].toInt();
+                const auto frames = draft ? int(draft->animationState().frames.size()) : parameters["frames"].toInt();
                 QJsonObject response{{"assetId", mcp::assetIdentifier(snapshot, relative)}, {"path", relative},
-                    {"type", parameters["command"]}, {"width", width}, {"height", height},
-                    {"frameCount", qMax(frames, 1)}, {"estimatedPixelBytes", 4 * width * height * (qMax(frames, 1) + 1)},
+                    {"type", draft ? QJsonValue(draft->animated() ? "animation" : "texture") : parameters["command"]},
+                    {"width", width}, {"height", height}, {"frameCount", qMax(frames, 1)},
+                    {"estimatedPixelBytes", draft ? draft->pixelBytes() : 4 * width * height * (qMax(frames, 1) + 1)},
                     {"supported", true}, {"warnings", QJsonArray{}},
                     {"references", QJsonArray{}}, {"conflictPolicy", "reject"}};
+                if (draft)
+                    response["source"] = source;
                 if (!create)
                     return response;
                 if (QApplication::activeModalWidget())
@@ -727,7 +1118,7 @@ void Window::ensureMcpService() {
                     indexDebounce->start();
                     return toolError("stale_index", "Wait for the resource directory to be indexed.");
                 }
-                commit = [this, snapshot, check, relative, absolute, expectedIndex, parameters,
+                commit = [this, snapshot, check, relative, absolute, expectedIndex, parameters, draft,
                           width, height, frames, response]() mutable -> QJsonObject {
                     if (indexBusy || indexGeneration != expectedIndex)
                         return toolError("stale_index", "The project index changed before publication.");
@@ -738,13 +1129,16 @@ void Window::ensureMcpService() {
                         return error;
                     QElapsedTimer publication;
                     publication.start();
-                    QImage pixels(width, height, QImage::Format_RGBA8888);
-                    const auto fill = parameters["fill"].toString();
-                    pixels.fill(fill == "transparent" ? QColor(Qt::transparent) : QColor(fill));
                     QString error;
-                    const auto doc = DocumentSession::newRaster(absolute, pixels,
-                        parameters["layerName"].toString(), frames, parameters["ticks"].toInt(1),
-                        parameters["interpolate"].toBool(), &error);
+                    auto doc = draft;
+                    if (!doc) {
+                        QImage pixels(width, height, QImage::Format_RGBA8888);
+                        const auto fill = parameters["fill"].toString();
+                        pixels.fill(fill == "transparent" ? QColor(Qt::transparent) : QColor(fill));
+                        doc = DocumentSession::newRaster(absolute, pixels,
+                            parameters["layerName"].toString(), frames, parameters["ticks"].toInt(1),
+                            parameters["interpolate"].toBool(), &error);
+                    }
                     if (!doc || !session.adopt(doc))
                         return toolError("creation_failed", "The editor could not allocate or register the document.");
                     QElapsedTimer checkpoint;
@@ -769,6 +1163,10 @@ void Window::ensureMcpService() {
             const bool capabilities = request.tool == "nova.edit.capabilities";
             const bool preview = request.tool == "nova.edit.preview";
             const bool imagePreview = request.tool == "nova.asset.preview_image";
+            const bool returnPreview = request.arguments["returnPreview"].toBool();
+            const bool compare = request.arguments["compare"].toBool();
+            const bool grid = request.arguments["pixelGrid"].toBool();
+            const int edge = request.arguments["maxEdge"].toInt(256);
             const auto asset = request.arguments["assetId"].toString();
             QJsonObject result{{"schemaVersion", 1}, {"projectId", snapshot.projectId},
                 {"generation", snapshot.generation}, {"permission", editing ? "editing" : "read_only"},
@@ -777,19 +1175,34 @@ void Window::ensureMcpService() {
                 {"tools", QJsonArray{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
                                      "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo",
                                      "nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map",
-                                     "nova.texture.erase"}}};
+                                     "nova.texture.erase", "nova.texture.adjust_bulk", "nova.asset.open"}}};
             if (capabilities && asset.isEmpty())
                 return result;
             if (!capabilities && QApplication::activeModalWidget())
                 return toolError("document_busy", "Finish the current editor dialog first.");
+            mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+            if (scope.identity().isEmpty())
+                return toolError("asset_unavailable", "The authorized project root has changed.");
+            if (imagePreview) {
+                if (request.arguments.contains("assetIds")) {
+                    for (const auto key : {"assetId", "expectedRevision", "frameId", "view", "faceIndex", "compare"})
+                        if (request.arguments.contains(key))
+                            return toolError("invalid_arguments", "Contact sheets accept assetIds, maxEdge and pixelGrid.");
+                    return contactSheet(snapshot, scope, request.arguments, baselineDocs, session);
+                }
+                if (asset.isEmpty() || !request.arguments.contains("expectedRevision"))
+                    return toolError("invalid_arguments", "Supply assetId and expectedRevision or use assetIds for a contact sheet.");
+            }
 
             const bool redo = request.tool == "nova.edit.redo";
             const bool history = redo || request.tool == "nova.edit.undo";
+            const bool includeDocument = request.arguments["include"] != "summary";
             // A compact texture tool is one native command built from its own arguments.
             const auto compact = mcp::compactTextureCommand(request.tool);
             auto compactOperation = [&] {
                 auto operation = request.arguments;
-                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision"})
+                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview",
+                                       "verbosity", "include"})
                     operation.remove(key);
                 operation["command"] = compact;
                 return operation;
@@ -812,9 +1225,24 @@ void Window::ensureMcpService() {
                 return {{"assetId", asset}, {"assetPath", path}, {"previousRevision", revision},
                         {"tool", request.tool}, {"operations", describeOperations(operations)}};
             };
-            mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
-            if (scope.identity().isEmpty())
-                return toolError("asset_unavailable", "The authorized project root has changed.");
+            auto comparisonFor = [&](const QString &path, const QString &revision) -> const Comparison * {
+                for (const auto &item : comparisons)
+                    if (item.path == path && item.owner == snapshot.generation &&
+                        item.afterRevision == revision && comparisonCurrent(item))
+                        return &item;
+                return nullptr;
+            };
+            auto compareImages = [&](const QImage &before, const QImage &after, const QString &revision,
+                                     const QString &beforeRevision) {
+                if (before.isNull() && after.isNull())
+                    return toolError("comparison_unavailable", "No comparison image was captured for this view.");
+                auto response = encodePreview(previewSheet({
+                    {rasterPreview(before, edge, grid), before.isNull() ? "Before (absent)" : "Before"},
+                    {rasterPreview(after, edge, grid), after.isNull() ? "After (absent)" : "After"}}, 2), asset, revision);
+                if (!response.contains("error"))
+                    response["beforeRevision"] = beforeRevision;
+                return response;
+            };
             for (const auto &path : modelPanel->openModelAssets()) {
                 if (!snapshot.index.records.contains(path) || !mcp::logicalAsset(path) ||
                     mcp::assetIdentifier(snapshot, path) != asset)
@@ -835,7 +1263,7 @@ void Window::ensureMcpService() {
                     return toolError("document_busy", "Finish the current model or UV preview first.");
                 if (imagePreview) {
                     const auto view = request.arguments["view"].toString();
-                    if (view.isEmpty() || request.arguments.contains("frameId") ||
+                    if (view.isEmpty() || grid || request.arguments.contains("frameId") ||
                         (view != "uv" && request.arguments.contains("faceIndex")))
                         return toolError("invalid_arguments", "Select a model or UV view with compatible arguments.");
                     if (modelPanel->catalog()->source(path) != model->authoritative())
@@ -851,6 +1279,22 @@ void Window::ensureMcpService() {
                             return toolError("asset_unavailable", "A preview material is outside the authorized pack.");
                     QString error;
                     const int face = request.arguments["faceIndex"].toInt();
+                    const auto revision = revisionToken(snapshot, *model);
+                    if (compare) {
+                        const auto change = comparisonFor(path, revision);
+                        if (!change || (view == "uv" && (change->uvFace != face || change->uvBefore.isNull())))
+                            return toolError("comparison_unavailable", "No comparison was captured for this revision and view.");
+                        auto response = view == "uv" ? compareImages(change->uvBefore, change->uvAfter,
+                                                                         revision, change->beforeRevision)
+                                                     : compareImages(change->before, change->after,
+                                                                         revision, change->beforeRevision);
+                        if (!response.contains("error")) {
+                            response["view"] = view;
+                            if (view == "uv")
+                                response["faceIndex"] = face;
+                        }
+                        return response;
+                    }
                     QElapsedTimer render;
                     render.start();
                     const auto image = modelPanel->modelPreviewImage(path, view == "uv", face, &error);
@@ -859,7 +1303,8 @@ void Window::ensureMcpService() {
                         return toolError("preview_unavailable", error);
                     QElapsedTimer encode;
                     encode.start();
-                    auto response = encodePreview(image, asset, revisionToken(snapshot, *model));
+                    auto response = encodePreview(request.arguments.contains("maxEdge") ? rasterPreview(image, edge) : image,
+                                                  asset, revision);
                     metrics.record("mcp_model_preview_encode", encode);
                     if (!response.contains("error")) {
                         response["view"] = view;
@@ -887,7 +1332,7 @@ void Window::ensureMcpService() {
                 if (preview)
                     return previewResult(*model);
                 const auto revision = revisionToken(snapshot, *model);
-                commit = [this, model, path, snapshot, revision, history, redo, prepared,
+                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview, includeDocument,
                           changes = summary(path, revision),
                           operations, count = operations.size()]() -> QJsonObject {
                     if (modelPanel->openModelDocument(path) != model ||
@@ -936,8 +1381,11 @@ void Window::ensureMcpService() {
                                 continue;
                             if (before)
                                 texture = face.texture;
-                            if (face.texture == texture)
+                            if (face.texture == texture) {
                                 uvImage = modelPanel->modelPreviewImage(path, true, i, &error, true);
+                                if (!before && !uvImage.isNull())
+                                    comparison.uvFace = i;
+                            }
                             break;
                         }
                     };
@@ -954,7 +1402,7 @@ void Window::ensureMcpService() {
                     }
                     metrics.record("mcp_model_native_mutation", publication);
                     const bool changed = revisionToken(snapshot, *model) != revision;
-                    auto response = documentState(snapshot, *model);
+                    auto response = documentState(snapshot, *model, includeDocument);
                     completeEdit(response, transaction, history ? 1 : count, changed);
                     response["changeSummary"] = changes;
                     if (changed) {
@@ -962,8 +1410,11 @@ void Window::ensureMcpService() {
                         if (!warning.isEmpty())
                             response["warnings"] = QJsonArray{"Model recovery checkpoint failed. The edit is still in memory."};
                     }
-                    if (changed) {
+                    if (changed || returnPreview)
                         capture(comparison.after, comparison.uvAfter, false);
+                    if (returnPreview)
+                        appendPreview(response, comparison.uvAfter.isNull() ? comparison.after : comparison.uvAfter);
+                    if (changed) {
                         comparison.serial = model->changeSerial();
                         comparison.afterRevision = response["revision"].toString();
                         rememberComparison(std::move(comparison));
@@ -1024,13 +1475,23 @@ void Window::ensureMcpService() {
                 }
                 QElapsedTimer render;
                 render.start();
+                const auto revision = revisionToken(snapshot, *doc);
+                if (compare) {
+                    const auto change = comparisonFor(relative, revision);
+                    if (!change || (request.arguments.contains("frameId") && change->frame != frame))
+                        return toolError("comparison_unavailable", "No comparison was captured for this revision and frame.");
+                    auto response = compareImages(change->before, change->after, revision, change->beforeRevision);
+                    if (!response.contains("error"))
+                        response["frameId"] = change->frame.toString(QUuid::WithoutBraces);
+                    return response;
+                }
                 const auto image = doc->animated() ? doc->frameComposite(frame) : doc->image;
                 metrics.record("mcp_raster_preview_pixels", render);
                 if (image.isNull())
                     return toolError("invalid_arguments", "The source frame does not exist.");
                 QElapsedTimer encode;
                 encode.start();
-                auto response = encodePreview(image, asset, revisionToken(snapshot, *doc));
+                auto response = encodePreview(rasterPreview(image, edge, grid), asset, revision);
                 metrics.record("mcp_raster_preview_encode", encode);
                 if (!response.contains("error"))
                     response["frameId"] = doc->animated() ? frame.toString(QUuid::WithoutBraces) : QString{};
@@ -1042,15 +1503,17 @@ void Window::ensureMcpService() {
                 if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
                     doc->pixelBytes() > MaxEditPixelBytes)
                     return toolError("edit_limit", "The document exceeds the editing budget.");
+                QJsonArray nativeCommands;
+                auto canvas = doc->image.rect();
                 for (const auto &value : operations) {
                     if (modelOperation(value))
                         return toolError("invalid_asset_type", "This command requires a model document.");
                     const auto op = value.toObject();
                     const auto name = op["command"].toString();
-                    auto inside = [&](int x, int y) { return doc->image.rect().contains(x, y); };
+                    auto inside = [&](int x, int y) { return canvas.contains(x, y); };
                     if (name == "fill" && !inside(op["x"].toInt(), op["y"].toInt()))
                         return toolError("invalid_arguments", "The seed lies outside the canvas.");
-                    if (name == "fill_rect" && !doc->image.rect().contains(
+                    if (name == "fill_rect" && !canvas.contains(
                             QRect(op["x"].toInt(), op["y"].toInt(), op["width"].toInt(), op["height"].toInt())))
                         return toolError("invalid_arguments", "The rectangle lies outside the canvas.");
                     for (const auto &point : op["points"].toArray()) {
@@ -1061,7 +1524,7 @@ void Window::ensureMcpService() {
                     for (const auto &key : {"layer", "frame"})
                         if (op.contains(key) && QUuid(op[key].toString()).isNull())
                             return toolError("invalid_arguments", "The layer or frame identifier is invalid.");
-                    if (texture::compactCommand(name)) {
+                    if (!compact.isEmpty()) {
                         // Everything that needs the canvas is checked here, before any draft exists.
                         if (op.contains("layer") && !doc->layer(QUuid(op["layer"].toString())))
                             return toolError("invalid_arguments", "Invalid argument at /layer: the layer is not in this document.",
@@ -1069,11 +1532,23 @@ void Window::ensureMcpService() {
                         if (const auto failure = texture::validate(name, op, doc->image.size()); !failure.ok())
                             return toolError("invalid_arguments", failure.message, {{"pointer", failure.pointer}});
                     }
+                    if (name == "directional_shading") {
+                        const auto source = op["params"].toObject()["height_source"].toString();
+                        const bool needsMap = source == "Heightmap layer" || source == "Normal map layer";
+                        if (needsMap != op.contains("mapLayer"))
+                            return toolError("invalid_arguments",
+                                "Supply mapLayer exactly when height_source is Heightmap layer or Normal map layer.");
+                    }
+                    if (name == "resize_image") {
+                        const auto params = op["params"].toObject();
+                        canvas.setSize(QSize(params["width"].toInt(), params["height"].toInt()));
+                    }
+                    nativeCommands.append(mcp::nativeTextureCommand(name) ? nativeOperation(op) : op);
                 }
                 QString error;
                 QElapsedTimer staging;
                 staging.start();
-                prepared = session.prepareBatch(doc, operations, &error, snapshot.generation, MaxEditPixelBytes,
+                prepared = session.prepareBatch(doc, nativeCommands, &error, snapshot.generation, MaxEditPixelBytes,
                                                 request.continuePreparation);
                 metrics.record(doc->animated() ? "mcp_animation_prepare" : "mcp_texture_prepare", staging);
                 if (!prepared)
@@ -1084,7 +1559,7 @@ void Window::ensureMcpService() {
             const auto revision = revisionToken(snapshot, *doc);
             commit = [this, doc, relative, snapshot, revision, interactionActive, prepared, history, provisional,
                       changes = summary(relative, revision), compact, asset,
-                      operations, redo, workflowStage = request.workflowStage,
+                      operations, redo, returnPreview, includeDocument, workflowStage = request.workflowStage,
                       count = operations.size()]() -> QJsonObject {
                 if (!session.owns(doc) || revisionToken(snapshot, *doc) != revision)
                     return toolError("revision_conflict", "The texture changed before commit.");
@@ -1155,7 +1630,7 @@ void Window::ensureMcpService() {
                     return toolError("edit_rejected", error.isEmpty() ? QString("The commit budget changed.") : error);
                 }
                 metrics.record(doc->animated() ? "mcp_animation_native_publication" : "mcp_texture_native_publication", publication);
-                auto response = documentState(snapshot, *doc);
+                auto response = documentState(snapshot, *doc, includeDocument);
                 completeEdit(response, transaction, history ? 1 : count, revisionToken(snapshot, *doc) != revision);
                 response["changeSummary"] = changes;
                 if (!compact.isEmpty())
@@ -1169,9 +1644,14 @@ void Window::ensureMcpService() {
                             .arg(addedFrame ? "Added frame" : "Frame", frame.toString(QUuid::WithoutBraces),
                                  playbackBefore.isEmpty() ? QString("not animated") : playbackBefore, playback());
                     comparison.after = pixels();
+                    comparison.frame = doc->animated() ? frame : QUuid{};
                     comparison.serial = doc->changeSerial();
                     comparison.afterRevision = response["revision"].toString();
+                    if (returnPreview)
+                        appendPreview(response, rasterPreview(comparison.after.isNull() ? doc->image : comparison.after));
                     rememberComparison(std::move(comparison));
+                } else if (returnPreview) {
+                    appendPreview(response, rasterPreview(doc->image));
                 }
                 if (workflowStage && response["changed"].toBool() && doc->modified()) {
                     // Serialize with the periodic checkpoint writer so an older snapshot
@@ -1223,7 +1703,15 @@ void Window::createMcpAccessDialog(int page) {
     overview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     overview->setProperty("role", "value");
     overview->setProperty("role", "strong");
-    outer->addWidget(overview);
+    auto overviewRow = new QHBoxLayout;
+    overviewRow->setSpacing(ui::SpaceL);
+    overviewRow->addWidget(overview, 1);
+    auto agentSessionLink = new QPushButton("Open Agent Session…", dialog);
+    agentSessionLink->setObjectName("mcpOpenAgentSession");
+    agentSessionLink->setProperty("role", "link");
+    overviewRow->addWidget(agentSessionLink);
+    outer->addLayout(overviewRow);
+    connect(agentSessionLink, &QPushButton::clicked, this, [this] { showAgentSession(); });
     auto mcpTabs = new QTabWidget(dialog);
     mcpTabs->setObjectName("mcpTabs");
     outer->addWidget(mcpTabs);
@@ -1253,9 +1741,9 @@ void Window::createMcpAccessDialog(int page) {
     mcpTabs->setCurrentIndex(page);
     auto description = new QLabel("MCP lets an AI agent on this PC inspect the open resource pack and, only if you "
                                   "allow editing, change it through Nova Studio. Access is off until you choose "
-                                  "Allow. It covers the current project only and ends when the agent disconnects, "
-                                  "the project changes or you revoke it. An unused authorization expires after five "
-                                  "minutes.", dialog);
+                                  "Allow. It covers the current project only and stays on until you revoke it, "
+                                  "the project changes or Nova closes. An agent that disconnects can reconnect "
+                                  "on its own.", dialog);
     description->setWordWrap(true);
     description->setProperty("role", "hint");
     layout->addWidget(description);
@@ -1475,7 +1963,8 @@ void Window::createMcpAccessDialog(int page) {
             summary << "Client connected · " + mcpService->clientName() + " · " + permission;
         else if (state == "Waiting for client")
             summary << (mcpService->offeredToAgents()
-                ? "Authorized · waiting for an agent. Start or reconnect your agent within five minutes."
+                ? "Authorized · waiting for an agent. Start or reconnect your agent at any time until you revoke "
+                  "access."
                 : "Authorized · waiting for a client that supplies the connection code. " + mcpService->offerProblem());
         else if (state == "Project changed")
             summary << "Authorization required · the project changed. Allow access again for this project.";

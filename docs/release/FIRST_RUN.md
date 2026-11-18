@@ -5,7 +5,7 @@
 - **File › Open Resource Pack** (Ctrl+Shift+O) and choose the folder that contains `pack.mcmeta`,
   or **File › New Resource Pack** to create one for a chosen Minecraft Java version.
 - The **Assets** panel lists the pack's files. Double-click a texture, or select it and press
-  Enter, to open it. Model JSON opens in the **Models / UV** panel.
+  Enter, to open it. Model JSON opens in the **Models / UV** panel. [Model preview guide](MODEL_PREVIEW.md)
 
 ## Find anything: Ctrl+K
 

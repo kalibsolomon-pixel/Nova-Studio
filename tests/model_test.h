@@ -12,4 +12,5 @@ class ModelTest : public QObject {
     void geometryAndUvs();
     void blockstatesAndItems();
     void rescaleUvlockAndModernShading();
+    void vanillaParentsFromBaselineCache();
 };

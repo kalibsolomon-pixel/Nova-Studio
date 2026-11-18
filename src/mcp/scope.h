@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QIODevice>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 namespace nova::mcp {
@@ -15,6 +16,8 @@ enum class Vacancy { Vacant, Occupied, Missing, Denied, Unsafe };
 class Scope {
     struct Handles;
     std::unique_ptr<Handles> handles;
+    Vacancy checkedVacancy(const QString &relative, QString *failed = nullptr);
+    std::unique_ptr<QIODevice> openChecked(const QString &relative);
   public:
     explicit Scope(const QString &root, const QByteArray &identity = {});
     ~Scope();
@@ -22,5 +25,8 @@ class Scope {
     bool vacant(const QString &relative) { return vacancy(relative) == Vacancy::Vacant; }
     Vacancy vacancy(const QString &relative, QString *failed = nullptr);
     std::unique_ptr<QIODevice> open(const QString &relative);
+    // Internal editor sidecars only. Their paths are derived from a scoped texture.
+    std::unique_ptr<QIODevice> openEditableDocument(const QString &relative, Vacancy &status);
+    bool ensureAssetDirectory(const QString &relative, QStringList &created);
 };
 }

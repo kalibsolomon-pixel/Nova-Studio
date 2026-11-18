@@ -985,6 +985,9 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     previewDock->setWidget(previewHost);
     addDockWidget(Qt::BottomDockWidgetArea, previewDock);
     modelPanel = new ModelPanel(cube, &session);
+    modelPanel->previewResourcesChanged = [this](const auto &catalog) {
+        model->setModelSources(catalog);
+    };
     modelPanel->modelRegistered = [this](const QString &path) {
         QElapsedTimer index;
         index.start();
@@ -1548,11 +1551,12 @@ void Window::openTexture(const QString &path) {
     }
     showTextureDocument(doc);
 }
-void Window::showTextureDocument(const std::shared_ptr<Document> &doc) {
+void Window::showTextureDocument(const std::shared_ptr<Document> &doc, bool focus) {
     const auto path = doc->path;
     for (int i = 0; i < tabs->count(); ++i)
         if (auto canvas = dynamic_cast<Canvas *>(tabs->widget(i)); canvas && canvas->document == doc) {
-            tabs->setCurrentIndex(i);
+            if (focus)
+                tabs->setCurrentIndex(i);
             return;
         }
     doc->setHistoryLimits(qint64(preferences.historyMiB) * 1024 * 1024, 2048);
@@ -1562,10 +1566,13 @@ void Window::showTextureDocument(const std::shared_ptr<Document> &doc) {
     tabs->setTabToolTip(tabs->addTab(canvas, QFileInfo(path).fileName()), path);
     canvas->changed = [this, doc] { session.notify(doc); };
 
-    tabs->setCurrentWidget(canvas);
+    if (focus)
+        tabs->setCurrentWidget(canvas);
     // Once laid out, shrink the initial zoom if the texture would overflow the
     // visible canvas (the default 384 px target ignores the window size).
     QTimer::singleShot(0, canvas, [this, canvas] {
+        if (current() != canvas)
+            return;
         const auto size = canvas->document->image.size();
         double fit = std::min((canvas->width() - 32.0) / std::max(1, size.width()),
                               (canvas->height() - 56.0) / std::max(1, size.height()));
@@ -1578,9 +1585,11 @@ void Window::showTextureDocument(const std::shared_ptr<Document> &doc) {
                 zoomLabel->setText(QString("%1%").arg(qRound(canvas->zoom * 100)));
         }
     });
-    nav.selected = QDir(project).relativeFilePath(doc->path);
-    if (model->indexFor(nav.selected).isValid())
-        setDirectory(QFileInfo(nav.selected).path());
+    if (focus) {
+        nav.selected = QDir(project).relativeFilePath(doc->path);
+        if (model->indexFor(nav.selected).isValid())
+            setDirectory(QFileInfo(nav.selected).path());
+    }
     metrics.count("documents_opened", 1);
     refresh();
 }

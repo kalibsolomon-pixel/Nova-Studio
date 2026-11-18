@@ -19,6 +19,7 @@ QJsonObject Cube::viewSettings() const {
             {"outlines", outlines},
             {"axes", axes},
             {"grid", groundGrid},
+            {"studioLighting", studioLighting},
             {"neutral", neutral},
             {"ambient", ambient},
             {"light", QJsonArray{lightDirection.x(), lightDirection.y(), lightDirection.z()}}};
@@ -42,6 +43,7 @@ void Cube::restoreView(const QJsonObject &state) {
     outlines = state["outlines"].toBool();
     axes = state["axes"].toBool();
     groundGrid = state["grid"].toBool();
+    studioLighting = state["studioLighting"].toBool();
     neutral = state["neutral"].toBool();
     ambient = float(number("ambient", .55, 0, 1));
     lightDirection = {-.4f, .8f, .6f};
