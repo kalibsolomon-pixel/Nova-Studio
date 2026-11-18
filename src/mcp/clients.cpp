@@ -538,8 +538,8 @@ QString manualConfiguration(const Client &client, const QString &bridgePath) {
 }
 
 QString instructions(const Client &client) {
-    const QString allow = "Then, each time you start a session, choose Allow read-only (or Allow editing) on the "
-                          "Access tab first. Your agent has five minutes to connect.";
+    const QString allow = "Then choose Allow read-only (or Allow editing) on the Access tab. Access stays on for "
+                          "that project until you revoke it, and your agent can reconnect on its own.";
     switch (client.kind) {
     case Kind::ClaudeDesktop:
         return "1. Quit Claude Desktop (it can rewrite its configuration while running).\n"
@@ -556,8 +556,8 @@ QString instructions(const Client &client) {
                "\nCheck with: codex mcp list";
     case Kind::Generic:
         return "Add a stdio MCP server that runs the command below with no arguments. Choose Allow on the Access "
-               "tab, then start the client within five minutes. Advanced: a client can instead pass the code from "
-               "Copy connection code in the NOVA_MCP_CODE environment variable.";
+               "tab, then start the client; it can reconnect while access is on. Advanced: a client can instead "
+               "pass the code from Copy connection code in the NOVA_MCP_CODE environment variable.";
     }
     return {};
 }

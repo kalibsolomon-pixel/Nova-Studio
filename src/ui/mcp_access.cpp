@@ -1256,9 +1256,9 @@ void Window::createMcpAccessDialog(int page) {
     mcpTabs->setCurrentIndex(page);
     auto description = new QLabel("MCP lets an AI agent on this PC inspect the open resource pack and, only if you "
                                   "allow editing, change it through Nova Studio. Access is off until you choose "
-                                  "Allow. It covers the current project only and ends when the agent disconnects, "
-                                  "the project changes or you revoke it. An unused authorization expires after five "
-                                  "minutes.", dialog);
+                                  "Allow. It covers the current project only and stays on until you revoke it, "
+                                  "the project changes or Nova closes. An agent that disconnects can reconnect "
+                                  "on its own.", dialog);
     description->setWordWrap(true);
     description->setProperty("role", "hint");
     layout->addWidget(description);
@@ -1478,7 +1478,8 @@ void Window::createMcpAccessDialog(int page) {
             summary << "Client connected · " + mcpService->clientName() + " · " + permission;
         else if (state == "Waiting for client")
             summary << (mcpService->offeredToAgents()
-                ? "Authorized · waiting for an agent. Start or reconnect your agent within five minutes."
+                ? "Authorized · waiting for an agent. Start or reconnect your agent at any time until you revoke "
+                  "access."
                 : "Authorized · waiting for a client that supplies the connection code. " + mcpService->offerProblem());
         else if (state == "Project changed")
             summary << "Authorization required · the project changed. Allow access again for this project.";

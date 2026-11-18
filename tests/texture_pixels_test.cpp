@@ -809,7 +809,10 @@ class TexturePixelsTest : public QObject {
             QTRY_COMPARE(reader.client.state(), QProcess::NotRunning);
         }
         QVERIFY(!nova::EditorTestAccess::dirty(window, doc));
-        QTRY_COMPARE(service()->status(), "Disabled");
+        // The read-only agent's exit left the access waiting again; end it before allowing editing.
+        QTRY_COMPARE(service()->status(), "Waiting for client");
+        window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
+        QCOMPARE(service()->status(), "Disabled");
 
         Agent agent;
         attach(window, agent, plain);
@@ -975,14 +978,14 @@ class TexturePixelsTest : public QObject {
         window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
         QTRY_COMPARE(agent.client.state(), QProcess::NotRunning);
         {
-            QProcess expired;
-            start(expired, usedCode);
-            expired.write(request(1, "initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
-                {"clientInfo", QJsonObject{{"name", "expired"}, {"version", "1"}}}}));
-            const auto reply = receive(expired);
+            QProcess refused;
+            start(refused, usedCode);
+            refused.write(request(1, "initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+                {"clientInfo", QJsonObject{{"name", "used-code"}, {"version", "1"}}}}));
+            const auto reply = receive(refused);
             QVERIFY(!reply.contains("result"));
-            expired.write(call(2, "nova.texture.erase", {{"generation", agent.scope["generation"]}}));
-            QTRY_COMPARE(expired.state(), QProcess::NotRunning);
+            refused.write(call(2, "nova.texture.erase", {{"generation", agent.scope["generation"]}}));
+            QTRY_COMPARE(refused.state(), QProcess::NotRunning);
         }
         QCOMPARE(doc->image, beforeRevoke);
 

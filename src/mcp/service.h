@@ -23,7 +23,7 @@ class Service : public QObject {
     Q_OBJECT
     QLocalServer server;
     QLocalSocket *socket = nullptr;
-    QTimer handshake, grantExpiry, deadline;
+    QTimer handshake, deadline;
     Protocol protocol;
     QString grant, root, generation, projectId, state = "Disabled", lastError;
     QString offered, offerFailure; // the code currently offered to agents through the handoff file
@@ -57,6 +57,11 @@ class Service : public QObject {
     void receive();
     void send(const QJsonObject &message);
     void closeSocket();
+    // A connected client went away without the authorization ending: re-offer the grant with a
+    // fresh single-use code (agents restart their MCP server process often). Stale projects,
+    // shutdown and a missing root still revoke.
+    void dropConnection();
+    void rearm();
     void fail(const QString &message);
     void dispatch(const Request &request);
     void readResource(const Request &request);
@@ -75,7 +80,8 @@ class Service : public QObject {
     bool authorize(const QString &project, bool allowEditing = false);
     // Restricts the current grant to clients whose process the filter accepts (by process id), for
     // example only bridges started by an agent Nova launched. A refused client does not consume the
-    // grant. Cleared by revoke() and by the next authorize().
+    // grant. Cleared by revoke() and by the next authorize(); a re-armed grant keeps the filter, so
+    // only that agent session's processes may reconnect.
     void setClientFilter(std::function<bool(qint64 pid)> filter) { clientFilter = std::move(filter); }
     // Changes with every authorize(), so a caller can tell whether the grant it made is still current.
     quint64 grantSerial() const { return serial; }

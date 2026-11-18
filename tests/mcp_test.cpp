@@ -480,6 +480,9 @@ class McpTest : public QObject {
             const auto report = actual.readAllStandardOutput();
             qInfo().noquote() << report;
             QVERIFY2(actual.exitCode() == 0, actual.readAllStandardError().constData());
+            // The SDK run's exit re-offers its read-only grant; end it before allowing editing.
+            dialog->findChild<QPushButton *>("mcpRevoke")->click();
+            QCOMPARE(service->status(), "Disabled");
 
             const auto beforeOther = fingerprint(other);
             const auto switchDoc = window.documents().open(other + '/' + texture);
@@ -514,8 +517,14 @@ class McpTest : public QObject {
             QTRY_COMPARE(next.state(), QProcess::NotRunning);
         }
 
+        // A disconnect no longer ends the access: the grant waits again with a fresh code, so each
+        // new Allow starts from an explicit revoke. Closing the editor still ends everything.
         for (const bool closeEditor : {false, true}) {
-            QTRY_COMPARE(status->text().section('\n', 0, 0), "Disabled");
+            QTRY_VERIFY(status->text().section('\n', 0, 0) == "Disabled" ||
+                        status->text().section('\n', 0, 0) == "Waiting for client");
+            if (status->text().section('\n', 0, 0) != "Disabled")
+                revoke->click();
+            QCOMPARE(status->text().section('\n', 0, 0), "Disabled");
             authorize->click();
             QProcess ending;
             start(ending, service->connectionCode());
@@ -533,7 +542,7 @@ class McpTest : public QObject {
                     QCOMPARE(service->status(), "Disabled");
                 }
                 else
-                    ending.closeWriteChannel();
+                    ending.closeWriteChannel(); // the bridge exits; Nova offers the grant again
                 QTRY_COMPARE(ending.state(), QProcess::NotRunning);
                 QVERIFY(ending.readAllStandardOutput().isEmpty());
             }
@@ -550,6 +559,7 @@ class McpTest : public QObject {
     void animationProfile();
     void workflowLifecycle_data();
     void workflowLifecycle();
+    void reconnectLifecycle();
 
     void benchmark() {
         const auto root = qEnvironmentVariable("NOVA_MCP_BENCH_PACK");
@@ -1007,7 +1017,10 @@ void McpTest::creationWorkflow() {
     const auto memoryAfter = usage(GetCurrentProcess()).privateBytes;
     qInfo() << "Phase 4-D max 10 ms heartbeat gap" << maxGap
             << "ms and private-byte delta" << qint64(memoryAfter) - qint64(memoryBefore);
-    QTRY_COMPARE(service->status(), "Disabled");
+    // The SDK client's exit re-offers the grant; end it before asking for editing again.
+    QTRY_COMPARE(service->status(), "Waiting for client");
+    service->revoke();
+    QCOMPARE(service->status(), "Disabled");
     auto panel = nova::EditorTestAccess::models(*window);
     auto model = panel->openModelDocument(modelPath);
     QVERIFY(model && model->provisional() && model->modified());
@@ -1561,8 +1574,8 @@ void McpTest::previewLifecycle() {
     }
     finishSdk(sdk, "preview-lifecycle");
     QProcess stale;
-    startSdk(stale, oldCode, "expired");
-    finishSdk(stale, "expired-preview-grant");
+    startSdk(stale, oldCode, "refused");
+    finishSdk(stale, "refused-preview-grant");
     auto path = window.findChild<QLineEdit *>("projectPath");
     path->setText(root);
     QTest::keyClick(path, Qt::Key_Return);
@@ -1630,7 +1643,8 @@ void McpTest::workflowLifecycle() {
     auto disconnectClient = [&] {
         interrupted = true;
         client.write("continue\n");
-        QTRY_COMPARE_WITH_TIMEOUT(service->status(), "Disabled", 8000);
+        // A disconnect re-offers the grant with a fresh code instead of ending the access.
+        QTRY_COMPARE_WITH_TIMEOUT(service->status(), "Waiting for client", 8000);
     };
     const bool duringPreparation = mode.endsWith("-preparation") || mode.endsWith("-preflight");
     int checkpoints = 0;
@@ -1741,10 +1755,12 @@ void McpTest::workflowLifecycle() {
         QVERIFY2(snapshot.error.isEmpty(), qPrintable(snapshot.error));
         QCOMPARE(snapshot.image.pixelColor(0, 0), QColor("#ba34ef"));
     }
-    QTRY_COMPARE(service->status(), "Disabled");
+    // Only a revoke or a project switch ends the access; every other client exit re-arms it.
+    const bool ends = mode.startsWith("workflow-revoke") || mode.startsWith("workflow-switch");
+    QTRY_COMPARE(service->status(), ends ? "Disabled" : "Waiting for client");
     QProcess stale;
-    startSdk(stale, oldCode, "expired");
-    finishSdk(stale, "expired");
+    startSdk(stale, oldCode, "refused");
+    finishSdk(stale, "refused");
     if (mode != "workflow-close" && !mode.startsWith("workflow-switch")) {
         QVERIFY(service->authorize(root));
         QProcess fresh;
@@ -1752,6 +1768,112 @@ void McpTest::workflowLifecycle() {
         finishSdk(fresh, "workflow-reconnect");
         QCOMPARE(a->historyCursor(), commits);
         QCOMPARE(b->historyCursor(), secondCommit);
+    }
+}
+
+// Persistent access: a disconnect re-offers the same permission under a fresh code, the used code
+// is dead, and only Revoke or a project change ends the access for good.
+void McpTest::reconnectLifecycle() {
+    if (qEnvironmentVariableIsEmpty("NOVA_MCP_SDK_PYTHON"))
+        QSKIP("Set NOVA_MCP_SDK_PYTHON for the reconnect lifecycle.");
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    qApp->setProperty("settingsFile", dir.path() + "/studio.ini");
+    const auto root = dir.path() + "/reconnect-pack";
+    const auto other = dir.path() + "/other-pack";
+    const auto folder = root + "/assets/nova/textures/block/";
+    write(root + "/pack.mcmeta", R"({"pack":{"pack_format":46,"description":"Reconnect"}})");
+    write(other + "/pack.mcmeta", R"({"pack":{"pack_format":46,"description":"Other"}})");
+    QVERIFY(QDir().mkpath(folder));
+    QImage image(16, 16, QImage::Format_RGBA8888);
+    image.fill(Qt::transparent);
+    QVERIFY(image.save(folder + "a.png"));
+    QElapsedTimer clock;
+    clock.start();
+    nova::Window window(root, {}, clock);
+    window.show();
+    QTRY_VERIFY(window.activeCanvas());
+    window.findChild<QAction *>("mcpAccess")->trigger();
+    auto dialog = window.findChild<QDialog *>("mcpAccessDialog");
+    auto service = window.findChild<Service *>();
+    QVERIFY(dialog && service);
+    // Authenticate, then the agent restarts its MCP server: the same access is offered again.
+    grantEditing(window, dialog, service);
+    const auto firstCode = service->connectionCode();
+    {
+        QProcess agent;
+        startSdk(agent, firstCode, "disconnect"); // asserts the editing permission
+        finishSdk(agent, "disconnect");
+    }
+    QTRY_COMPARE(service->status(), "Waiting for client");
+    const auto secondCode = service->connectionCode();
+    QVERIFY(secondCode != firstCode);
+    QCOMPARE(service->permission(), "Editing allowed");
+    QVERIFY(service->offeredToAgents());
+    // The used code is dead; the freshly offered one reconnects with the same permission.
+    {
+        QProcess stale;
+        startSdk(stale, firstCode, "refused");
+        finishSdk(stale, "refused");
+    }
+    {
+        QProcess agent;
+        startSdk(agent, secondCode, "disconnect");
+        finishSdk(agent, "disconnect");
+    }
+    QTRY_COMPARE(service->status(), "Waiting for client");
+    QVERIFY(service->connectionCode() != secondCode);
+    // After Revoke, no offered or used code reconnects.
+    const auto thirdCode = service->connectionCode();
+    dialog->findChild<QPushButton *>("mcpRevoke")->click();
+    QCOMPARE(service->status(), "Disabled");
+    QVERIFY(service->connectionCode().isEmpty());
+    QVERIFY(!service->offeredToAgents());
+    {
+        QProcess stale;
+        startSdk(stale, thirdCode, "refused");
+        finishSdk(stale, "refused");
+    }
+    // A project change while connected turns the grant stale; the disconnect then revokes instead
+    // of re-arming, so nothing reconnects.
+    QVERIFY(service->authorize(root, true));
+    const auto fourthCode = service->connectionCode();
+    QLocalSocket client;
+    client.connectToServer("nova-mcp-" + fourthCode.left(32));
+    QVERIFY(client.waitForConnected(2000));
+    client.write(fourthCode.mid(32).toLatin1() + '\n');
+    QTRY_COMPARE(service->status(), "Connected");
+    QTimer::singleShot(0, &window, [] {
+        if (auto box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+            box && box->button(QMessageBox::Discard))
+            box->button(QMessageBox::Discard)->click();
+    });
+    auto path = window.findChild<QLineEdit *>("projectPath");
+    path->setText(other);
+    QTest::keyClick(path, Qt::Key_Return);
+    QTRY_COMPARE(service->status(), "Project changed");
+    client.disconnectFromServer();
+    if (client.state() != QLocalSocket::UnconnectedState)
+        client.waitForDisconnected(2000);
+    client.abort();
+    QTRY_COMPARE(service->status(), "Disabled");
+    QVERIFY(!service->offeredToAgents());
+    {
+        QProcess stale;
+        startSdk(stale, fourthCode, "refused");
+        finishSdk(stale, "refused");
+    }
+    // A project change while only waiting revokes immediately: nothing reconnects either.
+    QVERIFY(service->authorize(root, true));
+    const auto fifthCode = service->connectionCode();
+    path->setText(root);
+    QTest::keyClick(path, Qt::Key_Return);
+    QTRY_COMPARE(service->status(), "Disabled");
+    QVERIFY(!service->offeredToAgents());
+    {
+        QProcess stale;
+        startSdk(stale, fifthCode, "refused");
+        finishSdk(stale, "refused");
     }
 }
 
@@ -2374,6 +2496,8 @@ void McpTest::editing() {
 
     // Disconnect the real stdio bridge on either side of the commit boundary.
     for (const bool afterCommit : {false, true}) {
+        if (service->status() != "Disabled")
+            service->revoke(); // the previous drop left the grant waiting again
         authorizeEditing();
         QProcess dropped;
         start(dropped, service->connectionCode());
@@ -2386,7 +2510,7 @@ void McpTest::editing() {
             reachedBoundary = true;
             dropped.kill();
             QTRY_COMPARE(dropped.state(), QProcess::NotRunning);
-            QTRY_COMPARE(service->status(), "Disabled");
+            QTRY_COMPARE(service->status(), "Waiting for client");
         };
         const auto connection = afterCommit
             ? connect(&window.documents(), &nova::DocumentSession::changed, this,
@@ -2425,7 +2549,7 @@ void McpTest::editing() {
                     QTRY_VERIFY_WITH_TIMEOUT(client.canReadLine(), 6000);
                     QCOMPARE(client.readLine().trimmed(), QByteArray("cancel delivered"));
                 } else {
-                    QTRY_COMPARE_WITH_TIMEOUT(service->status(), "Disabled", 8000);
+                    QTRY_COMPARE_WITH_TIMEOUT(service->status(), "Waiting for client", 8000);
                 }
             };
             QMetaObject::Connection connection;
@@ -2444,10 +2568,13 @@ void McpTest::editing() {
             finishSdk(client, mode);
             disconnect(connection);
             QCOMPARE(boundaryReached, mode.startsWith("drop-") || mode == "cancel-after");
-            QTRY_COMPARE(service->status(), "Disabled");
-            QVERIFY(service->editActivity().isEmpty());
+            // A drop or a finished run re-arms the grant; only revoke ends the access outright.
+            QTRY_COMPARE(service->status(), mode == "revoke" ? "Disabled" : "Waiting for client");
             if (mode == "drop-after" || mode == "revoke")
                 saveScreenshot(dialog, mode == "drop-after" ? "sdk-disconnected-after-commit" : "sdk-revoked");
+            if (mode != "revoke")
+                service->revoke();
+            QVERIFY(service->editActivity().isEmpty());
             const bool committed = mode == "drop-after" || mode == "revoke" || mode == "cancel-after";
             QCOMPARE(doc->changeSerial(), beforeSerial + (committed ? 1 : 0));
             QCOMPARE(doc->historyCursor(), beforeCursor + (committed ? 1 : 0));
@@ -2457,25 +2584,46 @@ void McpTest::editing() {
             if (committed)
                 QVERIFY(window.documents().dispatch(doc, nova::Command::Undo));
         }
+        // One grant outlives any number of agent restarts: every disconnect offers a fresh code
+        // with the same permission, the used code is refused, and Revoke ends it for good.
         authorizeEditing();
         const auto usedCode = service->connectionCode();
         {
             QProcess actual;
             startSdk(actual, usedCode, "disconnect");
             finishSdk(actual, "disconnect");
-            QTRY_COMPARE(service->status(), "Disabled");
+            QTRY_COMPARE(service->status(), "Waiting for client");
+        }
+        const auto offeredAgain = service->connectionCode();
+        QVERIFY(offeredAgain != usedCode);
+        QVERIFY(service->permission() == "Editing allowed");
+        QVERIFY(service->offeredToAgents());
+        {
+            QProcess actual;
+            startSdk(actual, usedCode, "refused");
+            finishSdk(actual, "refused");
         }
         {
             QProcess actual;
-            startSdk(actual, usedCode, "expired");
-            finishSdk(actual, "expired");
+            startSdk(actual, offeredAgain, "disconnect"); // asserts the editing permission held
+            finishSdk(actual, "disconnect");
+            QTRY_COMPARE(service->status(), "Waiting for client");
+        }
+        dialog->findChild<QPushButton *>("mcpRevoke")->click();
+        QCOMPARE(service->status(), "Disabled");
+        QVERIFY(service->connectionCode().isEmpty());
+        {
+            QProcess actual;
+            startSdk(actual, offeredAgain, "refused");
+            finishSdk(actual, "refused");
         }
         {
             dialog->findChild<QPushButton *>("mcpAuthorize")->click();
             QProcess actual;
             startSdk(actual, service->connectionCode(), "readonly");
             finishSdk(actual, "readonly");
-            QTRY_COMPARE(service->status(), "Disabled");
+            QTRY_COMPARE(service->status(), "Waiting for client");
+            service->revoke();
         }
         authorizeEditing();
         QProcess actual;

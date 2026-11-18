@@ -1047,10 +1047,11 @@ async def lifecycle(config, mode, wire):
             try:
                 await asyncio.wait_for(client.initialize(), 8)
             except McpError as error:
-                assert mode == "expired" and error.error.code == types.CONNECTION_CLOSED
-                print("expired grant rejected", flush=True)
+                # A used, revoked or otherwise dead code must never connect.
+                assert mode == "refused" and error.error.code == types.CONNECTION_CLOSED
+                print("dead grant refused", flush=True)
                 return
-            assert mode != "expired"
+            assert mode != "refused"
 
             async def call(tool, args=None, error=None):
                 response = await asyncio.wait_for(client.call_tool(tool, args), 8)

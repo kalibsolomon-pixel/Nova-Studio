@@ -3,7 +3,6 @@
 #include "guides.h"
 #include "handoff.h"
 #include "scope.h"
-#include <QDateTime>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QScopedValueRollback>
@@ -18,12 +17,8 @@ Service::Service(std::function<bool(Snapshot &, const QString &)> provider, QObj
     server.setListenBacklogSize(1);
     server.setMaxPendingConnections(1);
     connect(&server, &QLocalServer::newConnection, this, &Service::accept);
-    for (auto timer : {&handshake, &grantExpiry, &deadline})
+    for (auto timer : {&handshake, &deadline})
         timer->setSingleShot(true);
-    connect(&grantExpiry, &QTimer::timeout, this, [this] {
-        fail("The unused connection code expired.");
-        revoke();
-    });
     connect(&handshake, &QTimer::timeout, this, [this] {
         fail("A connection did not authenticate in time.");
         closeSocket();
@@ -69,11 +64,10 @@ bool Service::authorize(const QString &project, bool allowEditing) {
     }
     editing = allowEditing;
     state = "Waiting for client";
-    grantExpiry.start(5 * 60 * 1000);
-    // Offer the waiting grant to the next agent that starts nova-mcp.exe (see handoff.h).
+    // Offer the waiting grant to the next agent that starts nova-mcp.exe (see handoff.h). The offer
+    // does not expire: access lasts until Revoke, a project change or shutdown.
     offerFailure.clear();
-    if (handoff::publish({grant, QFileInfo(project).fileName(),
-                          QDateTime::currentMSecsSinceEpoch() + 5 * 60 * 1000}, &offerFailure))
+    if (handoff::publish({grant, QFileInfo(project).fileName(), 0}, &offerFailure))
         offered = grant;
     emit changed();
     return true;
@@ -85,7 +79,6 @@ void Service::withdrawOffer() {
 void Service::revoke() {
     clientFilter = nullptr;
     editing = false;
-    grantExpiry.stop();
     withdrawOffer();
     server.close();
     grant.clear();
@@ -95,6 +88,36 @@ void Service::revoke() {
     lastEdit.clear();
     stale = false;
     state = "Disabled";
+    emit changed();
+}
+// A connected client went away. The authorization is a user decision that outlives one agent
+// process, so unless the project changed or Nova is closing, offer the same project and permission
+// again under a fresh single-use code and wait for the next bridge. The used code stays invalid
+// because the pipe is named after the new code, and a client filter keeps restricting who may
+// connect. Revoke, a project change and shutdown still end the access.
+void Service::dropConnection() {
+    if (!authenticated)
+        return closeSocket();
+    closeSocket();
+    if (shuttingDown || root.isEmpty() || stale)
+        revoke();
+    else
+        rearm();
+}
+void Service::rearm() {
+    if (shuttingDown || root.isEmpty() || stale || socket || !grant.isEmpty())
+        return;
+    grant = randomToken();
+    if (!server.listen("nova-mcp-" + grant.left(32))) {
+        grant.clear();
+        revoke();
+        fail("The local MCP endpoint could not be reopened.");
+        return;
+    }
+    state = "Waiting for client";
+    offerFailure.clear();
+    if (handoff::publish({grant, QFileInfo(root).fileName(), 0}, &offerFailure))
+        offered = grant;
     emit changed();
 }
 void Service::shutdown() {
@@ -175,12 +198,7 @@ void Service::accept() {
         protocol = Protocol{};
         handshake.start(5000);
         connect(socket, &QLocalSocket::readyRead, this, &Service::receive);
-        connect(socket, &QLocalSocket::disconnected, this, [this] {
-            if (authenticated)
-                revoke();
-            else
-                closeSocket();
-        });
+        connect(socket, &QLocalSocket::disconnected, this, [this] { dropConnection(); });
         receive();
     }
 }
@@ -195,7 +213,7 @@ void Service::send(const QJsonObject &message) {
             toolError("response_limit", "The result exceeded the response budget.")))
             .toJson(QJsonDocument::Compact) + '\n';
     if (socket->bytesToWrite() + line.size() > ResponseLimit * 2 || socket->write(line) < 0)
-        revoke();
+        dropConnection();
     emit responseQueued(queue);
 }
 void Service::receive() {
@@ -219,7 +237,6 @@ void Service::receive() {
             }
             authenticated = true;
             handshake.stop();
-            grantExpiry.stop();
             withdrawOffer();
             grant.clear();
             server.close();

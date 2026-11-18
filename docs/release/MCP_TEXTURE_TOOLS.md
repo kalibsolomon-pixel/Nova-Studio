@@ -218,7 +218,7 @@ field in the message and in `details.pointer`, and never echo the value.
 | `operation_canceled` | The client cancelled before publication | `Publication stopped at the next document boundary.` |
 | `busy` | Another MCP operation of this connection is running | `Another MCP operation is still running.` |
 
-A revoked or expired authorization closes the connection; no further call reaches Nova Studio.
+A revoked authorization closes the connection; no further call reaches Nova Studio.
 
 ## Not included
 
