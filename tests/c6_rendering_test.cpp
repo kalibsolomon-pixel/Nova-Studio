@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
+#include "render_layers.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -9,6 +10,24 @@ using namespace nova;
 class RenderingTest : public QObject {
     Q_OBJECT
   private slots:
+    void alphaLayers() {
+        using mc::RenderLayer;
+        QCOMPARE(mc::blockRenderLayer("minecraft:stone"), RenderLayer::Solid);
+        QCOMPARE(mc::blockRenderLayer("other:glass"), RenderLayer::Solid);
+        QCOMPARE(mc::blockRenderLayer("minecraft:glass"), RenderLayer::Translucent);
+        QCOMPARE(mc::blockRenderLayer("minecraft:magenta_stained_glass_pane"), RenderLayer::Translucent);
+        QCOMPARE(mc::blockRenderLayer("minecraft:tripwire"), RenderLayer::Tripwire);
+        QCOMPARE(mc::blockRenderLayer("minecraft:oak_leaves"), RenderLayer::Cutout);
+        QCOMPARE(mc::blockRenderLayer("minecraft:waxed_oxidized_copper_bars"), RenderLayer::Cutout);
+        QCOMPARE(mc::itemRenderLayer("minecraft:glass", false), RenderLayer::Translucent);
+        QCOMPARE(mc::itemRenderLayer("minecraft:stone", false), RenderLayer::Cutout);
+        QCOMPARE(mc::itemRenderLayer("minecraft:stone", true), RenderLayer::Translucent);
+        QCOMPARE(mc::itemRenderLayer({}, false), RenderLayer::Translucent);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Cutout, false), .1f);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Cutout, true), .5f);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Translucent, true), .01f);
+    }
+
     void bakedLighting() {
         mc::Model model;
         model.valid = true;

@@ -4,6 +4,7 @@
 #include "minecraft_animation.h"
 #include "modelauthor.h"
 #include "project.h"
+#include "render_layers.h"
 #include "settings.h"
 #include "theme.h"
 #include <QCryptographicHash>
@@ -779,8 +780,22 @@ void ModelPanel::openAsset(const QString &asset, bool showMaterial) {
 void ModelPanel::rebuild() {
     inputs->setVisible(target.startsWith("definition:"));
     const auto context = contexts->currentText();
-    const auto blockstate = !mc::Location::fromAsset(target.mid(11), "blockstates").isEmpty();
-    cube->setPreviewContext(context, context == "placed" || (context == "raw" && blockstate));
+    const auto definition = target.startsWith("definition:") ? target.mid(11) : QString();
+    const auto blockstate = mc::Location::fromAsset(definition, "blockstates");
+    QString blockId = blockstate;
+    if (target.startsWith("model:")) {
+        const auto modelId = mc::Location::parse(target.mid(6));
+        if (modelId.path.startsWith("block/"))
+            blockId = mc::Location{modelId.nameSpace, modelId.path.mid(6)}.id();
+    } else if (library && blockId.isEmpty()) {
+        const auto itemId = mc::Location::parse(mc::Location::fromAsset(definition, "items"));
+        if (itemId.valid() &&
+            (!library->source(itemId.asset("blockstates")).isEmpty() ||
+             mc::blockRenderLayer(itemId.id()) != mc::RenderLayer::Solid))
+            blockId = itemId.id();
+    }
+    cube->setPreviewContext(context, context == "placed" || (context == "raw" && !blockstate.isEmpty()),
+                            blockId);
     const int previousFace = cube->selectedFace;
     faces->clear();
     dependencies->clear();

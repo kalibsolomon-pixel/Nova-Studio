@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cube.h"
+#include "render_layers.h"
 #include "theme.h"
 #include <QOpenGLFramebufferObject>
 #include <QScopedValueRollback>
@@ -119,7 +120,6 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
     materialImages = materials;
     if (!fallback.isNull())
         materialImages.insert(QString{}, fallback);
-    alphaCache.clear();
     selectedFace = -1;
     updateEmptyState();
     update();
@@ -405,10 +405,11 @@ void Cube::initializeGL() {
          program->addShaderFromSourceCode(
              QOpenGLShader::Fragment,
              "uniform sampler2D tex; uniform float solid; uniform vec4 solidColor; uniform vec3 "
-             "tintColor; varying vec2 uv; "
+             "tintColor; uniform float alphaCutoff; uniform bool blended; varying vec2 uv; "
              "varying float light; void main(){if(solid>0.5){gl_FragColor=solidColor;return;}vec4 "
              "c=texture2D(tex,uv);"
-             "if(c.a<0.001) discard; gl_FragColor=vec4(c.rgb*tintColor*light,c.a);}");
+             "if(c.a<alphaCutoff) discard;"
+             "gl_FragColor=vec4(c.rgb*tintColor*light,blended?c.a:1.0);}");
     if (!ok || !program->link() || !buffer.create() || !lineBuffer.create() ||
         !guideBuffer.create()) {
         setToolTip(program->log());
@@ -451,10 +452,10 @@ void Cube::paintGL() {
             } else
                 ++it;
         }
-        QImage missing(2, 2, QImage::Format_RGBA8888);
-        missing.fill(QColor(230, 0, 200));
-        missing.setPixelColor(0, 0, Qt::black);
-        missing.setPixelColor(1, 1, Qt::black);
+        QImage missing(16, 16, QImage::Format_RGBA8888);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x)
+                missing.setPixelColor(x, y, (x < 8) != (y < 8) ? QColor(248, 0, 248) : Qt::black);
         materialImages[QString()] = missing;
         for (auto i = materialImages.cbegin(); i != materialImages.cend(); ++i)
             dirtyMaterials.insert(i.key());
@@ -523,8 +524,7 @@ void Cube::paintGL() {
     auto m = matrix();
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     program->bind();
@@ -551,54 +551,43 @@ void Cube::paintGL() {
     attribute("worldShade", 9, 1);
     QVector<int> order(scene().faces.size());
     std::iota(order.begin(), order.end(), 0);
-    auto imageFor = [&](const mc::Face &f) -> QImage {
-        return document && (!modelMesh || f.texture == activeTexture) && !materialPreview
-                   ? (playbackPreview.isNull() ? document->image : playbackPreview)
-                   : materialImages.value(f.texture);
-    };
-    // Classify each material once per paint, not once per face. Pixel uploads and meshes stay
-    // independent.
-    QHash<QString, bool> translucent;
-    for (const auto &f : scene().faces) {
-        if (!translucent.contains(f.texture)) {
-            const auto image = imageFor(f);
-            auto info = alphaCache.value(f.texture);
-            if (info.key != image.cacheKey()) {
-                info = {image.cacheKey(), false};
-                if (image.hasAlphaChannel())
-                    for (int y = 0; y < image.height() && !info.partial; ++y)
-                        for (int x = 0; x < image.width(); ++x) {
-                            int a = qAlpha(image.pixel(x, y));
-                            if (a > 0 && a < 255) {
-                                info.partial = true;
-                                break;
-                            }
-                        }
-                alphaCache[f.texture] = info;
-                metrics->count("material_alpha_scans", 1);
-            }
-            translucent[f.texture] = info.partial;
-        }
-        if (f.forceTranslucent)
-            translucent[f.texture] = true;
+    const auto blockLayer = mc::blockRenderLayer(previewBlock);
+    const auto blockItemLayer = mc::itemRenderLayer(previewBlock, false);
+    QVector<mc::RenderLayer> layers;
+    layers.reserve(order.size());
+    for (const auto &face : scene().faces) {
+        if (face.forceTranslucent)
+            layers << mc::RenderLayer::Translucent;
+        else if (placedBlock)
+            layers << blockLayer;
+        else if (face.generatedLayer >= 0 ||
+                 (modelMesh && mc::Location::fromAsset(face.texture, "textures").section(':', 1)
+                                   .startsWith("item/")))
+            layers << mc::RenderLayer::Translucent;
+        else
+            layers << blockItemLayer;
     }
     auto depth = [&](int i) {
         auto c = (scene().faces[i].points[0] + scene().faces[i].points[2]) / 2;
         return m.map(c).z();
     };
-    // Generated layers share their front/back planes. Keep all of them in the blended
-    // pass: splitting opaque upper layers from translucent lower layers reverses their
-    // authored order. Stable depth sorting preserves layer order on coincident planes.
     auto blended = [&](int i) {
-        const auto &face = scene().faces[i];
-        return face.generatedLayer >= 0 || translucent[face.texture];
+        return layers[i] == mc::RenderLayer::Translucent || layers[i] == mc::RenderLayer::Tripwire;
     };
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
         bool ta = blended(a), tb = blended(b);
-        return ta != tb ? !ta : depth(a) > depth(b);
+        return ta != tb ? !ta : ta && depth(a) > depth(b);
     });
+    bool blend = false;
+    glDisable(GL_BLEND);
     for (int i : order) {
         const auto &f = scene().faces[i];
+        if (blend != blended(i)) {
+            blend = blended(i);
+            glEnable(GL_BLEND);
+        }
+        program->setUniformValue("alphaCutoff", mc::alphaCutoff(layers[i], placedBlock));
+        program->setUniformValue("blended", int(blend));
         program->setUniformValue(
             "tintColor",
             QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
@@ -606,13 +595,12 @@ void Cube::paintGL() {
                        ? texture
                        : materialTextures.value(f.texture, materialTextures.value(QString()));
         glBindTexture(GL_TEXTURE_2D, t);
-        glDepthMask(blended(i) ? GL_FALSE : GL_TRUE);
         glDrawArrays(GL_TRIANGLES, i * 6, 6);
     }
-    glDepthMask(GL_TRUE);
     buffer.release();
     glDisable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
     // Reusable line buffers keep outlines, wireframe and guides in the same GL
     // pipeline. Qt vector overlays were suppressed on the verified Radeon path.
     program->setUniformValue("solid", 1.f);

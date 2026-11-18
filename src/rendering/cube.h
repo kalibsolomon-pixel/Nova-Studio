@@ -30,14 +30,9 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     QMap<QString, QSize> materialSizes;
     QSet<QString> dirtyMaterials;
     bool materialPreview = false;
-    struct AlphaInfo {
-        qint64 key = 0;
-        bool partial = false;
-    };
-    QHash<QString, AlphaInfo> alphaCache;
     bool geometryDirty = true, materialsDirty = true;
     QMatrix4x4 contextTransform;
-    QString previewContext;
+    QString previewContext, previewBlock;
     bool placedBlock = false;
     QMatrix4x4 matrix() const;
     float captureAspect = 0;
@@ -77,8 +72,9 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     bool contextFraming = false, displayManipulation = false;
     int referenceFrame = 0;
     void setContextFraming(bool enabled, bool frontView);
-    void setPreviewContext(const QString &context, bool placed) {
+    void setPreviewContext(const QString &context, bool placed, const QString &blockId = {}) {
         previewContext = context;
+        previewBlock = blockId;
         placedBlock = placed;
         update();
     }
