@@ -76,6 +76,8 @@ class BaselineCache {
     std::optional<BaselineEntry> load(const QString &version, const QString &identity,
                                       Check check = Check::Sizes, QString *error = nullptr,
                                       const std::shared_ptr<std::atomic_bool> &cancel = {}) const;
+    // Cheap pre-check (one directory stat): false means latest(version) certainly finds nothing.
+    bool mayHold(const QString &version) const;
     // Newest (by `created`) entry for `version` passing `check`.
     std::optional<BaselineEntry> latest(const QString &version, Check check = Check::Sizes,
                                         QString *error = nullptr) const;
