@@ -6,7 +6,6 @@
 #include "project.h"
 #include "render_layers.h"
 #include "settings.h"
-#include "special_models.h"
 #include "theme.h"
 #include "tints.h"
 #include <QCryptographicHash>
@@ -561,6 +560,8 @@ void ModelPanel::loadResources() {
         return;
     }
     *library = std::move(*watcher.result());
+    if (previewResourcesChanged)
+        previewResourcesChanged(library);
 }
 QStringList ModelPanel::resourceStackPaths() const {
     if (!library || root.isEmpty())
@@ -605,6 +606,8 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
     }
     if (library && (newProject || library->version() != versions->currentText()))
         loadResources();
+    if (previewResourcesChanged)
+        previewResourcesChanged(library);
     if (newProject && !stored.isEmpty()) {
         target = stored["target"].toString().left(2048);
         pinned = !target.isEmpty();
@@ -783,18 +786,7 @@ void ModelPanel::rebuild() {
     const auto context = contexts->currentText();
     const auto definition = target.startsWith("definition:") ? target.mid(11) : QString();
     const auto blockstate = mc::Location::fromAsset(definition, "blockstates");
-    QString blockId = blockstate;
-    if (target.startsWith("model:")) {
-        const auto modelId = mc::Location::parse(target.mid(6));
-        if (modelId.path.startsWith("block/"))
-            blockId = mc::Location{modelId.nameSpace, modelId.path.mid(6)}.id();
-    } else if (library && blockId.isEmpty()) {
-        const auto itemId = mc::Location::parse(mc::Location::fromAsset(definition, "items"));
-        if (itemId.valid() &&
-            (!library->source(itemId.asset("blockstates")).isEmpty() ||
-             mc::blockRenderLayer(itemId.id()) != mc::RenderLayer::Solid))
-            blockId = itemId.id();
-    }
+    const auto blockId = library ? mc::previewBlockId(modelAsset(), *library) : QString();
     const bool placed = context == "placed" || (context == "raw" && !blockstate.isEmpty());
     inputs->setVisible(!definition.isEmpty() || !blockId.isEmpty() || placed);
     const auto contextName = displayContext();
@@ -906,22 +898,13 @@ void ModelPanel::rebuild() {
                     for (const auto &frame : frames)
                         pixels << doc->frameComposite(frame.id);
                 }
-        auto baked = instance.special.isEmpty() ? mc::generatedMesh(model, materials, generatedFrames)
-                                                : mc::specialMesh(model, instance.special);
-        auto part = mc::transformed(std::move(baked), instance);
+        auto part = mc::displayMesh(model, instance, contextName, materials, generatedFrames);
         if (placed)
             mc::applyPlacedLighting(part, values["_neighbors"]);
         if (combined->faces.isEmpty())
             combined->guiLight = part.guiLight;
         if (!part.previewLimitation.isEmpty())
             previewLimitations << instance.model + ": " + part.previewLimitation;
-        // Minecraft order: display * translate(-0.5) * item-definition transformation.
-        part = mc::applyTransform(
-            std::move(part),
-            mc::itemPose(mc::displayTransform(model, displayContext()), instance.transformation));
-        for (auto &face : part.faces)
-            if (face.tint >= 0 && face.tint < instance.tints.size())
-                face.color = instance.tints[face.tint];
         messages += part.diagnostics;
         if (combined->faces.size() + part.faces.size() > 24576) {
             messages << "Combined geometry budget (24576 faces)";

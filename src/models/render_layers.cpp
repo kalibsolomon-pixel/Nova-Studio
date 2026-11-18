@@ -73,4 +73,16 @@ float alphaCutoff(RenderLayer layer, bool terrain) {
     }
     return .1f;
 }
+QString previewBlockId(const QString &asset, const Library &library) {
+    if (const auto id = Location::fromAsset(asset, "blockstates"); !id.isEmpty())
+        return id;
+    const auto model = Location::parse(Location::fromAsset(asset, "models"));
+    if (model.path.startsWith("block/"))
+        return Location{model.nameSpace, model.path.mid(6)}.id();
+    const auto item = Location::parse(Location::fromAsset(asset, "items"));
+    if (item.valid() && (!library.source(item.asset("blockstates")).isEmpty() ||
+                         blockRenderLayer(item.id()) != RenderLayer::Solid))
+        return item.id();
+    return {};
+}
 } // namespace nova::mc

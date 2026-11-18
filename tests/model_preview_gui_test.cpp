@@ -4,6 +4,7 @@
 // texture without a usable model is shown flat with a visible, named fallback reason -
 // never silently as a cube. The texture stays editable throughout. With NOVA_EVIDENCE_DIR
 // set, each case is captured from the real OpenGL view.
+#include "assets.h"
 #include "modelpanel.h"
 #include "display.h"
 #include <QApplication>
@@ -344,6 +345,35 @@ class ModelPreviewGuiTests : public QObject {
         QCOMPARE(icon.size(), QSize(32, 32));
         QCOMPARE(icon.pixelColor(0, 0), QColor(Qt::green));
         QCOMPARE(icon.pixelColor(31, 31), QColor(Qt::green));
+    }
+    void explorerUsesInventoryModel() {
+        const auto dir = tmp.filePath("icons");
+        const QString model = "assets/nova/models/item/diagonal.json";
+        const QString texture = "assets/nova/textures/item/diagonal.png";
+        QVERIFY(QDir().mkpath(dir + "/assets/nova/models/item"));
+        QVERIFY(QDir().mkpath(dir + "/assets/nova/textures/item"));
+        QFile json(dir + '/' + model);
+        QVERIFY(json.open(QIODevice::WriteOnly));
+        json.write("{\"gui_light\":\"front\",\"elements\":[{\"from\":[0,0,8],\"to\":[8,16,8],"
+                   "\"faces\":{\"south\":{\"texture\":\"nova:item/diagonal\",\"uv\":[0,0,16,16]}}}]}");
+        json.close();
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::red);
+        QVERIFY(sprite.save(dir + '/' + texture));
+        const auto index = Index::scan(dir);
+        auto catalog = std::make_shared<mc::Library>("1.21.11");
+        catalog->update(dir, index);
+        AssetModel explorer;
+        explorer.setIndex(index, dir);
+        explorer.setModelSources(catalog);
+        const auto row = explorer.indexFor(model);
+        QVERIFY(row.isValid());
+        auto icon = [&] { return qvariant_cast<QIcon>(explorer.data(row, Qt::DecorationRole)); };
+        icon();
+        QTRY_VERIFY(explorer.cachedBytes() > 0);
+        const auto image = icon().pixmap(64, 64).toImage();
+        QCOMPARE(image.pixelColor(16, 32), QColor(Qt::red));
+        QCOMPARE(image.pixelColor(48, 32).alpha(), 0);
     }
 
 };

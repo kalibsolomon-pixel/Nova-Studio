@@ -58,6 +58,9 @@ QMatrix4x4 displayMatrix(const DisplayTransform &value, bool leftHand);
 // units, origin at the block corner) in Minecraft's order.
 QMatrix4x4 itemPose(const QMatrix4x4 &display, const QMatrix4x4 &itemTransformation);
 QMatrix4x4 displayContextPose(const QString &context, float modelMinY = 0);
+Mesh displayMesh(const Model &model, const Instance &instance, const QString &context,
+                 const QMap<QString, QImage> &materials,
+                 const QMap<QString, QVector<QImage>> &frames = {});
 DisplayResolution resolveDisplay(const Model &model, const QString &context);
 // Original preset for element (cuboid) models. See DISPLAY_TRANSFORMS.md for derivation.
 QJsonObject blockDisplayPreset();

@@ -108,6 +108,7 @@ class ModelPanel : public QWidget {
     std::shared_ptr<mc::ModelEdit> editableModel(const QString &asset, QString *error);
     std::function<void(const std::shared_ptr<mc::ModelEdit> &)> modelOpened;
     std::function<void()> modelChanged;
+    std::function<void(const std::shared_ptr<mc::Library> &)> previewResourcesChanged;
     std::function<void(const QElapsedTimer &)> modelCheckpointed;
     bool closeModel(const std::shared_ptr<mc::ModelEdit> &);
     void discardModelRecovery();

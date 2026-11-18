@@ -9,6 +9,11 @@
 #include <functional>
 #include <memory>
 namespace nova {
+namespace mc {
+class Library;
+}
+class Cube;
+struct Metrics;
 class AssetModel : public QAbstractItemModel {
     Q_OBJECT
     struct Node {
@@ -22,12 +27,17 @@ class AssetModel : public QAbstractItemModel {
     QMap<QString, Node *> nodes;
     mutable QCache<QString, QIcon> cache{4 * 1024 * 1024};
     mutable QSet<QString> pending, failed;
+    mutable bool thumbnailContextFailed = false;
     // Standard icons come from the platform shell and are rescaled per paint unless
     // the same QIcon is reused. Keep one pair for the current application style.
     mutable const QObject *iconStyle = nullptr;
     mutable QIcon directoryIcon, fileIcon;
     const QIcon &standardIcon(bool directory) const;
     mutable QThreadPool pool;
+    std::shared_ptr<const mc::Library> modelSources;
+    mutable std::unique_ptr<Metrics> thumbnailMetrics;
+    mutable std::unique_ptr<Cube> thumbnailCube;
+    int modelRevision = 0;
     QString project;
     Index sourceIndex;
     QString category;
@@ -52,6 +62,7 @@ class AssetModel : public QAbstractItemModel {
     ~AssetModel() override;
     void setIndex(const Index &index, const QString &rootPath);
     void applyIndex(const Index &index, const QStringList &changed);
+    void setModelSources(const std::shared_ptr<mc::Library> &library);
     void setCategory(const QString &value);
     int cachedBytes() const { return cache.totalCost(); }
     int pendingCount() const { return pending.size(); }
