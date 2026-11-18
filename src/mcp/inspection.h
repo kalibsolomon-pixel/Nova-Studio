@@ -41,6 +41,9 @@ struct Snapshot {
     std::shared_ptr<RelationshipCache> relationships;
     QMap<QString, QString> revisions, openAssetPaths;
     QMap<QString, std::shared_ptr<const Document>> animationDocuments;
+    QString textureReadTarget;
+    std::shared_ptr<const Document> textureReadDocument;
+    bool textureReadBusy = false;
     QMap<QString, QJsonObject> textures, animations, models;
     QJsonObject styleNotes;                 // nova.project.info, nova://project/style-notes
     int unsavedCount = 0;                   // open documents of this project not fully saved
@@ -53,6 +56,7 @@ struct Snapshot {
     QString baselineVersion, baselineIdentity;   // the project's vanilla baseline binding, if any
 };
 QString assetIdentifier(const Snapshot &, const QString &path);
+QString resolveAssetPath(const Snapshot &, const QString &assetId, const std::atomic_bool *cancel = nullptr);
 QJsonObject inspect(const Snapshot &, const QString &tool, const QJsonObject &arguments,
                     const std::shared_ptr<std::atomic_bool> &cancel);
 }

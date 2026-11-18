@@ -9,7 +9,8 @@ if you allow editing, change it through Nova Studio's normal undo, save and reco
 - **Setup** tells an agent where `nova-mcp.exe` is. It does not grant access to anything.
 - **Access is off until you choose Allow** in Resources › MCP Integration › Access, for the
   project that is open now. **Allow read-only** lets the agent inspect; **Allow editing…** also lets
-  it change open documents (you confirm this separately).
+  it open textures, change documents and initialize an authorized pack folder (you confirm this
+  separately).
 - An authorization stays on until you choose **Revoke access**, open another project, or close Nova
   Studio. One agent is connected at a time; when it disconnects, Nova Studio offers a fresh
   connection code so the agent's next session reconnects on its own.
@@ -59,6 +60,15 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   undoable step on the open document and follows its selection and active layer; like every agent
   edit, it is not saved until you or the agent save. Exact rules and schemas:
   [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+- **Texture workflow.** Read pack or cached vanilla pixels with `nova.texture.read`, plan a palette,
+  and open the target with `nova.asset.open` if needed. Edit using the current revision and request
+  `returnPreview` for an enlarged result image in the same response. Use
+  `nova.asset.preview_image` with `compare` to review the last change or `assetIds` to browse a
+  contact sheet.
+- **Starting a pack or copying a texture.** With editing permission, an agent can initialize an
+  authorized folder with Java 1.21.11 pack metadata using `nova.pack.bootstrap`. Use
+  `nova.asset.create` with `source` to copy a pack or cached vanilla texture and its animation into
+  an unsaved draft.
 - **Vanilla textures, relationships and validation (read-only).** Any connected agent can list and
   read the vanilla textures in Nova's verified local cache (`nova.vanilla.list`,
   `nova.vanilla.texture`), see how an asset is selected and used (`nova.asset.relationships`), and

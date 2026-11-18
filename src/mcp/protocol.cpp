@@ -21,6 +21,9 @@ QJsonObject stringField(int max, const QString &pattern = {}) {
         field["pattern"] = pattern;
     return field;
 }
+QJsonObject textureAssetField() {
+    return stringField(264, "^(?:[a-f0-9]{64}|vanilla:[a-z0-9_./-]+\\.png)$");
+}
 QJsonObject described(QJsonObject field, const QString &description) {
     field["description"] = description;
     return field;
@@ -140,6 +143,29 @@ QJsonObject outputSchema(const QString &name) {
             add("limits", "object");
             add("animationMetadata", QJsonArray{"object", "null"});
         }
+    } else if (name == "nova.pack.bootstrap") {
+        add("created", "boolean");
+        add("changed", "boolean");
+        add("createdDirectories", "array");
+        add("minecraftVersion", "string");
+        add("packFormat", QJsonArray{"integer", "null"});
+        add("changeSummary", "object");
+    } else if (name == "nova.asset.open") {
+        for (auto key : {"assetId", "path", "documentId", "revision"})
+            add(key, "string");
+        add("opened", "boolean");
+        add("document", "object");
+        add("changeSummary", "object");
+    } else if (name == "nova.texture.read") {
+        for (auto key : {"assetId", "path", "source", "encoding"})
+            add(key, "string");
+        add("revision", QJsonArray{"string", "null"});
+        add("layer", QJsonArray{"string", "null"});
+        add("frame", QJsonArray{"integer", "null"});
+        add("colorCount", "integer");
+        add("paletteSummary", "array");
+        add("paletteSummaryTruncated", "boolean");
+        add("pixels", "object");
     } else if (name == "nova.asset.relationships") {
         for (auto key : {"generation", "projectId", "path", "kind", "minecraftVersion", "versionSource"})
             add(key, "string");
@@ -199,6 +225,7 @@ QJsonObject editOutputSchema(bool capabilities) {
     add("appliedOperations", "integer");
     add("changed", "boolean");
     add("warnings", "array");
+    add("preview", "object");
     auto required = common;
     for (const auto key : {"transactionId", "appliedOperations", "changed", "warnings"})
         required.append(key);
@@ -280,6 +307,7 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     const auto required = QJsonArray::fromStringList(target.keys());
     auto single = [&](const QString &tool, const QJsonArray &variants) {
         auto fields = target;
+        fields["returnPreview"] = boolean;
         fields["operation"] = QJsonObject{{"oneOf", variants}};
         auto keys = required;
         keys.append("operation");
@@ -325,34 +353,50 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     const QJsonObject creation{{"projectId", token}, {"generation", token}, {"indexRevision", token},
         {"namespace", stringField(64, "^[a-z0-9_.-]+$")},
         {"path", stringField(200, "^[a-z0-9_./-]+$")}, {"conflictPolicy", choice({"reject"})},
+        {"source", described(textureAssetField(), "Copy this pack texture or cached vanilla:<path>, including animation.")},
         {"parameters", QJsonObject{{"oneOf", QJsonArray{
             commandSchema("texture", raster), commandSchema("animation", animationProperties), modelCreation}}}}};
+    auto creationKeys = creation.keys();
+    creationKeys.removeAll("source");
+    creationKeys.removeAll("parameters");
     for (const auto &tool : {"nova.asset.create_preview", "nova.asset.create"})
         list.append(QJsonObject{{"name", tool},
-            {"description", "Preflight or create a managed unsaved texture, animation, or model document."},
-            {"inputSchema", objectSchema(creation, QJsonArray::fromStringList(creation.keys()))},
+            {"description", "Preflight or create a managed unsaved asset. Supply parameters for a new document, "
+                            "or source to copy a texture and its animation."},
+            {"inputSchema", objectSchema(creation, QJsonArray::fromStringList(creationKeys))},
             {"annotations", QJsonObject{{"readOnlyHint", QString(tool).endsWith("_preview")},
                                         {"openWorldHint", false}}}});
     auto image = target;
     image["frameId"] = uuid;
     image["view"] = choice({"model", "uv"});
     image["faceIndex"] = integerField(0, 1535);
+    image["maxEdge"] = described(integerField(16, 512), "Longest edge in pixels for a texture or each comparison panel. "
+                                "Defaults to 256 for one texture, 128 per contact-sheet tile (maximum 192).");
+    image["pixelGrid"] = described(boolean, "Draw boundaries between source texels when the image is enlarged.");
+    image["compare"] = described(boolean, "Show before and after the last edit of the requested revision.");
+    image["assetIds"] = described(arrayField(token, 1, 16), "Texture IDs for a labelled contact sheet. Supply this "
+                                 "or assetId with expectedRevision.");
     list.append(QJsonObject{{"name", "nova.asset.preview_image"},
-        {"description", "Return a bounded PNG of a live texture, animation frame, model viewport, or model face UV."},
-        {"inputSchema", objectSchema(image, required)},
+        {"description", "Return a readable PNG of a live texture, animation frame, model viewport or UV. Supports "
+                        "before/after comparison and labelled texture contact sheets."},
+        {"inputSchema", objectSchema(image, {"generation", "projectId"})},
         {"annotations", QJsonObject{{"readOnlyHint", true}, {"openWorldHint", false}}}});
     auto batchKeys = required;
     batchKeys.append("operations");
+    auto editBatch = batch;
+    editBatch["returnPreview"] = boolean;
     add("nova.edit.batch", "Apply up to eight compatible operations as one history step (schema v1).",
-        batch, batchKeys);
+        editBatch, batchKeys);
     list.append(QJsonObject{{"name", "nova.edit.preview"},
         {"description", "Preflight a native batch against an isolated draft."},
         {"inputSchema", objectSchema(batch, batchKeys)},
         {"outputSchema", outputSchema("nova.edit.preview")},
         {"annotations", QJsonObject{{"readOnlyHint", true}, {"openWorldHint", false}}}});
+    auto history = target;
+    history["returnPreview"] = boolean;
     for (const auto &name : {"undo", "redo"})
         add(QString("nova.edit.") + name, "Move only through this connection's contiguous edits.",
-            target, required);
+            history, required);
 }
 // MCP Phase 2: compact texture edits. Each call is one native in-memory edit of an open texture
 // (one history step), committed like nova.texture.edit; the runtime checks that need the canvas
@@ -390,6 +434,8 @@ void addCompactTextureTools(QJsonArray &list, const QJsonObject &token) {
             keys.append(key);
         }
         properties["layer"] = uuid;
+        properties["returnPreview"] = described(QJsonObject{{"type", "boolean"}},
+                                                  "Append an upscaled PNG of the result.");
         list.append(QJsonObject{{"name", tool}, {"description", description},
             {"inputSchema", objectSchema(properties, keys)}, {"outputSchema", output},
             {"annotations", QJsonObject{{"readOnlyHint", false}, {"openWorldHint", false}}}});
@@ -553,6 +599,31 @@ const QJsonArray &tools() {
                                    "A resource-pack path such as assets/minecraft/textures/item/diamond_sword.png.")},
                 {"version", described(version, "The Minecraft version; must be the project's target version (the default).")}},
                {"generation", "projectId", "path"}, true);
+        const auto readRegion = objectSchema({{"x", integerField(0, 4095)}, {"y", integerField(0, 4095)},
+            {"width", integerField(1, 256)}, {"height", integerField(1, 256)}}, {"x", "y", "width", "height"});
+        add("nova.texture.read",
+            "Read exact pixels from an open texture draft, a pack PNG, or the verified local vanilla cache. "
+            "Copy indexed pixels (x, y, width, height, palette and rows) into put_pixels; over 62 colours "
+            "returns rows of concatenated 8-digit RRGGBBAA hex pixels. Palette summary is sorted by luma.",
+            {{"generation", generation}, {"projectId", generation},
+             {"assetId", described(textureAssetField(),
+                                   "A pack texture assetId or vanilla:<path> from nova.vanilla.list.")},
+             {"region", described(readRegion, "Read a rectangle inside the selected image, at most 256 by 256.")},
+             {"layer", described(stringField(36, "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$"),
+                                "A layer UUID in an open draft. Defaults to the visible composite.")},
+             {"frame", described(integerField(0, 1023), "Zero-based source frame index. Defaults to the active "
+                                 "frame of an open draft or the whole saved spritesheet.")},
+             {"version", version}, {"identity", identity}}, {"generation", "assetId"});
+        define("nova.asset.open",
+            "Open an indexed pack texture or animation in an editor tab and obtain its edit revision. "
+            "Requires editing permission. Reuses an existing open document when possible.",
+            {{"generation", current}, {"projectId", project}, {"assetId", asset}},
+            {"generation", "projectId", "assetId"}, false);
+        define("nova.pack.bootstrap",
+            "Initialize an authorized folder as a Java 1.21.11 resource pack. Creates pack.mcmeta and the "
+            "standard Minecraft texture folders if metadata is absent. Requires editing permission.",
+            {{"generation", current}, {"projectId", project}, {"indexRevision", generation}, {"description", stringField(128)}},
+            {"generation", "projectId", "indexRevision"}, false);
         return list;
     }();
     return definitions;

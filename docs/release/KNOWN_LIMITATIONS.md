@@ -37,9 +37,10 @@
   smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
   Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
   tool details, and permission options depend on what the agent reports. Its built-in file,
-  shell, and web tools follow that agentâ€™s configuration. Changing from read-only to editing
+  shell, and web tools follow that agent’s configuration. Changing from read-only to editing
   restarts the agent session.
-- MCP asset creation never creates folders; an agent must ask you to create a missing folder.
+- With editing permission, `nova.pack.bootstrap` can initialize a folder with Java 1.21.11 metadata and standard
+  Minecraft texture folders. Other asset creation requires the destination folder to exist.
 
 ## Search
 

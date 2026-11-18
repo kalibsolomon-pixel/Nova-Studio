@@ -57,7 +57,8 @@ class Window : public QMainWindow {
     void endAgentSessionForProjectChange();
     struct Comparison {
         QString path, beforeRevision, afterRevision, detail, owner;
-        QUuid instance;
+        QUuid instance, frame;
+        int uvFace = -1;
         quint64 serial = 0;
         QImage before, after, uvBefore, uvAfter;
     };
@@ -258,7 +259,7 @@ class Window : public QMainWindow {
     void openAsset(const QModelIndex &index);
     void openTexture(const QString &path);
     Index workspaceIndex(QSet<QString> *provisional = nullptr) const;
-    void showTextureDocument(const std::shared_ptr<Document> &doc);
+    void showTextureDocument(const std::shared_ptr<Document> &doc, bool focus = true);
     void refresh();
     QByteArray welcomeEditorLayout;
     void syncWelcomeLayout(bool forceEditor = false);

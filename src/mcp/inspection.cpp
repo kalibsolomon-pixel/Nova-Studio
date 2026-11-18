@@ -10,6 +10,7 @@
 #include "validation.h"
 #include "minecraft_animation.h"
 #include "project.h"
+#include "texture_edit.h"
 #include <QFileInfo>
 #include <QImageReader>
 #include <QJsonDocument>
@@ -22,18 +23,18 @@ QString assetIdentifier(const Snapshot &s, const QString &path) {
     return QString::fromLatin1(QMessageAuthenticationCode::hash(
         path.toUtf8(), s.idKey, QCryptographicHash::Sha256).toHex());
 }
-namespace {
-constexpr int AssetLimit = 60000;
-constexpr int JsonLimit = 2 * 1024 * 1024;
-QString resolve(const Snapshot &s, const QString &assetId, const std::atomic_bool &cancel) {
+QString resolveAssetPath(const Snapshot &s, const QString &assetId, const std::atomic_bool *cancel) {
     for (const auto &path : s.index.files) {
-        if (cancel.load())
+        if (cancel && cancel->load())
             break;
         if (logicalAsset(path) && assetIdentifier(s, path) == assetId)
             return path;
     }
     return {};
 }
+namespace {
+constexpr int AssetLimit = 60000;
+constexpr int JsonLimit = 2 * 1024 * 1024;
 QString kind(const QString &path) {
     if (path.endsWith(".png"))
         return "texture";
@@ -61,6 +62,178 @@ bool provisionalAvailable(const Snapshot &s, Scope &scope, const QString &path) 
         (path.endsWith(".json") || scope.vacant(path + ".mcmeta"));
 }
 QJsonObject unsafe() { return toolError("unsafe_asset", "The indexed asset is missing or cannot be opened safely."); }
+QJsonObject readArgument(const char *field, const QString &message) {
+    const auto pointer = QString("/") + field;
+    return toolError("invalid_arguments", QString("Invalid argument at %1: %2").arg(pointer, message),
+                     {{"pointer", pointer}});
+}
+QJsonObject decodeTexture(QIODevice *file, QImage &image) {
+    if (file->size() > 16 * 1024 * 1024)
+        return toolError("texture_too_large", "PNG exceeds the 16 MiB texture read limit.");
+    QImageReader reader(file, "PNG");
+    reader.setAutoDetectImageFormat(false);
+    const auto size = reader.size();
+    if (size.width() > Document::MaxDimension || size.height() > Document::MaxDimension)
+        return toolError("texture_too_large", "PNG exceeds the 4096-pixel texture read dimension limit.");
+    if (!size.isEmpty())
+        image = reader.read();
+    return image.isNull() ? toolError("texture_unavailable", "Could not decode the texture PNG.") : QJsonObject{};
+}
+QJsonObject texturePixels(const Snapshot &s, Scope &scope, const QString &path, const QJsonObject &args,
+                         const std::atomic_bool &cancel) {
+    const auto id = args["assetId"].toString();
+    const bool vanilla = id.startsWith("vanilla:");
+    const auto *doc = s.textureReadDocument.get();
+    const auto layerId = args["layer"].toString();
+    const int requestedFrame = args["frame"].toInt(-1);
+    int frame = requestedFrame;
+    if (!vanilla && kind(path) != "texture")
+        return toolError("invalid_asset_type", "Reading pixels requires a texture.");
+    auto file = vanilla || s.provisional.contains(path) ? nullptr : scope.open(path);
+    if (!vanilla && !file && !provisionalAvailable(s, scope, path))
+        return unsafe();
+    if (s.textureReadBusy)
+        return toolError("document_busy", "Finish the current stroke before reading the texture.");
+    QImage image;
+    QJsonObject meta;
+    QString version = s.version;
+    QString sourcePath = path;
+    if (doc) {
+        if (requestedFrame >= 0 && !doc->animated())
+            return readArgument("frame", "the document has no animation frames.");
+        auto layers = &doc->layers();
+        auto frameId = doc->activeFrame();
+        AnimationState animation;
+        if (doc->animated()) {
+            animation = doc->animationState();
+            if (requestedFrame >= int(animation.frames.size()))
+                return readArgument("frame", "the source frame index is out of range.");
+            if (requestedFrame >= 0) {
+                const auto &selected = animation.frames[size_t(requestedFrame)];
+                frameId = selected.id;
+                layers = &selected.layers;
+            } else {
+                const auto it = std::find_if(animation.frames.begin(), animation.frames.end(),
+                    [frameId](const auto &candidate) { return candidate.id == frameId; });
+                if (it != animation.frames.end())
+                    frame = int(it - animation.frames.begin());
+            }
+        }
+        if (!layerId.isEmpty()) {
+            const auto it = std::find_if(layers->begin(), layers->end(),
+                [layer = QUuid(layerId)](const auto &candidate) { return candidate.id == layer; });
+            if (it == layers->end())
+                return readArgument("layer", "the layer does not belong to the selected frame.");
+            image = it->pixels;
+        } else {
+            image = frameId == doc->activeFrame() ? doc->image : doc->frameComposite(frameId);
+        }
+    } else {
+        if (!layerId.isEmpty())
+            return readArgument("layer", "only an open draft has editable layers.");
+        if (vanilla) {
+            version = args["version"].toString(s.version);
+            sourcePath = vanillaTexturePath(id);
+            VanillaTextureData data;
+            const auto result = vanillaTexture(s, {{"path", sourcePath}, {"version", version},
+                                                   {"identity", args["identity"]}}, &data);
+            if (result.contains("error"))
+                return result;
+            QBuffer buffer(&data.png);
+            buffer.open(QIODevice::ReadOnly);
+            if (const auto error = decodeTexture(&buffer, image); !error.isEmpty())
+                return error;
+            if (requestedFrame >= 0)
+                meta = result["animationMetadata"].toObject()["json"].toObject();
+        } else {
+            if (!file)
+                return unsafe();
+            if (const auto error = decodeTexture(file.get(), image); !error.isEmpty())
+                return error;
+            if (requestedFrame >= 0 && s.index.records.contains(path + ".mcmeta"))
+                meta = json(scope.open(path + ".mcmeta").get());
+        }
+        if (requestedFrame >= 0) {
+            AnimationState animation;
+            if (!parseAnimation(image, meta, version, &animation, nullptr))
+                return readArgument("frame", "no valid animation metadata is available for this PNG.");
+            if (requestedFrame >= int(animation.frames.size()))
+                return readArgument("frame", "the source frame index is out of range.");
+            image = animation.frames[size_t(requestedFrame)].layers.front().pixels;
+        }
+    }
+    if (image.isNull())
+        return toolError("texture_unavailable", "The selected image has no pixels.");
+    const auto region = args["region"].toObject();
+    const QRect rect = region.isEmpty() ? image.rect() :
+        QRect(region["x"].toInt(), region["y"].toInt(), region["width"].toInt(), region["height"].toInt());
+    if (!image.rect().contains(rect))
+        return readArgument("region", "the rectangle must fit inside the selected image.");
+    if (rect.width() > texture::MaxSide || rect.height() > texture::MaxSide)
+        return toolError("texture_too_large", "Select a region no larger than 256 by 256 pixels.");
+    image = image.copy(rect).convertToFormat(QImage::Format_ARGB32);
+    if (image.isNull())
+        return toolError("texture_unavailable", "Could not allocate the selected region.");
+    QHash<QRgb, int> counts;
+    for (int y = 0; y < image.height(); ++y) {
+        if (cancel.load())
+            return canceled();
+        const auto *row = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x)
+            ++counts[row[x]];
+    }
+    const bool indexed = counts.size() <= texture::MaxPalette;
+    // Eight ASCII digits per pixel, duplicated by toolReply, with room for metadata and JSON framing.
+    if (!indexed && qint64(image.width()) * image.height() > 27000)
+        return toolError("texture_too_large", "Exact hex rows exceed the response budget. Read a smaller region.",
+                         {{"colorCount", qint64(counts.size())}, {"maxRegionPixels", 27000}});
+    auto hex = [](QRgb color, bool alpha) {
+        const auto rgb = color & 0xffffffu;
+        return alpha ? QString("%1").arg((rgb << 8) | uint(qAlpha(color)), 8, 16, QLatin1Char('0'))
+                     : QString("%1").arg(rgb, 6, 16, QLatin1Char('0'));
+    };
+    auto sorted = counts.keys();
+    const auto end = sorted.begin() + std::min<qsizetype>(texture::MaxPalette, sorted.size());
+    std::partial_sort(sorted.begin(), end, sorted.end(), [](QRgb a, QRgb b) {
+        const auto left = ops::luma(a), right = ops::luma(b);
+        return left != right ? left < right : a < b;
+    });
+    QJsonArray summary, palette, rows;
+    QHash<QRgb, QChar> indices;
+    for (auto it = sorted.begin(); it != end; ++it) {
+        const auto color = *it;
+        const auto value = '#' + hex(color, qAlpha(color) != 255);
+        summary.append(QJsonObject{{"color", value}, {"luma", ops::luma(color)}, {"pixels", counts.value(color)}});
+        if (indexed) {
+            indices.insert(color, QLatin1Char(texture::Alphabet[palette.size()]));
+            palette.append(value);
+        }
+    }
+    for (int y = 0; y < image.height(); ++y) {
+        if (cancel.load())
+            return canceled();
+        QString symbols;
+        symbols.reserve(image.width() * (indexed ? 1 : 8));
+        const auto *row = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x) {
+            if (indexed)
+                symbols += indices.value(row[x]);
+            else
+                symbols += hex(row[x], true);
+        }
+        rows.append(symbols);
+    }
+    QJsonObject pixels{{"x", rect.x()}, {"y", rect.y()}, {"width", rect.width()}, {"height", rect.height()},
+                       {"rows", rows}};
+    if (indexed)
+        pixels["palette"] = palette;
+    return {{"assetId", id}, {"path", sourcePath}, {"source", vanilla ? "vanilla" : doc ? "live" : "disk"},
+            {"revision", doc ? QJsonValue(s.revisions.value(path)) : QJsonValue()},
+            {"layer", layerId.isEmpty() ? QJsonValue() : QJsonValue(layerId)},
+            {"frame", frame < 0 ? QJsonValue() : QJsonValue(frame)}, {"encoding", indexed ? "indexed" : "hex"},
+            {"colorCount", qint64(counts.size())}, {"paletteSummary", summary},
+            {"paletteSummaryTruncated", !indexed}, {"pixels", pixels}};
+}
 QString diagnosticText(const QString &text) {
     static const QRegularExpression absolute(R"(([A-Za-z]:[\\/]|\\\\|(?:^|[\s"'(])/[^\s/]))");
     return text.contains(absolute) ? QString("Diagnostic contains a local path.") : text.left(400);
@@ -503,6 +676,8 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         return vanillaList(s, args, cancel);
     if (tool == "nova.vanilla.texture")
         return vanillaTexture(s, args);
+    if (tool == "nova.texture.read" && args["assetId"].toString().startsWith("vanilla:"))
+        return texturePixels(s, scope, {}, args, *cancel);
     if (tool == "nova.asset.relationships")
         return relationships(s, scope, args, cancel);
     const auto ids = args["assetIds"].toArray();
@@ -563,11 +738,13 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         return cancel->load() ? canceled() : result;
     }
     const auto requested = args["assetId"].toString();
-    const auto path = requested.isEmpty() ? QString{} : resolve(s, requested, *cancel);
+    const auto path = requested.isEmpty() ? QString{} : resolveAssetPath(s, requested, cancel.get());
     if (cancel->load())
         return canceled();
     if (!requested.isEmpty() && path.isEmpty())
         return toolError("asset_not_found", "The asset identifier is unknown or stale.");
+    if (tool == "nova.texture.read")
+        return texturePixels(s, scope, path, args, *cancel);
     const bool changes = tool == "nova.workflow.validate_changes";
     if (changes || tool == "nova.pack.validate") {
         QStringList selected;

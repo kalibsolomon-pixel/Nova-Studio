@@ -480,7 +480,8 @@ void Service::dispatch(const Request &request) {
         request.tool == "nova.asset.create_preview";
     const bool prepare = request.tool == "nova.workflow.prepare";
     const bool validate = request.tool == "nova.workflow.validate_changes";
-    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool.endsWith(".edit") ||
+    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool == "nova.asset.open" ||
+        request.tool == "nova.pack.bootstrap" || request.tool.endsWith(".edit") ||
         !compactTextureCommand(request.tool).isEmpty() ||
         (request.tool.startsWith("nova.edit.") && !capability && !preview);
     if ((mutation || adopt) && !editing)
@@ -498,6 +499,8 @@ void Service::dispatch(const Request &request) {
     data.projectId = projectId;
     data.generation = generation;
     data.relationships = relationships;
+    if (request.tool == "nova.texture.read")
+        data.textureReadTarget = request.arguments["assetId"].toString();
     if (!mutation && !preview && !snapshot(data, request.tool))
         return reject("validation_unavailable", "The project index is updating (for example after a save or a file change). Retry shortly.");
     if (mutation || capability || preview) {
@@ -748,7 +751,8 @@ void Service::dispatch(const Request &request) {
         active->deleteLater();
     });
     // Relationship and cache requests may resolve a full vanilla resource stack (thousands of JSON files).
-    const bool sourced = request.tool == "nova.asset.relationships" || request.tool.startsWith("nova.vanilla.");
+    const bool sourced = request.tool == "nova.asset.relationships" || request.tool.startsWith("nova.vanilla.") ||
+        (request.tool == "nova.texture.read" && data.textureReadTarget.startsWith("vanilla:"));
     deadline.start(validate || request.tool == "nova.pack.validate" ? 60000 : sourced ? 30000 : 10000);
     worker->setFuture(QtConcurrent::run(
         [data = std::move(data), tool = request.tool, args = request.arguments, cancellation = cancel] {
