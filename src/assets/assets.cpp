@@ -80,6 +80,21 @@ IconRecipe buildIcon(mc::Library library, const QString &asset) {
     return result;
 }
 } // namespace
+QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int scale) {
+    const auto recipe = buildIcon(library, asset);
+    if (recipe.mesh->faces.isEmpty())
+        return {};
+    Metrics metrics;
+    Cube cube(&metrics);
+    cube.setAttribute(Qt::WA_DontShowOnScreen);
+    cube.setAttribute(Qt::WA_ShowWithoutActivating);
+    cube.resize(200, 150);
+    cube.setPreviewContext("gui", false, recipe.blockId);
+    cube.setModel(recipe.mesh, {}, recipe.materials);
+    if (!cube.isValid())
+        cube.grabFramebuffer(); // creates the context
+    return cube.captureInventoryIcon(scale);
+}
 AssetModel::AssetModel(QObject *p) : QAbstractItemModel(p), root(std::make_unique<Node>()) {
     root->directory = true;
     pool.setMaxThreadCount(2);

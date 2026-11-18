@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fabric_testing.h"
+#include "icon_parity.h"
 #include "packsync.h"
 #include "settings.h"
 #include <QCheckBox>
@@ -123,7 +124,10 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     openWorld->setObjectName("fabricOpenWorld");
     detailedLogs = new QCheckBox("Keep detailed Gradle logs");
     detailedLogs->setObjectName("fabricDetailedLogs");
+    autoReload = new QCheckBox("Reload Minecraft's resources after each sync");
+    autoReload->setObjectName("fabricAutoReload");
     advancedForm->addRow(openWorld);
+    advancedForm->addRow(autoReload);
     advancedForm->addRow(detailedLogs);
     repairButton = new QPushButton("Repair runtime…");
     repairButton->setObjectName("fabricRepair");
@@ -140,6 +144,11 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     syncButton = new QPushButton("Sync Pack");
     syncButton->setObjectName("fabricSync");
     syncButton->setToolTip("Export the saved pack into the test environment (Ctrl+Alt+M)");
+    reloadButton = new QPushButton("Reload Resources");
+    reloadButton->setObjectName("fabricReload");
+    compareButton = new QPushButton("Compare Icons…");
+    compareButton->setObjectName("fabricCompareIcons");
+    compareButton->setToolTip("Compare Nova's inventory icons with the ones Minecraft draws");
     stopButton = new QPushButton("Stop Minecraft");
     stopButton->setObjectName("fabricStop");
     folderButton = new QPushButton("Open Game Folder");
@@ -149,6 +158,8 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     auto close = new QPushButton("Close");
     buttons->addWidget(testButton);
     buttons->addWidget(syncButton);
+    buttons->addWidget(reloadButton);
+    buttons->addWidget(compareButton);
     buttons->addWidget(stopButton);
     buttons->addStretch();
     buttons->addWidget(folderButton);
@@ -160,8 +171,11 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
         versionBox->setCurrentText(p->fabricMinecraftVersion);
         detailedLogs->setChecked(p->fabricDetailedLogs);
         openWorld->setChecked(p->fabricOpenTestWorld);
-    } else
+        autoReload->setChecked(p->fabricAutoReload);
+    } else {
         openWorld->setChecked(true);
+        autoReload->setChecked(true);
+    }
 
     connect(advancedButton, &QPushButton::toggled, this, [this](bool open) {
         advanced->setVisible(open);
@@ -171,6 +185,21 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     });
     connect(testButton, &QPushButton::clicked, this, &FabricTestDialog::testInMinecraft);
     connect(syncButton, &QPushButton::clicked, this, [this] { syncPack(); });
+    connect(compareButton, &QPushButton::clicked, this, [this] {
+        IconParityDialog::Context parity;
+        parity.companion = engine->companion();
+        parity.library = context.modelLibrary;
+        parity.projectRoot = context.projectRoot;
+        parity.folder = [this] { return engine->layout().game + '/' + testing::companionFolder; };
+        auto dialog = new IconParityDialog(parity, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+    connect(reloadButton, &QPushButton::clicked, this, [this] {
+        QString error;
+        if (!reloadInGame(&error))
+            inform("Reload not started", error, true);
+    });
     connect(stopButton, &QPushButton::clicked, this, [this] {
         if (engine->busy() || engine->game() == FabricRuntime::Game::Starting)
             engine->cancel();
@@ -197,9 +226,14 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
             p->fabricMinecraftVersion = versionBox->currentText();
             p->fabricDetailedLogs = detailedLogs->isChecked();
             p->fabricOpenTestWorld = openWorld->isChecked();
+            p->fabricAutoReload = autoReload->isChecked();
         }
     };
     connect(openWorld, &QCheckBox::toggled, this, persist);
+    connect(autoReload, &QCheckBox::toggled, this, [this, persist] {
+        persist();
+        refresh();
+    });
     connect(detailedLogs, &QCheckBox::toggled, this, [this, persist] {
         persist();
         rebuildRuntime();
@@ -267,6 +301,12 @@ void FabricTestDialog::rebuildRuntime() {
     delete engine;
     engine = new FabricRuntime(options, this);
     connect(engine, &FabricRuntime::changed, this, &FabricTestDialog::refresh);
+    connect(engine->companion(), &CompanionLink::reloadStarted, this, [this] {
+        reloadNote = "Reloading in Minecraft…";
+        refresh();
+    });
+    connect(engine->companion(), &CompanionLink::reloadFinished, this,
+            &FabricTestDialog::companionReloadFinished);
     connect(engine, &FabricRuntime::preparationFinished, this,
             &FabricTestDialog::continueAfterPreparation);
     connect(engine, &FabricRuntime::gameExited, this, [this](int code) {
@@ -422,9 +462,46 @@ bool FabricTestDialog::syncPack() {
         context.activity(
             QString("Synced “%1” to the Fabric test environment").arg(outcome.folderName));
     refresh();
-    if (engine->running())
-        guidance->setText("Synced. Press F3+T in Minecraft to reload resources.");
+    if (engine->running()) {
+        if (autoReload->isChecked() && engine->companion()->available() && reloadInGame())
+            guidance->setText("Synced. Reloading resources in Minecraft…");
+        else
+            guidance->setText("Synced. Press F3+T in Minecraft to reload resources.");
+    }
     return true;
+}
+
+bool FabricTestDialog::reloadInGame(QString *error) {
+    if (!engine->running()) {
+        if (error)
+            *error = "Minecraft is not running from Nova's test environment.";
+        return false;
+    }
+    if (!engine->companion()->requestReload(error))
+        return false;
+    reloadNote = "Reload requested by Nova…";
+    refresh();
+    return true;
+}
+
+void FabricTestDialog::companionReloadFinished(bool ok, qint64 durationMs, const QString &error) {
+    log->poll(); // the reload's warnings are in the log by now
+    const auto warnings = log->state().warnings.size();
+    QString message;
+    if (ok) {
+        const auto seconds = QString::number(double(durationMs) / 1000.0, 'f', 1);
+        reloadNote = "Reloaded by Nova in " + seconds + " s";
+        message = "Reloaded in Minecraft in " + seconds + " s · " +
+                  (warnings ? QString("%1 resource warning%2").arg(warnings).arg(warnings == 1 ? "" : "s")
+                            : QString("no resource warnings"));
+    } else {
+        reloadNote = "Reload failed: " + error;
+        message = "Minecraft did not reload: " + error;
+    }
+    if (context.activity)
+        context.activity(message);
+    refresh();
+    emit reloadReported(message);
 }
 
 bool FabricTestDialog::confirmShutdown() {
@@ -554,6 +631,8 @@ void FabricTestDialog::refresh() {
                  (s.reloadFinished    ? " · reload finished (reported by Remove Reloading Screen)"
                   : s.resourcesLoaded ? " · block atlas rebuilt (from Minecraft's log)"
                                       : " · reloading…");
+    if (!reloadNote.isEmpty() && running)
+        reload = reloadNote + (s.reloads ? " · " + reload : QString());
     reloadValue->setText(reload);
     const bool showProgress = busy || state == S::Launching || state == S::Stopping;
     progress->setVisible(showProgress);
@@ -569,6 +648,14 @@ void FabricTestDialog::refresh() {
                         : engine->prepared() ? "Test in Minecraft"
                                              : "Prepare && Test");
     syncButton->setEnabled(project && !busy);
+    const bool companion = running && engine->companion()->available();
+    reloadButton->setVisible(running);
+    compareButton->setVisible(running);
+    compareButton->setEnabled(companion && !engine->companion()->busy());
+    reloadButton->setEnabled(companion && !engine->companion()->busy());
+    reloadButton->setToolTip(companion ? "Reload resources in the running game, like F3+T (Ctrl+Alt+R)"
+                                       : "This game was started without Nova's companion. Press F3+T in "
+                                         "Minecraft, or restart it from Nova.");
     if (busy || (running && !engine->readyForInput() &&
                  engine->game() != FabricRuntime::Game::LaunchFailed)) {
         stopButton->setText(busy ? "Cancel" : "Cancel Launch");
@@ -594,6 +681,12 @@ void FabricTestDialog::refresh() {
     else if (running && s.reloads && !s.packActive)
         tip = "In Minecraft open Options › Resource Packs and move “" + packFolder() +
               "” to Selected.";
+    else if (companion)
+        tip = autoReload->isChecked()
+                  ? "Nova reloads Minecraft's resources after each sync and reports the result from the "
+                    "game's log."
+                  : "After a sync choose Reload Resources (Ctrl+Alt+R); Nova reports the result from the "
+                    "game's log.";
     else if (running)
         tip = "After each sync press F3+T in Minecraft. Remove Reloading Screen hides the loading "
               "overlay; "

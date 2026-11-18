@@ -46,6 +46,8 @@ void Window::buildResourceTools(QMenu *view) {
     test->setShortcut(QKeySequence("Ctrl+Shift+M"));
     action("Sync Test Pack", "syncTestPack", [this] { minecraftTesting(true); })
         ->setShortcut(QKeySequence("Ctrl+Alt+M"));
+    action("Reload in Minecraft", "reloadMinecraft", [this] { reloadMinecraft(); })
+        ->setShortcut(QKeySequence("Ctrl+Alt+R"));
     menu->addSeparator();
     action("Recover Partial Creation…", "recoverAssetCreation", [this] {
         auto path =
@@ -100,7 +102,10 @@ void Window::minecraftTesting(bool syncOnly) {
         context.unsavedDocuments = [this] { return unsavedMinecraftOutputs(); };
         context.activity = [this](const QString &message) { recordActivity(message); };
         context.preferences = &preferences;
+        context.modelLibrary = [this] { return modelPanel ? modelPanel->catalog() : nullptr; };
         fabricTest = new FabricTestDialog(context, this);
+        connect(fabricTest, &FabricTestDialog::reloadReported, this,
+                [this](const QString &message) { statusBar()->showMessage(message, 8000); });
     }
     if (!syncOnly) {
         fabricTest->testInMinecraft();
@@ -108,10 +113,19 @@ void Window::minecraftTesting(bool syncOnly) {
         return;
     }
     if (fabricTest->syncPack())
-        statusBar()->showMessage(fabricTest->runtime()->running()
-                                     ? "Test pack synced — press F3+T in Minecraft to reload"
-                                     : "Test pack synced to the Fabric test environment",
+        statusBar()->showMessage(!fabricTest->runtime()->running()
+                                     ? "Test pack synced to the Fabric test environment"
+                                 : fabricTest->runtime()->companion()->reloading()
+                                     ? "Test pack synced — reloading in Minecraft…"
+                                     : "Test pack synced — press F3+T in Minecraft to reload",
                                  6000);
+}
+void Window::reloadMinecraft() {
+    QString error = "Minecraft is not running from Nova's test environment.";
+    if (fabricTest && fabricTest->reloadInGame(&error))
+        statusBar()->showMessage("Reloading in Minecraft…", 6000);
+    else
+        statusBar()->showMessage(error, 6000);
 }
 void Window::launcherHandoffTesting(bool syncOnly) {
     if (!minecraftTest) {

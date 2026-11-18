@@ -3,16 +3,23 @@
 // downloads come from a local HTTP server, Gradle is a scripted fake process,
 // JDKs are synthetic archives. The real pinned profile is checked separately.
 #include "fabric_runtime.h"
+#include "assets.h"
 #include "fabric_testing.h"
+#include "icon_parity.h"
+#include "index.h"
+#include "models.h"
 #include "packsync.h"
 #include "settings.h"
 #include <QBuffer>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QSignalSpy>
 #include <QScopeGuard>
 #include <QProcess>
@@ -299,6 +306,10 @@ class FabricRuntimeTest : public QObject {
         QVERIFY(build.contains("'libs/sub.jar'")); // nested mod listed explicitly
         QVERIFY(build.contains("runtimeOnly files(\n\t\t'libs/lib-core.jar')")); // plain library
         QVERIFY(build.contains("tasks.register('novaPrepareRuntime')"));
+        QVERIFY(build.contains("vmArg '-Dnova.launch=' + project.property('novaLaunch').toString()"));
+        const auto companionSource = layout.workspace + "/src/main/java/studio/nova/companion/NovaCompanion.java";
+        QVERIFY(read(companionSource).contains("reloadResourcePacks()"));
+        QVERIFY(read(layout.workspace + "/src/main/resources/fabric.mod.json").contains("\"nova_companion\""));
         QVERIFY(read(layout.workspace + "/gradle.properties")
                     .contains("org.gradle.java.installations.paths=C:/Users/J\\u00f6rg/jdk 21"));
         QVERIFY(read(layout.workspace + "/gradle.properties").contains("org.gradle.daemon=false"));
@@ -323,6 +334,11 @@ class FabricRuntimeTest : public QObject {
         tamper([&] { write(layout.workspace + "/libs/extra.jar", "x"); }, "extra.jar");
         tamper([&] { write(layout.workspace + "/evil.gradle", "x"); }, "evil.gradle",
                [&] { QFile::remove(layout.workspace + "/evil.gradle"); });
+        // Gradle compiles whatever is under src/: only Nova's companion sources may be there.
+        tamper([&] { write(companionSource, "class Evil {}"); }, "NovaCompanion.java");
+        const auto injected = layout.workspace + "/src/main/java/Evil.java";
+        tamper([&] { write(injected, "class Evil {}"); }, "Unexpected source file",
+               [&] { QFile::remove(injected); });
         write(layout.gradleHome + "/init.d/inject.gradle", "x");
         QVERIFY(verifyWorkspace(real, layout).error.contains("init.d"));
         QDir(layout.gradleHome + "/init.d").removeRecursively();
@@ -841,6 +857,226 @@ class FabricRuntimeTest : public QObject {
         later.requestStop();
         QVERIFY(exited.wait(10000));
         QVERIFY(!processAlive(root));
+    }
+    // The channel itself: only the current launch's companion counts, and every request ends.
+    void companionChannelTrustsOnlyItsLaunch() {
+        const auto game = temp.filePath("companion-game");
+        const auto folder = game + "/nova-companion";
+        const auto launch = newLaunchId();
+        QCOMPARE(launch.size(), 32);
+        QVERIFY(launch != newLaunchId());
+        CompanionLink link;
+        link.setTimeout(400);
+        link.attach(game, launch);
+        QString error;
+        QVERIFY(!link.available());
+        QVERIFY(!link.requestReload(&error));
+        QVERIFY(error.contains("companion"));
+        write(folder + "/companion.json", R"({"protocol":1,"launch":"0123456789abcdef0123456789abcdef"})");
+        QVERIFY(!link.available()); // left by an earlier launch
+        write(folder + "/companion.json", QString(R"({"protocol":1,"launch":"%1"})").arg(launch).toUtf8());
+        QVERIFY(link.available());
+        // Not taken in time.
+        QSignalSpy finished(&link, &CompanionLink::reloadFinished);
+        QVERIFY(link.requestReload());
+        QVERIFY(link.reloading());
+        QVERIFY(!link.requestReload(&error)); // one at a time
+        QVERIFY(finished.wait(3000));
+        QCOMPARE(finished.last().at(0).toBool(), false);
+        QVERIFY(finished.last().at(2).toString().contains("did not take"));
+        QVERIFY(QDir(folder).entryList({"request-*"}).isEmpty()); // withdrawn
+        // A reply naming another launch is ignored; the matching one finishes the request.
+        QSignalSpy started(&link, &CompanionLink::reloadStarted);
+        link.setTimeout(10000);
+        QVERIFY(link.requestReload());
+        const auto request = QDir(folder).entryList({"request-*.json"});
+        QCOMPARE(request.size(), 1);
+        const auto id = request.first().mid(8).chopped(5);
+        QFile::remove(folder + '/' + request.first()); // the mod takes it
+        write(folder + "/response-" + id + ".json",
+              QString(R"({"launch":"%1","id":"%2","status":"finished"})").arg(QString(32, 'f'), id).toUtf8());
+        QTRY_COMPARE(started.size(), 1);
+        QTest::qWait(300);
+        QCOMPARE(finished.size(), 1);
+        write(folder + "/response-" + id + ".json",
+              QString(R"({"launch":"%1","id":"%2","status":"failed","error":"Out of memory"})").arg(launch, id).toUtf8());
+        QVERIFY(finished.wait(3000));
+        QCOMPARE(finished.last().at(0).toBool(), false);
+        QCOMPARE(finished.last().at(2).toString(), QString("Out of memory"));
+        QVERIFY(!link.reloading());
+        // Detaching ends a pending request; reset clears the folder for the next launch.
+        QVERIFY(link.requestReload());
+        link.attach({}, {});
+        QCOMPARE(finished.size(), 3);
+        QVERIFY(!link.available());
+        CompanionLink::reset(game);
+        QVERIFY(QDir(folder).entryList(QDir::Files).isEmpty());
+    }
+    void companionReloadsTheRunningGame() {
+        const auto base = preparedBase("companion");
+        const auto game = RuntimeLayout::make(base, profile).game;
+        write(game + "/nova-companion/companion.json", R"({"protocol":1,"launch":"stale"})");
+        script("NOVA_FAKE_GRADLE_RUN", runScript("companion " + game + "\nwindow\n"));
+        FabricRuntime runtime(options(base));
+        QString error;
+        QVERIFY2(runtime.launch({}, &error), qPrintable(error));
+        auto stopGame = qScopeGuard([&] { runtime.forceStop(); }); // no stray game if a check fails
+        const auto launch = runtime.metadata().value("session").toObject().value("launch").toString();
+        QCOMPARE(launch.size(), 32);
+        QTRY_VERIFY_WITH_TIMEOUT(QString::fromUtf8(read(counter)).contains("-PnovaLaunch=" + launch), 5000);
+        QCOMPARE(runtime.companion()->launchId(), launch);
+        QTRY_VERIFY_WITH_TIMEOUT(runtime.companion()->available(), 15000);
+        QSignalSpy finished(runtime.companion(), &CompanionLink::reloadFinished);
+        QVERIFY(runtime.companion()->requestReload(&error));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.last().at(0).toBool(), true);
+        QCOMPARE(finished.last().at(1).toLongLong(), 7);
+        // A later Nova session re-attaches to the same launch.
+        FabricRuntime later(options(base));
+        QVERIFY(later.attachExisting());
+        QCOMPARE(later.companion()->launchId(), launch);
+        QVERIFY(later.companion()->available());
+        QSignalSpy exited(&runtime, &FabricRuntime::gameExited);
+        runtime.requestStop();
+        QVERIFY(exited.wait(10000));
+        stopGame.dismiss();
+        QVERIFY(!runtime.companion()->available()); // detached with the game
+    }
+    void dialogReloadsAfterSync() {
+        const auto base = preparedBase("dialog-reload");
+        const auto pack = temp.filePath("Reload Pack");
+        write(pack + "/pack.mcmeta",
+              R"({"pack":{"description":"t","min_format":[75,0],"max_format":[75,0]}})");
+        write(pack + "/assets/minecraft/textures/block/stone.png", "PNG");
+        const auto game = RuntimeLayout::make(base, profile).game;
+        script("NOVA_FAKE_GRADLE_RUN", runScript("companion " + game + "\nwindow\n"));
+        Preferences preferences;
+        preferences.fabricLocation = base;
+        QStringList activity;
+        FabricTestDialog::Context context;
+        context.projectRoot = [&] { return pack; };
+        context.packName = [] { return QString("Reload Pack"); };
+        context.unsavedDocuments = [] { return QStringList{}; };
+        context.activity = [&](const QString &m) { activity << m; };
+        context.preferences = &preferences;
+        context.runtime = options(base);
+        context.interactive = false;
+        FabricTestDialog dialog(context);
+        auto engine = dialog.runtime();
+        auto reload = dialog.findChild<QPushButton *>("fabricReload");
+        QVERIFY(reload);
+        dialog.testInMinecraft();
+        auto stopGame = qScopeGuard([&] { engine->forceStop(); });
+        QTRY_VERIFY_WITH_TIMEOUT(engine->readyForInput(), 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(engine->companion()->available(), 15000);
+        QSignalSpy reported(&dialog, &FabricTestDialog::reloadReported);
+        QVERIFY(dialog.syncPack()); // reloads by itself (preference on by default)
+        QVERIFY(reported.wait(5000));
+        QVERIFY2(reported.last().first().toString().startsWith("Reloaded in Minecraft in 0.0 s"),
+                 qPrintable(reported.last().first().toString()));
+        QVERIFY(activity.last().startsWith("Reloaded in Minecraft"));
+        QVERIFY(dialog.findChild<QLabel *>("fabricReloadValue")->text().startsWith("Reloaded by Nova"));
+        QTRY_VERIFY(reload->isEnabled());
+        // With the preference off, sync leaves the reload to the button.
+        dialog.findChild<QCheckBox *>("fabricAutoReload")->setChecked(false);
+        QVERIFY(!preferences.fabricAutoReload);
+        QVERIFY(dialog.syncPack());
+        QTest::qWait(400);
+        QCOMPARE(reported.size(), 1);
+        reload->click();
+        QVERIFY(reported.wait(5000));
+        QSignalSpy exited(engine, &FabricRuntime::gameExited);
+        engine->requestStop();
+        QVERIFY(exited.wait(10000));
+        stopGame.dismiss();
+        QString error;
+        QVERIFY(!dialog.reloadInGame(&error));
+        QVERIFY(error.contains("not running"));
+    }
+    // Nova draws the same item Minecraft drew and compares them; the game side is simulated here.
+    void iconParityComparesGameAndNova() {
+        const auto pack = temp.filePath("Parity Pack");
+        write(pack + "/pack.mcmeta", R"({"pack":{"description":"t","pack_format":75}})");
+        write(pack + "/assets/minecraft/items/demo_cube.json",
+              R"({"model":{"type":"minecraft:model","model":"minecraft:block/demo_cube"}})");
+        write(pack + "/assets/minecraft/models/block/demo_cube.json",
+              R"({"textures":{"all":"minecraft:block/demo"},"elements":[{"from":[0,0,0],"to":[16,16,16],)"
+              R"("faces":{"north":{"texture":"#all"},"south":{"texture":"#all"},"east":{"texture":"#all"},)"
+              R"("west":{"texture":"#all"},"up":{"texture":"#all"},"down":{"texture":"#all"}}}],)"
+              R"("display":{"gui":{"rotation":[30,225,0],"scale":[0.625,0.625,0.625]}}})");
+        QImage texture(16, 16, QImage::Format_ARGB32);
+        texture.fill(QColor(200, 40, 40));
+        QVERIFY(QDir().mkpath(pack + "/assets/minecraft/textures/block"));
+        QVERIFY(texture.save(pack + "/assets/minecraft/textures/block/demo.png"));
+        auto library = std::make_shared<mc::Library>("1.21.11");
+        library->update(pack, Index::scan(pack));
+        const auto icon = renderInventoryIcon(*library, "assets/minecraft/items/demo_cube.json", 2);
+        QCOMPARE(icon.size(), QSize(32, 32));
+        QVERIFY(icon.pixelColor(16, 16).alpha() == 255 && icon.pixelColor(0, 0).alpha() == 0);
+        QVERIFY(renderInventoryIcon(*library, "assets/minecraft/items/missing.json", 2).isNull());
+
+        const QColor slot("#8b8b8b");
+        auto same = compareIcons(icon, {}, slot);
+        QVERIFY(!same.comparable());
+        same = compareIcons(icon, compareIcons(icon, icon, slot).nova, slot);
+        QVERIFY(same.matches());
+        QCOMPARE(same.total, 32 * 32);
+        QCOMPARE(same.nova.pixelColor(0, 0), slot); // drawn on the slot grey like the game
+        auto altered = same.nova;
+        QVERIFY(icon.pixelColor(0, 0).alpha() == 0 && icon.pixelColor(31, 0).alpha() == 0); // slot background
+        altered.setPixelColor(0, 0, QColor(0, 0, 0));
+        altered.setPixelColor(31, 0, QColor(slot.red() + 2, slot.green(), slot.blue())); // within tolerance
+        const auto changed = compareIcons(icon, altered, slot);
+        QCOMPARE(changed.differing, 1);
+        QCOMPARE(changed.maxDelta, slot.red());
+        QVERIFY(!compareIcons(icon, altered.scaled(16, 16), slot).comparable());
+
+        // The dialog asks the companion, then lays the answer beside Nova's own drawing.
+        const auto game = temp.filePath("parity-game");
+        const auto folder = game + "/nova-companion";
+        const auto launch = newLaunchId();
+        CompanionLink link;
+        link.attach(game, launch);
+        write(folder + "/companion.json", QString(R"({"protocol":1,"launch":"%1"})").arg(launch).toUtf8());
+        IconParityDialog::Context context;
+        context.companion = &link;
+        context.library = [library] { return library; };
+        context.projectRoot = [pack] { return pack; };
+        context.folder = [folder] { return folder; };
+        IconParityDialog dialog(context);
+        dialog.findChild<QPushButton *>("parityPackItems")->click();
+        QCOMPARE(dialog.findChild<QPlainTextEdit *>("parityItems")->toPlainText(), QString("minecraft:demo_cube"));
+        dialog.findChild<QPlainTextEdit *>("parityItems")->setPlainText("demo_cube\nminecraft:not_an_item\n");
+        dialog.compare();
+        QVERIFY(!dialog.findChild<QPushButton *>("parityCompare")->isEnabled());
+        const auto requests = QDir(folder).entryList({"request-*.json"});
+        QCOMPARE(requests.size(), 1);
+        const auto request = QJsonDocument::fromJson(read(folder + '/' + requests.first())).object();
+        QCOMPARE(request.value("type").toString(), QString("icons"));
+        QCOMPARE(request.value("items").toArray(), (QJsonArray{"minecraft:demo_cube", "minecraft:not_an_item"}));
+        const auto id = request.value("id").toString();
+        QFile::remove(folder + '/' + requests.first());
+        QVERIFY(QDir().mkpath(folder + "/icons-" + id));
+        QVERIFY(same.nova.save(folder + "/icons-" + id + "/0.png"));
+        write(folder + "/response-" + id + ".json",
+              QJsonDocument(QJsonObject{{"launch", launch}, {"id", id}, {"status", "finished"}, {"guiScale", 2},
+                                        {"folder", "icons-" + id}, {"background", "#8b8b8b"},
+                                        {"missing", QJsonArray{"minecraft:not_an_item"}}})
+                  .toJson());
+        auto results = dialog.findChild<QTableWidget *>("parityResults");
+        QTRY_COMPARE(results->rowCount(), 2);
+        QCOMPARE(results->item(0, 4)->text(), QString("Match"));
+        QVERIFY(results->item(1, 4)->text().startsWith("Not an item"));
+        QVERIFY(dialog.findChild<QLabel *>("parityStatus")->text().contains("1 match"));
+        QVERIFY(QFileInfo::exists(folder + "/icons-" + id + "/nova-0.png"));
+        const auto report = QJsonDocument::fromJson(read(folder + "/icons-" + id + "/report.json")).object();
+        QCOMPARE(report.value("guiScale").toInt(), 2);
+        QCOMPARE(report.value("items").toArray().size(), 2);
+        QVERIFY(dialog.findChild<QPushButton *>("parityCompare")->isEnabled());
+        // A request outside the companion's limits is refused before anything is written.
+        QString error;
+        QVERIFY(!link.requestIcons({}, &error));
+        QVERIFY(error.contains("1 to 64"));
     }
     void dialogSyncsLaunchesOnceAndRespectsPackChoice() {
         const auto base = preparedBase("dialog");

@@ -27,6 +27,13 @@
   heads, and other special renderers remain incomplete. See the [model preview guide](MODEL_PREVIEW.md).
 - Test in Minecraft targets Minecraft Java Edition 1.21.11 with Fabric and needs a one-time
   download. The production Minecraft launcher hand-off is not part of this preview.
+- Reloading from Nova uses a small Nova companion mod that the test runtime compiles when it is
+  prepared, so a runtime prepared by an older Nova prepares again once. A game started before that
+  shows the F3+T hint instead. Reloading and Compare Icons were checked in Minecraft 1.21.11 at
+  GUI scale 3 (tests/companion_live_probe.cpp): the 16 reference icons matched within one colour step.
+- Compare Icons uses the game's current GUI scale and the packs the game has loaded, so sync and
+  reload first. Icons the game draws with an enchantment glint or animation are compared as captured
+  in one frame. The game's images stay in Nova's test folder (`nova-companion/icons-*`).
 
 ## AI agents (MCP)
 

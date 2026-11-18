@@ -16,6 +16,9 @@ class QPushButton;
 class QWidget;
 namespace nova {
 struct Preferences;
+namespace mc {
+class Library;
+}
 
 class FabricTestDialog : public QDialog {
     Q_OBJECT
@@ -25,6 +28,7 @@ class FabricTestDialog : public QDialog {
         std::function<QStringList()> unsavedDocuments;
         std::function<void(const QString &)> activity;
         Preferences *preferences = nullptr;
+        std::function<std::shared_ptr<mc::Library>()> modelLibrary; // for Compare Icons
         testing::FabricRuntime::Options runtime; // base options (tests override)
         bool interactive = true;
     };
@@ -35,6 +39,8 @@ class FabricTestDialog : public QDialog {
     void testInMinecraft();
     // Ctrl+Alt+M: export and sync without launching. Returns success.
     bool syncPack();
+    // Asks the running game to reload its resources through Nova's companion mod (F3+T).
+    bool reloadInGame(QString *error = nullptr);
     testing::FabricRuntime *runtime() const { return engine; }
     testing::GameLogMonitor *monitor() const { return log; }
     QString packFolder() const;
@@ -42,6 +48,9 @@ class FabricTestDialog : public QDialog {
     bool testWorldExists() const;
     // Nova shutdown: false = the user cancelled closing Nova.
     bool confirmShutdown();
+
+  signals:
+    void reloadReported(const QString &message); // for the main window's status bar
 
   protected:
     void showEvent(QShowEvent *event) override;
@@ -57,22 +66,24 @@ class FabricTestDialog : public QDialog {
     void inform(const QString &title, const QString &text, bool warning = false);
     void updateMonitoring();
     void fitToScreen();
+    void companionReloadFinished(bool ok, qint64 durationMs, const QString &error);
 
     Context context;
     testing::FabricRuntime *engine = nullptr;
     testing::GameLogMonitor *log;
     bool pendingLaunch = false;
     QDateTime lastSync;
+    QString reloadNote; // Nova's own reload request, shown before the log's account
     QLabel *versionValue, *runtimeValue, *rrlsValue, *gameValue, *syncValue, *reloadValue,
         *guidance;
     QProgressBar *progress;
     QListWidget *findings;
-    QPushButton *testButton, *syncButton, *stopButton, *folderButton, *logsButton, *advancedButton,
+    QPushButton *testButton, *syncButton, *reloadButton, *compareButton, *stopButton, *folderButton, *logsButton, *advancedButton,
         *repairButton, *javaButton, *locationButton;
     QWidget *advanced;
     QComboBox *versionBox;
     QLabel *javaValue, *locationValue;
-    QCheckBox *detailedLogs, *openWorld;
+    QCheckBox *detailedLogs, *openWorld, *autoReload;
 };
 
 } // namespace nova

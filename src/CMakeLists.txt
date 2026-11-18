@@ -36,7 +36,8 @@ add_library(nova-testing STATIC
   testing/java_locator.cpp testing/java_locator.h
   testing/fabric_workspace.cpp testing/fabric_workspace.h
   testing/process_tree.cpp testing/process_tree.h
-  testing/fabric_runtime.cpp testing/fabric_runtime.h)
+  testing/fabric_runtime.cpp testing/fabric_runtime.h
+  testing/companion.cpp testing/companion.h)
 target_include_directories(nova-testing PUBLIC testing)
 target_link_libraries(nova-testing PUBLIC nova-application Qt6::Network Qt6::Concurrent)
 # QZipReader (private, pinned Qt 6.12.0) reads mod jars and the JDK archive.
@@ -44,7 +45,9 @@ target_link_libraries(nova-testing PRIVATE Qt6::CorePrivate)
 qt_add_resources(nova-testing "nova_fabric_runtime"
   PREFIX "/fabric-runtime"
   BASE "${PROJECT_SOURCE_DIR}/assets/fabric-runtime"
-  FILES "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/gradle-wrapper-9.8.2.jar")
+  FILES "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/gradle-wrapper-9.8.2.jar"
+        "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/companion/NovaCompanion.java"
+        "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/companion/fabric.mod.json")
 if(WIN32)
   target_link_libraries(nova-testing PRIVATE wintrust crypt32 userenv)
 endif()
@@ -129,6 +132,7 @@ add_library(nova-workspace STATIC
   rendering/layer_floating.cpp
   ui/minecraft_testing.cpp ui/minecraft_testing.h
   ui/fabric_testing.cpp ui/fabric_testing.h
+  ui/icon_parity.cpp ui/icon_parity.h
   ui/window.cpp ui/window.h ui/saving.cpp ui/animation_ui.cpp ui/timeline.cpp ui/timeline.h ui/layers.cpp ui/layers.h ui/tools.cpp ui/tools.h ui/panels.cpp ui/panels.h ui/opdialog.cpp ui/opdialog.h ui/editor.cpp ui/batchdialog.cpp ui/batchdialog.h ui/safety.cpp ui/indexing.cpp ui/performance.cpp ui/projectdialogs.cpp ui/projectdialogs.h app/metrics.cpp app/metrics.h)
 target_include_directories(nova-workspace PUBLIC app assets rendering ui)
 target_link_libraries(nova-workspace PUBLIC nova-diagnostics nova-core nova-application nova-asset-index nova-models nova-testing nova-vanilla Qt6::Widgets Qt6::OpenGLWidgets Qt6::OpenGL Qt6::Concurrent)

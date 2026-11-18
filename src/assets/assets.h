@@ -14,6 +14,10 @@ class Library;
 }
 class Cube;
 struct Metrics;
+// Nova's inventory icon for an item definition, model or blockstate asset: the GUI display
+// context at 16 x scale pixels, transparent around the model (the Explorer thumbnail recipe).
+// Null when the asset has no geometry. GUI thread only (it renders with OpenGL).
+QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int scale);
 class AssetModel : public QAbstractItemModel {
     Q_OBJECT
     struct Node {

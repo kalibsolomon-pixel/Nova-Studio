@@ -35,6 +35,7 @@ struct Preferences {
     QString fabricLocation;   // empty = %LOCALAPPDATA%/NovaStudio/fabric-runtime
     bool fabricDetailedLogs = false;
     bool fabricOpenTestWorld = true;
+    bool fabricAutoReload = true; // reload the running game's resources after each sync
     QString acpAgent = "opencode", acpProgram, acpArguments;
 };
 class Settings {
