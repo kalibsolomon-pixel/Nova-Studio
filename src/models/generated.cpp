@@ -2,7 +2,8 @@
 #include "models.h"
 #include <QJsonArray>
 namespace nova::mc {
-Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites) {
+Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites,
+                   const QMap<QString, QVector<QImage>> &frames) {
     if (!model.valid || !model.generated || !model.resolved["elements"].toArray().isEmpty())
         return mesh(model);
     auto flat = [&](const QString &reason) {
@@ -27,74 +28,65 @@ Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites) {
         };
         elements << QJsonObject{{"from", vec(0, 0, 7.5)},
                                 {"to", vec(16, 16, 8.5)},
-                                {"shade", false},
                                 {"faces", QJsonObject{{"south", face({0, 0, 16, 16})},
                                                       {"north", face({16, 0, 0, 16})}}}};
-        auto opaque = [&](int x, int y) {
-            return image.rect().contains(x, y) && qAlpha(image.pixel(x, y)) > 0;
-        };
-        const double sx = 16. / image.width(), sy = 16. / image.height();
-        // Merge contiguous boundary pixels. Interior transparent holes receive
-        // their own walls; opaque neighbors never add internal geometry.
-        for (int direction = 0; direction < 4; ++direction) {
-            const bool horizontal = direction < 2;
-            const int lines = horizontal ? image.height() : image.width(),
-                      length = horizontal ? image.width() : image.height();
-            for (int line = 0; line < lines; ++line)
-                for (int a = 0; a < length;) {
-                    auto edge = [&](int n) {
-                        int x = horizontal ? n : line, y = horizontal ? line : n;
-                        return opaque(x, y) && !opaque(x + (direction == 2   ? -1
-                                                            : direction == 3 ? 1
-                                                                             : 0),
-                                                       y + (direction == 0   ? -1
-                                                            : direction == 1 ? 1
-                                                                             : 0));
-                    };
-                    if (!edge(a)) {
-                        ++a;
+        const int width = image.width(), height = image.height();
+        const double sx = 16. / width, sy = 16. / height;
+        const QPoint offsets[] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+        const QString names[] = {"up", "down", "west", "east"};
+        auto samples = frames.value(texture);
+        if (samples.isEmpty())
+            samples << image;
+        if (qint64(width) * height * samples.size() > 16 * 1024 * 1024)
+            return flat("Sprite exceeds the animation contour budget: " + texture);
+        // Union the edge transitions from each frame, including edges hidden by other frames.
+        QVector<quint8> edges(width * height);
+        qsizetype elementsWithEdges = elements.size();
+        for (const auto &frame : samples) {
+            if (frame.size() != image.size())
+                continue;
+            for (int y = 0; y < height; ++y)
+                for (int x = 0; x < width; ++x) {
+                    if (qAlpha(frame.pixel(x, y)) == 0)
                         continue;
+                    auto &mask = edges[y * width + x];
+                    for (int d = 0; d < 4; ++d) {
+                        const QPoint neighbor = QPoint(x, y) + offsets[d];
+                        if (!(mask & (1 << d)) && (!frame.rect().contains(neighbor) ||
+                                                    qAlpha(frame.pixel(neighbor)) == 0)) {
+                            mask |= 1 << d;
+                            if (++elementsWithEdges > 4096)
+                                return flat("Generated contour exceeds the 4096-face budget: " + texture);
+                        }
                     }
-                    int b = a + 1;
-                    while (b < length && edge(b))
-                        ++b;
-                    QJsonArray from, to, uv;
-                    QString name;
-                    if (horizontal) {
-                        const double y = 16 - (line + (direction == 1)) * sy;
-                        from = vec(a * sx, y, 7.5);
-                        to = vec(b * sx, y, 8.5);
-                        uv = {a * sx, (line + .5) * sy, b * sx, (line + .5) * sy};
-                        name = direction == 0 ? "up" : "down";
-                    } else {
-                        const double x = (line + (direction == 3)) * sx;
-                        from = vec(x, 16 - b * sy, 7.5);
-                        to = vec(x, 16 - a * sy, 8.5);
-                        uv = {(line + .5) * sx, a * sy, (line + .5) * sx, b * sy};
-                        name = direction == 2 ? "west" : "east";
-                    }
-                    elements << QJsonObject{{"from", from},
-                                            {"to", to},
-                                            {"shade", false},
-                                            {"faces", QJsonObject{{name, face(uv)}}}};
-                    if (elements.size() > 4096)
-                        return flat("Generated contour exceeds the 4096-span budget: " + texture);
-                    a = b;
                 }
         }
+        // Each wall samples an inset rectangle within one source texel.
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                for (int d = 0; d < 4; ++d) {
+                    if (!(edges[y * width + x] & (1 << d)))
+                        continue;
+                    const double u0 = (x + .1) * sx, u1 = (x + .9) * sx;
+                    QJsonArray from, to, uv;
+                    if (d < 2) {
+                        const double boundary = 16 - (y + (d == 1)) * sy;
+                        from = vec(x * sx, boundary, 7.5);
+                        to = vec((x + 1) * sx, boundary, 8.5);
+                        uv = {u0, (y + .1) * sx, u1, (y + .9) * sy};
+                    } else {
+                        const double boundary = (x + (d == 3)) * sx;
+                        from = vec(boundary, 16 - (y + 1) * sy, 7.5);
+                        to = vec(boundary, 16 - y * sy, 8.5);
+                        uv = {u1, (y + .1) * sy, u0, (y + .9) * sx};
+                    }
+                    elements << QJsonObject{{"from", from}, {"to", to},
+                                            {"faces", QJsonObject{{names[d], face(uv)}}}};
+                }
     }
     Model generated = model;
     generated.generated = false;
     generated.resolved["elements"] = elements;
-    if (Profile::forVersion(model.version).shadeOverride) {
-        for (int i = 0; i < elements.size(); ++i) {
-            auto e = elements[i].toObject();
-            e.remove("shade");
-            e["shade_direction_override"] = "up";
-            elements[i] = e;
-        }
-        generated.resolved["elements"] = elements;
-    }
     auto result = mesh(generated);
     for (auto &f : result.faces) {
         f.generatedLayer = f.tint;

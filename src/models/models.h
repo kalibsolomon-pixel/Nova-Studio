@@ -144,7 +144,8 @@ struct Mesh {
     GuiLight guiLight = GuiLight::Side;
 };
 Mesh mesh(const Model &model);
-Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites);
+Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites,
+                   const QMap<QString, QVector<QImage>> &frames = {});
 Mesh transformed(Mesh mesh, const Instance &instance);
 Mesh applyTransform(Mesh mesh, const QMatrix4x4 &matrix);
 bool itemTransform(const QJsonValue &value, QMatrix4x4 &out, QString *error = nullptr);

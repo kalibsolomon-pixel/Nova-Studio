@@ -128,20 +128,21 @@ class RenderingTest : public QObject {
         QImage image(3, 3, QImage::Format_RGBA8888);
         image.fill(Qt::white);
         auto geometry = mc::generatedMesh(model, {{model.textures["layer0"], image}});
-        QCOMPARE(geometry.faces.size(), 6);
+        QCOMPARE(geometry.faces.size(), 14);
         QCOMPARE(geometry.minimum.z(), -.0625f);
         QCOMPARE(geometry.maximum.z(), .0625f);
         image.setPixelColor(1, 1, Qt::transparent);
         geometry = mc::generatedMesh(model, {{model.textures["layer0"], image}});
-        QCOMPARE(geometry.faces.size(), 10);
+        QCOMPARE(geometry.faces.size(), 18);
         for (const auto &face : geometry.faces) {
             QVERIFY(face.normal.length() > .99f);
             QCOMPARE(face.elementIndex, -1);
+            QVERIFY(face.shade);
         }
         QMatrix4x4 mirror;
         mirror.scale(-1, 2, 1);
         auto reflected = mc::applyTransform(geometry, mirror);
-        QCOMPARE(reflected.faces.size(), 10);
+        QCOMPARE(reflected.faces.size(), 18);
         QVERIFY(reflected.faces[0].normal.length() > .99f);
     }
     void generatedLayerGeometryAndLimits() {
@@ -165,13 +166,14 @@ class RenderingTest : public QObject {
         model.resolved["textures"] = textures;
         const auto geometry = mc::generatedMesh(model, sprites);
         QVERIFY(geometry.previewLimitation.isEmpty());
-        QCOMPARE(geometry.faces.size(), 50); // front/back, four outside edges and four hole walls per layer
+        constexpr int FacesPerLayer = 2 + 2 * (8 + 16) + 4;
+        QCOMPARE(geometry.faces.size(), 5 * FacesPerLayer);
         QCOMPARE(geometry.minimum, QVector3D(-1, -1, -.0625f));
         QCOMPARE(geometry.maximum, QVector3D(1, 1, .0625f));
         for (int i = 0; i < geometry.faces.size(); ++i) {
             const auto &face = geometry.faces[i];
-            QCOMPARE(face.generatedLayer, i / 10);
-            QCOMPARE(face.texture, model.textures["layer" + QString::number(i / 10)]);
+            QCOMPARE(face.generatedLayer, i / FacesPerLayer);
+            QCOMPARE(face.texture, model.textures["layer" + QString::number(face.generatedLayer)]);
             QCOMPARE(face.tint, face.generatedLayer);
         }
         QMatrix4x4 pose;
@@ -197,9 +199,32 @@ class RenderingTest : public QObject {
                 if ((x + y) % 2 == 0)
                     busy.setPixelColor(x, y, Qt::white);
         unavailable[model.textures["layer0"]] = busy;
-        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("4096-span"));
+        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("4096-face"));
         model.valid = false;
         QVERIFY(mc::generatedMesh(model, {}).faces.isEmpty());
+    }
+    void animatedContourRetainsInternalTransition() {
+        mc::Model model;
+        model.valid = model.generated = true;
+        model.version = "1.21.11";
+        model.id = "nova:item/walking_dot";
+        const auto texture = QString("assets/nova/textures/item/walking_dot.png");
+        model.textures["layer0"] = texture;
+        QImage a(2, 2, QImage::Format_RGBA8888);
+        a.fill(Qt::transparent);
+        auto b = a;
+        a.setPixelColor(0, 0, Qt::white);
+        b.setPixelColor(1, 0, Qt::white);
+        const auto geometry = mc::generatedMesh(model, {{texture, a}}, {{texture, {a, b}}});
+        QCOMPARE(geometry.faces.size(), 10);
+        int inside = 0;
+        for (const auto &face : geometry.faces) {
+            if (face.name == "up" && face.points[0].x() == -1)
+                QCOMPARE(face.uv[0], QVector2D(.05f, .05f));
+            if (std::abs(face.normal.x()) == 1 && face.points[0].x() == 0)
+                ++inside;
+        }
+        QCOMPARE(inside, 2);
     }
 
 };

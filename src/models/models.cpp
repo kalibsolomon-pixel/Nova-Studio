@@ -403,6 +403,8 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
     }
     if (m.id == "minecraft:builtin/generated") {
         m.generated = true;
+        m.guiLight = GuiLight::Front;
+        m.resolved["gui_light"] = "front";
         m.valid = true;
         return m;
     }

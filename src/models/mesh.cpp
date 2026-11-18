@@ -89,7 +89,8 @@ Mesh mesh(const Model &model) {
             f.name = "south";
             f.element = "generated layer " + QString::number(layer);
             f.lightNormal = f.normal = {0, 0, 1};
-            f.shade = false;
+            f.tint = layer;
+            f.generatedLayer = layer;
             float z = float(layer) * .001f;
             f.points = {{{-1, 1, z}, {-1, -1, z}, {1, -1, z}, {1, 1, z}}};
             f.uv = {{{0, 0}, {0, 1}, {1, 1}, {1, 0}}};

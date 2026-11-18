@@ -883,24 +883,25 @@ void ModelPanel::rebuild() {
                     continue;
                 materials[path] = loadMaterial(path, messages);
             }
-        auto generatedSprites = materials;
+        QMap<QString, QVector<QImage>> generatedFrames;
         if (model.generated)
             for (const auto &path : model.textures)
-                if (auto doc = materialDocuments.value(path)) {
-                    auto silhouette = materials.value(path).copy();
-                    silhouette.fill(Qt::transparent);
-                    for (const auto &frame : doc->animationState().frames) {
-                        const auto pixels = doc->frameComposite(frame.id);
-                        if (pixels.size() != silhouette.size())
-                            continue;
-                        for (int y = 0; y < pixels.height(); ++y)
-                            for (int x = 0; x < pixels.width(); ++x)
-                                if (qAlpha(pixels.pixel(x, y)))
-                                    silhouette.setPixelColor(x, y, Qt::white);
+                if (auto doc = materialDocuments.value(path); doc && !generatedFrames.contains(path)) {
+                    const auto frames = doc->animationState().frames;
+                    if (frames.size() <= 1)
+                        continue;
+                    const auto size = materials.value(path).size();
+                    auto &pixels = generatedFrames[path];
+                    if (size.width() > 1024 || size.height() > 1024 ||
+                        qint64(size.width()) * size.height() * frames.size() > 16 * 1024 * 1024) {
+                        // Report the contour budget without decoding the entire sequence.
+                        pixels.resize(frames.size());
+                        continue;
                     }
-                    generatedSprites[path] = silhouette;
+                    for (const auto &frame : frames)
+                        pixels << doc->frameComposite(frame.id);
                 }
-        auto part = mc::transformed(mc::generatedMesh(model, generatedSprites), instance);
+        auto part = mc::transformed(mc::generatedMesh(model, materials, generatedFrames), instance);
         if (combined->faces.isEmpty())
             combined->guiLight = part.guiLight;
         if (!part.previewLimitation.isEmpty())
