@@ -54,19 +54,15 @@ definitions) drawn by the game and by Nova at each GUI scale, glint off. Rerun i
 
 | GUI scale | Match | Differ | Nova cannot draw |
 | --- | ---: | ---: | ---: |
-| 1 | 1,454 of 1,477 | 23 | 28 |
-| 2 | 1,451 of 1,477 | 26 | 28 |
-| 3 | 1,447 of 1,477 | 30 | 28 |
-| 4 | 1,190 of 1,477 | 287 | 28 |
+| 1 | 1,493 of 1,504 | 11 | 1 (`air`) |
+| 2 | 1,489 of 1,504 | 15 | 1 |
+| 3 | 1,485 of 1,504 | 19 | 1 |
+| 4 | 1,418 of 1,504 | 86 | 1 |
 
-- Nova cannot draw banners, the decorated pot, dragon and piglin heads and copper golem statues
-  (special renderers) or `air`.
 - Interpolated animations (prismarine, magma, sculk, stems and hyphae, command blocks) are
-  captured between frames; the closest whole frame is within 4 to 22 levels.
-- `light`, `heavy_core`, spawners, the vault, frogspawn and the dripleaf and azalea plants still
-  differ. Beds differ in 2 pixels at scale 3.
-- At GUI scale 4 most other cubes differ in 1 or 2 pixels on the top ridge, where the game assigns
-  the pixel on the shared edge to the top face.
+  captured between frames; the closest whole frame is within a few levels.
+- Beds differ in 2 pixels at scale 3.
+- At GUI scale 4, 73 other items still differ in a single pixel.
 
 ## Java 1.21.11 rendering references
 

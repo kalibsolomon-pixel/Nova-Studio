@@ -31,9 +31,9 @@
   prepared, so a runtime prepared by an older Nova prepares again once. A game started before that
   shows the F3+T hint instead. Reloading and Compare Icons were checked in Minecraft 1.21.11 at
   GUI scale 3 (tests/companion_live_probe.cpp): the 16 reference icons matched within one colour step.
-- Inventory icons match Minecraft 1.21.11 for 1,447 of 1,477 comparable vanilla items at GUI scale
-  3. Banners, the decorated pot, dragon and piglin heads and copper golem statues are not drawn;
-  see the [model preview guide](MODEL_PREVIEW.md) for the remaining differences.
+- Inventory icons match Minecraft 1.21.11 for 1,485 of 1,504 vanilla items at GUI scale 3 (1,493
+  at scale 1); the rest are interpolated animations captured between frames and two bed pixels. See
+  the [model preview guide](MODEL_PREVIEW.md).
 - Minecraft warnings link to files Nova can match in the open pack. Warnings without a matching
   file are labelled **Not from this pack**. A warning with multiple matches opens the first
   matching file and lists the rest in its details.
