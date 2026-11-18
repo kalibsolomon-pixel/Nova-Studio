@@ -434,6 +434,9 @@ QString styleSheet(const Tokens &t) {
         "QLabel:disabled{color:@disabled}"
         "QLabel[role=\"strong\"]{font-weight:600;color:@text}"
         "QLabel[role=\"badge\"]{background:@raised;color:@muted;border-radius:@rS;padding:2px 6px}"
+        "QLabel[role=\"statusPill\"]{background:@raised;color:@muted;border-radius:@rM;padding:2px 8px;font-weight:600}"
+        "QLabel[role=\"statusPill\"][severity=\"info\"]{background:@infoSurface;color:@info}"
+        "QLabel[role=\"statusPill\"][severity=\"success\"]{background:@statusSuccessFill;color:@success}"
         "QLabel[role=\"keycap\"]{color:@muted;background:@surface;border:1px solid @borderStrong;"
         "border-radius:@rS;padding:1px 6px}"
         "QLabel[role=\"empty\"]{color:@muted;padding:16px}"
@@ -442,7 +445,10 @@ QString styleSheet(const Tokens &t) {
         "QLabel[role=\"info\"]{color:@info}"
         "QLabel[role=\"error\"]{color:@danger}"
         "QLabel[role=\"notice\"]{background:@warningSurface;color:@text;border:1px solid @noticeBorder;"
-        "border-radius:@rM;padding:0}");
+        "border-radius:@rM;padding:0}"
+        "QLabel[role=\"notice\"][severity]{padding:4px 8px}"
+        "QLabel[role=\"notice\"][severity=\"info\"]{background:@infoSurface;border-color:@infoBorder}"
+        "QLabel[role=\"notice\"][severity=\"error\"]{background:@dangerSurface;border-color:@dangerBorder}");
     const QColor sliderHandle = t.dark ? t.text : QColor(Qt::white);
     const std::pair<const char *, QColor> values[] = {
         {"@borderStrong", t.borderStrong},
@@ -473,8 +479,14 @@ QString styleSheet(const Tokens &t) {
         {"@warningSurface", t.warningSurface},
         {"@noticeBorder", mix(t.warningSurface, t.warning, 0.45)},
         {"@warning", t.warning},
+        {"@dangerSurface", t.dangerSurface},
+        {"@dangerBorder", mix(t.dangerSurface, t.danger, 0.45)},
         {"@danger", t.danger},
+        {"@infoSurface", t.infoSurface},
+        {"@infoBorder", mix(t.infoSurface, t.info, 0.45)},
         {"@info", t.info},
+        {"@statusSuccessFill", mix(t.surface, t.success, 0.12)},
+        {"@success", t.success},
         {"@sliderHandle", sliderHandle},
         {"@sliderTrack", mix(t.borderStrong, t.muted, 0.55)},
         {"@scrollThumb", t.dark ? mix(t.borderStrong, t.muted, 0.25) : mix(t.borderStrong, t.window, 0.15)},

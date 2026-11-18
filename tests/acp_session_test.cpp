@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -89,7 +90,10 @@ class AcpSessionTest : public QObject {
     Service *service() { return window->findChild<Service *>(); }
     nova::acp::Session *session() { return dialog->findChild<nova::acp::Session *>(); }
     QString transcript() { return dialog->findChild<QTextEdit *>("acpConversation")->toPlainText(); }
-    QString status() { return dialog->findChild<QLabel *>("acpStatus")->text(); }
+    QString status() {
+        return dialog->findChild<QLabel *>("acpStatus")->text() + ' ' +
+               dialog->findChild<QLabel *>("acpStatusDetail")->text();
+    }
     QString notice() { return dialog->findChild<QLabel *>("acpNotice")->text(); }
     // Names any modal dialog that is open, for failure messages (an open modal makes Nova refuse edits).
     static QString modal() {
@@ -101,6 +105,7 @@ class AcpSessionTest : public QObject {
                                                  box ? box->text() : widget->objectName());
     }
     QPushButton *button(const char *name) { return dialog->findChild<QPushButton *>(name); }
+    QPlainTextEdit *composer() { return dialog->findChild<QPlainTextEdit *>("acpPrompt"); }
     void open() {
         QElapsedTimer timer;
         timer.start();
@@ -123,7 +128,7 @@ class AcpSessionTest : public QObject {
     }
     void ask(const QString &prompt, const QString &expect) {
         const auto before = transcript().size();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText(prompt);
+        composer()->setPlainText(prompt);
         button("acpSend")->click();
         QTRY_VERIFY2_WITH_TIMEOUT(transcript().mid(before).contains(expect),
                                   qPrintable(modal() + " | " + transcript().right(1500)), 15000);
@@ -211,6 +216,25 @@ class AcpSessionTest : public QObject {
         QVERIFY(service()->connectionCode().isEmpty());
         QVERIFY(!session());
         QVERIFY(!button("acpEditing")->isEnabled());
+    }
+
+    void composerKeyboardAndHistory() {
+        open();
+        startReadOnly();
+        auto prompt = composer();
+        prompt->setPlainText("First line");
+        prompt->moveCursor(QTextCursor::End);
+        QTest::keyClick(prompt, Qt::Key_Return, Qt::ShiftModifier);
+        QTest::keyClicks(prompt, "Second line");
+        QCOMPARE(prompt->toPlainText(), "First line\nSecond line");
+        QTest::keyClick(prompt, Qt::Key_Return);
+        QTRY_VERIFY(transcript().contains("First line\nSecond line"));
+        QTRY_VERIFY(status().startsWith("Connected"));
+        prompt->setPlainText("Draft");
+        QTest::keyClick(prompt, Qt::Key_Up);
+        QCOMPARE(prompt->toPlainText(), "First line\nSecond line");
+        QTest::keyClick(prompt, Qt::Key_Down);
+        QCOMPARE(prompt->toPlainText(), "Draft");
     }
 
     void customArgumentsAndAuthentication() {
@@ -362,7 +386,7 @@ class AcpSessionTest : public QObject {
         QVERIFY(alive(pid));
         QTRY_VERIFY(session()->processTree().size() >= 2);
         const auto tree = session()->processTree();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("crash");
+        composer()->setPlainText("crash");
         button("acpSend")->click();
         QTRY_VERIFY_WITH_TIMEOUT(status().contains("code 3"), 10000);
         QCOMPARE(service()->status(), "Disabled");
@@ -375,13 +399,13 @@ class AcpSessionTest : public QObject {
     void cancelAndPermission() {
         open();
         startReadOnly();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("wait");
+        composer()->setPlainText("wait");
         button("acpSend")->click();
         QTRY_VERIFY(button("acpCancel")->isEnabled());
         button("acpCancel")->click();
         QTRY_COMPARE_WITH_TIMEOUT(notice(), QString("You cancelled the agent's turn."), 10000);
         QVERIFY(dialog->findChild<QLabel *>("acpNotice")->isVisible());
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("ask");
+        composer()->setPlainText("ask");
         button("acpSend")->click();
         QTRY_VERIFY(button("acpPermissionReject")->isVisible());
         QVERIFY(dialog->findChild<QLabel *>("acpPermission")->text().contains("not a Nova tool"));
