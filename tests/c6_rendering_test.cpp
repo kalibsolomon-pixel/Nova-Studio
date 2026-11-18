@@ -2,6 +2,7 @@
 #include "models.h"
 #include "display.h"
 #include "render_layers.h"
+#include "tints.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -116,6 +117,32 @@ class RenderingTest : public QObject {
         QVERIFY(d.diagnostics.join(' ').contains("Simulated"));
         lib.setVersion("1.21.11");
         QVERIFY(lib.dispatch("assets/nova/items/a.json").instances.isEmpty());
+    }
+    void tintDefaults() {
+        mc::Library library("1.21.11");
+        mc::TintColors colors(library);
+        const auto check = [&](const QString &type, const QJsonObject &source, QRgb rgb) {
+            auto tint = colors.item("minecraft:" + type, source);
+            QVERIFY(tint.has_value());
+            QCOMPARE(*tint, rgb);
+        };
+        check("constant", {{"value", QJsonArray{.5, 0, 1}}}, qRgb(127, 0, 255));
+        check("grass", {}, 0xff7cbd6bu);
+        check("grass", {{"temperature", .8}, {"downfall", .4}}, 0xff91bd59u);
+        check("dye", {{"default", 0x123456}}, 0xff123456u);
+        check("potion", {}, 0xff385dc6u);
+        check("map_color", {}, 0xff46402eu);
+        check("firework", {}, 0xff8a8a8au);
+        check("team", {{"default", QJsonArray{0, 1, 0}}}, 0xff00ff00u);
+        check("custom_model_data", {{"default", 0x987654}}, 0xff987654u);
+        QCOMPARE(colors.block("minecraft:oak_leaves", {}).value(0), 0xff77ab2fu);
+        QCOMPARE(colors.block("minecraft:leaf_litter", {}).value(0), 0xffa37546u);
+        QCOMPARE(colors.block("minecraft:water", {}).value(0), 0xff3f76e4u);
+        QCOMPARE(colors.block("minecraft:redstone_wire", {}).value(0), qRgb(76, 0, 0));
+        QCOMPARE(colors.block("minecraft:redstone_wire", {{"power", "15"}}).value(0), qRgb(255, 50, 0));
+        QCOMPARE(colors.block("minecraft:pumpkin_stem", {{"age", 7}}).value(0), qRgb(224, 199, 28));
+        QCOMPARE(colors.block("minecraft:oak_leaves", {{"_tints", QJsonArray{0x765432}}}).value(0),
+                 0xff765432u);
     }
     void contours() {
         mc::Model model;

@@ -7,6 +7,7 @@
 #include "render_layers.h"
 #include "settings.h"
 #include "theme.h"
+#include "tints.h"
 #include <QCryptographicHash>
 #include <QImageReader>
 #include <QJsonDocument>
@@ -62,9 +63,8 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     inputs->setObjectName("modelInputs");
     inputs->setAccessibleName("Preview inputs JSON");
     inputs->setPlaceholderText("Preview inputs as JSON…");
-    inputs->setToolTip("Manual properties, e.g. "
-                       "{\"facing\":\"north\",\"minecraft:using_item\":true,\"_choice\":1}. "
-                       "Weighted choice is zero-based.");
+    inputs->setToolTip("Set block or item properties and override tint RGB values with _tints. "
+                       "Use _choice for the zero-based weighted variant.");
     v->addWidget(inputs);
     buildDisplayEditor(v);
     materialPlayback = new MaterialPlayback(this);
@@ -778,7 +778,6 @@ void ModelPanel::openAsset(const QString &asset, bool showMaterial) {
             }
 }
 void ModelPanel::rebuild() {
-    inputs->setVisible(target.startsWith("definition:"));
     const auto context = contexts->currentText();
     const auto definition = target.startsWith("definition:") ? target.mid(11) : QString();
     const auto blockstate = mc::Location::fromAsset(definition, "blockstates");
@@ -794,6 +793,7 @@ void ModelPanel::rebuild() {
              mc::blockRenderLayer(itemId.id()) != mc::RenderLayer::Solid))
             blockId = itemId.id();
     }
+    inputs->setVisible(!definition.isEmpty() || !blockId.isEmpty());
     const auto contextName = displayContext();
     const bool oversized = library && library->source(definition)["oversized_in_gui"].toBool();
     cube->setPreviewContext(contextName, context == "placed" || (context == "raw" && !blockstate.isEmpty()),
@@ -850,25 +850,27 @@ void ModelPanel::rebuild() {
     QStringList previewLimitations;
     QString asset;
     QVector<mc::Instance> instances;
-    messages << "Isolated preview · world AO, atlas shaders and runtime tints omitted";
+    messages << "Isolated preview · no neighbouring blocks or atlas shader effects";
+    QJsonObject values;
+    if ((!definition.isEmpty() || !blockId.isEmpty()) && !inputs->text().trimmed().isEmpty()) {
+        QJsonParseError error;
+        const auto json = QJsonDocument::fromJson(inputs->text().toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError || !json.isObject()) {
+            diagnostics->setText("Preview inputs must be a JSON object");
+            cube->setModel(combined, activeAsset);
+            overlay();
+            return;
+        }
+        values = json.object();
+    }
     if (target.startsWith("model:")) {
         auto id = target.mid(6);
         instances << mc::Instance{id, "raw model"};
+        if (!blockId.isEmpty())
+            instances.last().tints = mc::TintColors(*library).block(blockId, values);
         asset = mc::Location::parse(id).asset("models");
     } else {
-        asset = target.mid(11);
-        QJsonParseError error;
-        QJsonObject values;
-        if (!inputs->text().trimmed().isEmpty()) {
-            auto json = QJsonDocument::fromJson(inputs->text().toUtf8(), &error);
-            if (error.error != QJsonParseError::NoError || !json.isObject()) {
-                diagnostics->setText("Preview inputs must be a JSON object");
-                cube->setModel(combined, activeAsset);
-                overlay();
-                return;
-            }
-            values = json.object();
-        }
+        asset = definition;
         auto dispatch = library->dispatch(asset, values, values["_choice"].toInt());
         instances = dispatch.instances;
         messages += dispatch.diagnostics;
