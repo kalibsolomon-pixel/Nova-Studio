@@ -25,8 +25,12 @@ changes; a result never says an edit was saved. To save, use `nova.drafts.save` 
 | --- | --- |
 | `generation`, `projectId` | From `nova.project.info` for this connection. A project switch or another connection's values return `stale_project`. |
 | `assetId` | The document's id for this connection, from `nova.drafts.list` or `nova.assets.list`. Only indexed, open textures of the authorized pack qualify; anything else returns `document_not_open`. No filesystem path is accepted anywhere. |
-| `expectedRevision` | The current `revision` (from `nova.edit.capabilities`, `nova.drafts.list` or the previous edit's result). A changed document returns `revision_conflict`. |
+| `expectedRevision` | The current `revision` from `nova.asset.open`, `nova.texture.read` on a live document, `nova.edit.capabilities`, `nova.drafts.list` or the previous edit's result. A changed document returns `revision_conflict`. |
 | `layer` (optional) | A layer id from the document state. Defaults to the active layer. |
+| `returnPreview` (optional) | Set to `true` to include a result PNG in the same call. |
+
+Use `nova.asset.open` to get the edit revision for a saved texture that isn't open. Nova adds the
+document to a background tab and records the open in **Review changes**.
 
 **Documents.** Textures up to 256 × 256 pixels and 4 MiB of layer pixels (larger documents return
 `edit_limit`). Animated textures: the edit applies to the active frame. Model documents return
@@ -79,8 +83,9 @@ takes two calls. Palettes have at most 62 colours, remaps at most 64 mappings, g
 Every list and string is bounded by the schema before it is read, and nothing is allocated from a
 size the caller states until it has been checked against the canvas.
 
-**Privacy.** Results contain resource-pack paths, ids, revisions, rectangles and counts — never
-filesystem paths or pixel data. Nova does not log tool arguments or image payloads.
+**Privacy.** Results identify resources by pack-relative path. Pixel data is available through the
+read and preview tools, or by opting into a result PNG. Nova does not log tool arguments or image
+payloads.
 
 ## Result
 
@@ -99,6 +104,43 @@ Every tool returns the usual edit result (`revision`, `dirty`, `undoAvailable`, 
 | `pixelsChanged` | How many pixels of that layer changed (stored bytes compared). |
 
 Use the returned `revision` as `expectedRevision` for the next edit.
+
+## Read exact pixels
+
+`nova.texture.read` accepts `generation` and a pack `assetId` from `nova.assets.list`. For a vanilla
+reference, use an ID such as `vanilla:block/stone.png` or
+`vanilla:assets/minecraft/textures/block/stone.png`. Vanilla reads use Nova's verified local cache
+for the project version by default. Pass `version` or `identity` to select a different cached entry.
+
+- An open texture defaults to its visible composite and active frame. Specify a `layer` UUID to
+  read its stored pixels, or a zero-based `frame` number to select a different source frame.
+- A closed texture defaults to the saved PNG. An explicit `frame` reads a source frame from the
+  PNG and its animation metadata. Frame numbers follow source order.
+- Use a `region` of `{x, y, width, height}` to read up to 256 × 256 pixels inside the selected image.
+- With up to 62 colours, `pixels` contains the rectangle, `palette` and `rows` for
+  `nova.texture.put_pixels`. Use the output location or set the destination `x` and `y` when copying
+  into another texture.
+- With more than 62 colours, `encoding` is `hex`. Each row concatenates eight hex digits
+  `RRGGBBAA` per pixel. Read a smaller region if exact hex rows exceed the response budget.
+  `colorCount` reports the full count, and `paletteSummary` reports up to 62 colours with their luma
+  and pixel counts, sorted darkest first.
+
+## Preview changes
+
+`nova.asset.preview_image` takes an open asset's `assetId` and `expectedRevision` along with
+`generation` and `projectId`. A texture preview uses nearest-neighbour scaling to a 256-pixel
+longest edge by default. Set `maxEdge` from 16 to 512 to choose a size. Set `pixelGrid` to draw
+texel boundaries when each texel has at least four preview pixels per side.
+
+Set `compare` to get the before and after captures for the latest edit of the requested revision in
+this connection. For an animation, the comparison shows the frame captured by that edit. Pass
+`assetIds` with up to 16 texture IDs to get a contact sheet from open drafts and saved PNGs. Each
+tile defaults to a 128-pixel longest edge, capped at 192 pixels. The response lists the tiles in
+request order with their labels and asset paths.
+
+Direct edit calls support `returnPreview: true` to append the new image. The response's `preview`
+object reports the image dimensions or an error for unavailable or oversized images. Preview
+encoding happens after the edit has committed.
 
 ## `nova.texture.put_pixels`
 

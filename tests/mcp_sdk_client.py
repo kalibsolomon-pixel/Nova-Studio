@@ -810,7 +810,65 @@ async def phase1(client: ClientSession, initialized) -> dict:
     return {"saved": draft["path"], "unsavedCount": saved.structuredContent["unsavedCount"], "topics": len(topics)}
 
 
-async def phase2(client: ClientSession) -> dict:
+def cycle_bytes(frames, native_preview=False):
+    """Count compact UTF-8 JSON-RPC lines reconstructed from SDK request and response frames."""
+    calls = {frame["message"]["id"] for frame in frames
+             if frame["direction"] == "client" and frame["message"].get("method") == "tools/call"}
+    sizes = {"calls": len(calls), "requestBytes": 0, "responseBytes": 0, "responseTextBytes": 0}
+    for frame in frames:
+        message = frame["message"]
+        if message.get("id") not in calls:
+            continue
+        if frame["direction"] == "client":
+            if native_preview and message["params"]["name"] == "nova.asset.preview_image":
+                # maxEdge=16 reproduces the original native-size PNG. Old requests had no size field.
+                params = message["params"]
+                arguments = {k: v for k, v in params["arguments"].items() if k != "maxEdge"}
+                message = {**message, "params": {**params, "arguments": arguments}}
+            kind = "requestBytes"
+        else:
+            kind = "responseBytes"
+            sizes["responseTextBytes"] += sum(len(block["text"].encode("utf-8"))
+                                              for block in message["result"]["content"] if block["type"] == "text")
+        sizes[kind] += len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+    return sizes
+
+
+async def texture_cycle(client: ClientSession, wire, target, revision):
+    """Compare one edit of identical 16x16 pixels through the legacy and indexed workflows."""
+    write = {**target, "x": 15, "y": 15, "width": 1, "height": 1,
+             "palette": ["#325681"], "rows": ["0"]}
+
+    async def call(tool, args):
+        result = await client.call_tool(tool, args)
+        assert not result.isError, result
+        return result
+
+    start = len(wire)
+    legacy_target = {**target, "maxEdge": 16}
+    pixels = await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": revision})
+    assert pixels.structuredContent["width"] == pixels.structuredContent["height"] == 16
+    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision})
+    assert edit.structuredContent["changed"]
+    await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": edit.structuredContent["revision"]})
+    before = cycle_bytes(wire[start:], native_preview=True)
+    reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
+    revision = reset.structuredContent["revision"]
+
+    start = len(wire)
+    pixels = await call("nova.texture.read", target)
+    assert pixels.structuredContent["encoding"] == "indexed"
+    assert pixels.structuredContent["pixels"]["width"] == pixels.structuredContent["pixels"]["height"] == 16
+    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision, "returnPreview": True})
+    assert edit.structuredContent["changed"] and edit.structuredContent["preview"]["width"] == 256
+    assert any(block.type == "image" for block in edit.content)
+    after = cycle_bytes(wire[start:])
+    reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
+    assert before["calls"] == 3 and after["calls"] == 2
+    return {"before": before, "after": after}, reset.structuredContent["revision"]
+
+
+async def phase2(client: ClientSession, wire) -> dict:
     """MCP Phase 2 compact texture tools through the official SDK. The SDK validates every structured
     result against the tool's output schema; jsonschema checks that the published input schemas accept
     and reject the same arguments as Nova, except the checks that need the canvas."""
@@ -917,8 +975,9 @@ async def phase2(client: ClientSession) -> dict:
     assert not undone.isError, undone
     redone = await client.call_tool("nova.edit.redo", {**target, "expectedRevision": undone.structuredContent["revision"]})
     assert not redone.isError and redone.structuredContent["revision"] != undone.structuredContent["revision"], redone
+    cycle, revision = await texture_cycle(client, wire, target, redone.structuredContent["revision"])
     saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
-                                                        "expectedRevision": redone.structuredContent["revision"]})
+                                                        "expectedRevision": revision})
     assert not saved.isError and saved.structuredContent["status"] == "saved", saved
     other = await client.call_tool("nova.asset.open", {**scope, "assetId": other_id})
     assert not other.isError and other.structuredContent["opened"], other
@@ -933,7 +992,7 @@ async def phase2(client: ClientSession) -> dict:
     restored = await client.call_tool("nova.edit.undo", {**second, "expectedRevision": wrote.structuredContent["revision"]})
     assert not restored.isError and restored.structuredContent["redoAvailable"], restored
     return {"saved": row["path"], "opened": opened["path"], "tools": len(tools),
-            "edits": len(edits), "argumentErrors": len(invalid) + len(canvas)}
+            "edits": len(edits), "argumentErrors": len(invalid) + len(canvas), "textureCycle": cycle}
 
 
 async def phase3(client: ClientSession) -> dict:
@@ -1047,7 +1106,7 @@ async def main() -> None:
                 save_wire("sdk-phase3.jsonl")
                 return
             if mode == "phase2":
-                print(json.dumps(await phase2(client)), flush=True)
+                print(json.dumps(await phase2(client, wire)), flush=True)
                 save_wire("sdk-phase2.jsonl")
                 return
             if mode == "phase1":

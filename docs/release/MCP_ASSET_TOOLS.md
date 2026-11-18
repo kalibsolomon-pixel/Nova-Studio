@@ -13,6 +13,25 @@ call needs the `generation` and `projectId` from `nova.project.info`.
 | `nova.asset.relationships` | How is this pack asset selected and used: definitions, models, variables, faces, companions? |
 | `nova.pack.validate` | What is wrong in the saved files *and* the open unsaved drafts, and how do I know? |
 
+## Preparing assets for edits
+
+- `nova.asset.open` takes `generation`, `projectId` and a pack texture `assetId`. With editing
+  permission, it opens the texture in a background tab and returns the current revision. Repeated
+  calls reuse the same open document.
+- `nova.asset.create_preview` and `nova.asset.create` accept a `source` in place of `parameters`.
+  Use an indexed texture ID or a verified cache path such as `vanilla:block/water_still.png`. Copy
+  uses the open draft when available and otherwise reads the saved PNG and its animation metadata.
+  Creating the copy requires editing permission. The result is an unsaved draft that can be edited
+  and saved with the usual draft tools.
+- `nova.pack.bootstrap` takes `generation`, `projectId` and `indexRevision` from
+  `nova.project.info`. With editing permission, it initializes an authorized folder with Java
+  1.21.11 metadata (pack format 75.0) and the standard `assets/minecraft/textures` folders. A second
+  call preserves existing pack metadata. Get a fresh `indexRevision` after initialization before
+  creating assets.
+
+Use `nova.texture.read` for indexed pixels and `nova.asset.preview_image` for labelled contact
+sheets or revision comparisons. See [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+
 ## Where the data comes from
 
 Nova uses these sources, in this order of precedence. The first source that has a resource path provides it.
