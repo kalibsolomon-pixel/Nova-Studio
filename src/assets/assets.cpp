@@ -7,11 +7,14 @@
 #include "render_layers.h"
 #include "tints.h"
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMetaObject>
 #include <QRunnable>
 #include <QStyle>
+#include <algorithm>
+#include <deque>
 #include <functional>
 namespace nova {
 namespace {
@@ -80,6 +83,34 @@ IconRecipe buildIcon(mc::Library library, const QString &asset) {
     return result;
 }
 } // namespace
+// Recipes finished on worker threads wait here for their OpenGL capture, which must
+// run on the GUI thread. Rows being painted promote their entry to the front so the
+// visible page fills first while a large rebuild works through the backlog.
+struct AssetModel::IconQueue {
+    struct Entry {
+        QString path;
+        int generation = 0, revision = 0;
+        bool fromModel = false;
+        IconRecipe recipe;
+    };
+    std::deque<Entry> ready;
+    bool drainScheduled = false;
+    void push(Entry entry) { ready.push_back(std::move(entry)); }
+    void promote(const QString &path) {
+        for (int i = int(ready.size()) - 1; i >= 0; --i)
+            if (ready[size_t(i)].path == path) {
+                auto entry = std::move(ready[size_t(i)]);
+                ready.erase(ready.begin() + i);
+                ready.push_front(std::move(entry));
+                return;
+            }
+    }
+    void forget(const QString &path) {
+        ready.erase(std::remove_if(ready.begin(), ready.end(),
+                                   [&](const Entry &entry) { return entry.path == path; }),
+                    ready.end());
+    }
+};
 QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int scale) {
     const auto recipe = buildIcon(library, asset);
     if (recipe.mesh->faces.isEmpty())
@@ -256,16 +287,111 @@ void AssetModel::setCategory(const QString &value) {
 void AssetModel::setModelSources(const std::shared_ptr<mc::Library> &library) {
     modelSources = library ? std::make_shared<mc::Library>(*library) : nullptr;
     ++modelRevision;
-    for (const auto &path : cache.keys())
-        if (isModelIcon(path))
-            cache.remove(path);
-    pending.removeIf(isModelIcon);
-    failed.removeIf(isModelIcon);
+    // A whole-library change (project switch, version change, resource-stack reload)
+    // flushes every model icon. A scoped update drops only icons whose recipe reads a
+    // changed asset: the asset itself plus everything reaching it over reverse
+    // dependency edges (children, parents' other users, item and blockstate definitions).
+    QSet<QString> stale;
+    // A library without any models is fresh (project open/close hands one over before
+    // the first index update lands); flush fully as the previous behavior did.
+    const bool full = !modelSources || modelSources->modelIds().isEmpty() ||
+                      modelSources->lastUpdateChanged().contains(QString());
+    if (!full)
+        for (const auto &path : modelSources->lastUpdateChanged()) {
+            stale.insert(path);
+            const auto users = modelSources->dependents(path);
+            stale.unite(QSet<QString>(users.cbegin(), users.cend()));
+        }
+    if (full) {
+        for (const auto &path : cache.keys())
+            if (isModelIcon(path)) {
+                cache.remove(path);
+                ++iconCounters.invalidated;
+            }
+        pending.removeIf(isModelIcon);
+        failed.removeIf(isModelIcon);
+        if (iconQueue)
+            iconQueue->ready.clear();
+    } else
+        for (const auto &path : stale)
+            if (isModelIcon(path)) {
+                if (cache.remove(path))
+                    ++iconCounters.invalidated;
+                pending.remove(path);
+                failed.remove(path);
+                if (iconQueue)
+                    iconQueue->forget(path);
+            }
     for (auto it = nodes.cbegin(); it != nodes.cend(); ++it)
-        if (!it.value()->directory && isModelIcon(it.key())) {
+        if (!it.value()->directory && isModelIcon(it.key()) && (full || stale.contains(it.key()))) {
             const auto index = indexFor(it.key());
             emit dataChanged(index, index, {Qt::DecorationRole});
         }
+}
+void AssetModel::resetIconStats() const { iconCounters = {}; }
+void AssetModel::scheduleIconDrain() const {
+    if (iconQueue->drainScheduled)
+        return;
+    iconQueue->drainScheduled = true;
+    QMetaObject::invokeMethod(const_cast<AssetModel *>(this), [this] { drainIconQueue(); },
+                              Qt::QueuedConnection);
+}
+// Capture finished recipes in bounded turns: at most a handful of icons, or roughly the
+// time budget once at least one icon was captured, then the event loop gets control
+// back and the next turn continues. A turn always processes at least one entry so the
+// queue keeps draining even when a single capture is slow (first context creation).
+void AssetModel::drainIconQueue() const {
+    if (!iconQueue)
+        return;
+    iconQueue->drainScheduled = false;
+    QElapsedTimer turn;
+    turn.start();
+    int finished = 0;
+    while (!iconQueue->ready.empty()) {
+        if (finished >= 8 || (finished > 0 && turn.elapsed() >= 6))
+            break;
+        auto entry = std::move(iconQueue->ready.front());
+        iconQueue->ready.pop_front();
+        ++finished;
+        if (entry.generation != generation || (entry.fromModel && entry.revision != modelRevision))
+            continue; // superseded by a flush; a newer request may already be running
+        pending.remove(entry.path);
+        auto im = entry.recipe.fallback;
+        if (entry.fromModel && !thumbnailContextFailed && !entry.recipe.mesh->faces.isEmpty()) {
+            QElapsedTimer capture;
+            capture.start();
+            if (!thumbnailCube) {
+                thumbnailMetrics = std::make_unique<Metrics>();
+                thumbnailCube = std::make_unique<Cube>(thumbnailMetrics.get());
+                thumbnailCube->setAttribute(Qt::WA_DontShowOnScreen);
+                thumbnailCube->setAttribute(Qt::WA_ShowWithoutActivating);
+                thumbnailCube->resize(200, 150);
+            }
+            thumbnailCube->setPreviewContext("gui", false, entry.recipe.blockId);
+            thumbnailCube->setModel(entry.recipe.mesh, {}, entry.recipe.materials);
+            if (!thumbnailCube->isValid())
+                thumbnailCube->grabFramebuffer();
+            thumbnailContextFailed = !thumbnailCube->isValid();
+            const auto rendered = thumbnailCube->captureInventoryIcon(4);
+            const auto ns = capture.nsecsElapsed();
+            iconCounters.captureNs += ns;
+            iconCounters.longestCaptureNs = qMax(iconCounters.longestCaptureNs, ns);
+            ++iconCounters.captured;
+            if (!rendered.isNull())
+                im = rendered;
+        }
+        if (im.isNull()) {
+            if (failed.size() < 512)
+                failed.insert(entry.path);
+            continue;
+        }
+        cache.insert(entry.path, new QIcon(QPixmap::fromImage(im)), 64 * 64 * 4);
+        const auto index = indexFor(entry.path);
+        emit const_cast<AssetModel *>(this)->dataChanged(index, index, {Qt::DecorationRole});
+    }
+    iconCounters.longestStallNs = qMax(iconCounters.longestStallNs, turn.nsecsElapsed());
+    if (!iconQueue->ready.empty())
+        scheduleIconDrain();
 }
 QModelIndex AssetModel::index(int r, int c, const QModelIndex &p) const {
     auto n = node(p);
@@ -337,6 +463,9 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
         return standardIcon(false);
     if (auto icon = cache.object(n->path))
         return *icon;
+    // The row is being painted; its finished recipe should be captured before the rest.
+    if (iconQueue && pending.contains(n->path))
+        iconQueue->promote(n->path);
     const auto sources = isModelIcon(n->path) ? modelSources : nullptr;
     if ((sources || n->path.endsWith(".png", Qt::CaseInsensitive)) && !pending.contains(n->path) &&
         !failed.contains(n->path) && pending.size() < 128) {
@@ -359,34 +488,10 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
                 [this, path, gen, revision, fromModel = bool(sources), recipe = std::move(recipe)] {
                     if (gen != generation || (fromModel && revision != modelRevision))
                         return;
-                    pending.remove(path);
-                    auto im = recipe.fallback;
-                    if (fromModel && !thumbnailContextFailed && !recipe.mesh->faces.isEmpty()) {
-                        if (!thumbnailCube) {
-                            thumbnailMetrics = std::make_unique<Metrics>();
-                            thumbnailCube = std::make_unique<Cube>(thumbnailMetrics.get());
-                            thumbnailCube->setAttribute(Qt::WA_DontShowOnScreen);
-                            thumbnailCube->setAttribute(Qt::WA_ShowWithoutActivating);
-                            thumbnailCube->resize(200, 150);
-                        }
-                        thumbnailCube->setPreviewContext("gui", false, recipe.blockId);
-                        thumbnailCube->setModel(recipe.mesh, {}, recipe.materials);
-                        if (!thumbnailCube->isValid())
-                            thumbnailCube->grabFramebuffer();
-                        thumbnailContextFailed = !thumbnailCube->isValid();
-                        const auto rendered = thumbnailCube->captureInventoryIcon(4);
-                        if (!rendered.isNull())
-                            im = rendered;
-                    }
-                    if (im.isNull()) {
-                        if (failed.size() < 512)
-                            failed.insert(path);
-                        return;
-                    }
-                    cache.insert(path, new QIcon(QPixmap::fromImage(im)), 64 * 64 * 4);
-                    auto idx = indexFor(path);
-                    emit const_cast<AssetModel *>(this)->dataChanged(idx, idx,
-                                                                     {Qt::DecorationRole});
+                    if (!iconQueue)
+                        iconQueue = std::make_unique<IconQueue>();
+                    iconQueue->push(IconQueue::Entry{path, gen, revision, fromModel, std::move(recipe)});
+                    scheduleIconDrain();
                 },
                 Qt::QueuedConnection);
         }));

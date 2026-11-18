@@ -80,6 +80,15 @@ target_link_libraries(nova-refinements-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME refinements COMMAND nova-refinements-tests)
 add_executable(nova-model-bench model_bench.cpp)
 target_link_libraries(nova-model-bench PRIVATE nova-workspace Qt6::Test)
+# Explorer thumbnail benchmark: icon invalidation and GUI-thread capture cost for a
+# whole-library reload and a single texture edit against a generated ~500-model pack.
+add_executable(nova-explorer-icon-bench explorer_icon_bench.cpp)
+target_link_libraries(nova-explorer-icon-bench PRIVATE nova-workspace Qt6::Test)
+# Explorer model-icon invalidation: texture edits rebuild only dependents, resource-stack
+# reloads rebuild all, and rebuilt icons keep identical pixels.
+add_executable(nova-explorer-icons-tests explorer_icon_test.cpp)
+target_link_libraries(nova-explorer-icons-tests PRIVATE nova-workspace Qt6::Test)
+add_test(NAME explorer-icons COMMAND nova-explorer-icons-tests)
 target_link_libraries(nova-core-tests PRIVATE nova-core nova-asset-index Qt6::Test)
 add_test(NAME core COMMAND nova-core-tests)
 add_executable(nova-workspace-tests workspace_test.cpp)

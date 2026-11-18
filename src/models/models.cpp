@@ -145,10 +145,13 @@ void Library::setVersion(const QString &version) {
     cache.clear();
     if (!root.isEmpty())
         update(root, editableSnapshot, {""});
+    else
+        lastChanged = {""};
 }
 void Library::setFallbacks(QVector<ResourceSource> next, const QString &version) {
     if (!version.isEmpty())
         profile = Profile::forVersion(version);
+    lastChanged = {""}; // the whole stack changed even before update() records it
     fallbacks = std::move(next);
     records.clear();
     sources.clear();
@@ -186,6 +189,14 @@ void Library::previewSource(const QString &asset, const QJsonObject &value) {
     replaceEdges(asset);
     for (const auto &path : invalid)
         cache.remove(Location::fromAsset(path, "models"));
+    // Previewed sources change what consumers of this asset resolve; keep them in the
+    // recorded change scope unless it already covers everything (bounded, deduplicated).
+    if (!lastChanged.contains("")) {
+        if (lastChanged.size() >= 256)
+            lastChanged = {""};
+        else if (!lastChanged.contains(asset))
+            lastChanged.append(asset);
+    }
 }
 void Library::replaceEdges(const QString &path) {
     for (const auto &target : forward.take(path)) {
@@ -221,6 +232,20 @@ void Library::replaceEdges(const QString &path) {
 }
 void Library::update(const QString &project, const Index &editableIndex, const QStringList &changed,
                      const std::shared_ptr<std::atomic_bool> &cancel, const AssetReader &reader) {
+    // A different project root rebuilds every source: the change scope is everything.
+    // Scoped changes accumulate in the scope (deduplicated) so assets stay invalid for
+    // every consumer handoff, including previewed sources edited between updates; a
+    // scoped update following an everything-stale event starts a precise scope again.
+    if (root != project || changed.contains(QString()))
+        lastChanged = {QString()};
+    else if (lastChanged.contains(QString()))
+        lastChanged = changed;
+    else {
+        QSet<QString> scope(lastChanged.cbegin(), lastChanged.cend());
+        for (const auto &path : changed)
+            scope.insert(path);
+        lastChanged = scope.size() > 256 ? QStringList{QString()} : scope.values();
+    }
     if (root != project) {
         if (!root.isEmpty())
             fallbacks.clear();
