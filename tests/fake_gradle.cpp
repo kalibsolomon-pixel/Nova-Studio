@@ -63,6 +63,8 @@ static void companion(std::filesystem::path folder, std::string launch) {
             if (reload) {
                 std::puts("[fake] [Render thread/INFO] (Minecraft) Reloading ResourceManager: vanilla");
                 std::fflush(stdout);
+                while (std::filesystem::exists(folder / "hold-reload", ignored))
+                    Sleep(20);
             }
             writeAtomically(folder / ("response-" + id + ".json"),
                             "{\"protocol\":1,\"launch\":\"" + launch + "\",\"id\":\"" + id + "\",\"status\":\"" +

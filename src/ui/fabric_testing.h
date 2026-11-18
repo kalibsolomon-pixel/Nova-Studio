@@ -27,6 +27,7 @@ class FabricTestDialog : public QDialog {
         std::function<QString()> projectRoot, packName;
         std::function<QStringList()> unsavedDocuments;
         std::function<void(const QString &)> activity;
+        std::function<void(const QString &)> openAsset;
         Preferences *preferences = nullptr;
         std::function<std::shared_ptr<mc::Library>()> modelLibrary; // for Compare Icons
         testing::FabricRuntime::Options runtime; // base options (tests override)
@@ -39,10 +40,13 @@ class FabricTestDialog : public QDialog {
     void testInMinecraft();
     // Ctrl+Alt+M: export and sync without launching. Returns success.
     bool syncPack();
+    void packFilesChanged(const QStringList &paths);
     // Asks the running game to reload its resources through Nova's companion mod (F3+T).
     bool reloadInGame(QString *error = nullptr);
     testing::FabricRuntime *runtime() const { return engine; }
     testing::GameLogMonitor *monitor() const { return log; }
+    const QList<testing::ResourceWarning> &resourceWarnings() const { return warnings; }
+    void projectChanged();
     QString packFolder() const;
     static QString testWorldName() { return "Nova Test World"; }
     bool testWorldExists() const;
@@ -51,6 +55,7 @@ class FabricTestDialog : public QDialog {
 
   signals:
     void reloadReported(const QString &message); // for the main window's status bar
+    void resourceWarningsChanged();
 
   protected:
     void showEvent(QShowEvent *event) override;
@@ -61,19 +66,30 @@ class FabricTestDialog : public QDialog {
     void refresh();
     void continueAfterPreparation(bool ok);
     void launchAfterSync();
+    bool syncPack(bool live);
+    bool canLiveSync() const;
+    void cancelLiveSync();
+    void resumeLiveSync();
+    void syncSavedPack();
     void enablePackOnce();
     bool ask(const QString &title, const QString &text);
     void inform(const QString &title, const QString &text, bool warning = false);
     void updateMonitoring();
+    void updateWarnings();
+    void refreshFindings();
     void fitToScreen();
     void companionReloadFinished(bool ok, qint64 durationMs, const QString &error);
 
     Context context;
     testing::FabricRuntime *engine = nullptr;
     testing::GameLogMonitor *log;
-    bool pendingLaunch = false;
+    QTimer *liveSyncTimer;
+    bool pendingLaunch = false, syncing = false, liveSyncPending = false;
     QDateTime lastSync;
     QString reloadNote; // Nova's own reload request, shown before the log's account
+    QList<testing::ResourceWarning> warnings;
+    int renderedReload = -1;
+    bool renderedNoWarnings = false;
     QLabel *versionValue, *runtimeValue, *rrlsValue, *gameValue, *syncValue, *reloadValue,
         *guidance;
     QProgressBar *progress;
@@ -83,7 +99,7 @@ class FabricTestDialog : public QDialog {
     QWidget *advanced;
     QComboBox *versionBox;
     QLabel *javaValue, *locationValue;
-    QCheckBox *detailedLogs, *openWorld, *autoReload;
+    QCheckBox *detailedLogs, *openWorld, *autoReload, *liveReload;
 };
 
 } // namespace nova

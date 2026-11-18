@@ -7,6 +7,8 @@
 namespace nova {
 namespace {
 constexpr int SeverityRole = Qt::UserRole + 1;
+constexpr int MinecraftAssetRole = Qt::UserRole + 2;
+constexpr int SourceColumn = 5;
 // Severity reads by colour, a matching dot and its word, never colour alone. Tones come
 // from the active theme, so a theme switch re-tones existing rows.
 void toneSeverity(QTreeWidgetItem *item) {
@@ -66,9 +68,9 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     v->addWidget(progress);
     problems = new QTreeWidget;
     problems->setObjectName("problemsList");
-    problems->setColumnCount(5);
+    problems->setColumnCount(6);
     problems->setHeaderLabels(
-        {"Severity", "File", "Field / line", "Explanation", "Suggested action"});
+        {"Severity", "File", "Field / line", "Explanation", "Suggested action", "Source"});
     problems->setRootIsDecorated(false);
     ui::afterEvents(problems, {QEvent::PaletteChange}, [this] {
         for (int i = 0; i < problems->topLevelItemCount(); ++i)
@@ -79,7 +81,9 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     for (int column = 2; column < 5; ++column)
         problems->hideColumn(column);
     problems->header()->setStretchLastSection(false);
+    problems->setColumnWidth(0, problems->fontMetrics().horizontalAdvance("Unsupported") + 48);
     problems->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    problems->header()->setSectionResizeMode(SourceColumn, QHeaderView::ResizeToContents);
     // Enough height for a few findings before the dock gives the canvas its room.
     problems->setMinimumHeight(problems->header()->sizeHint().height() + 4 * ui::RowHeight + 2);
     v->addWidget(problems, 1);
@@ -92,8 +96,9 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     auto actions = new QHBoxLayout;
     actions->setSpacing(ui::SpaceS);
     v->addLayout(actions);
-    auto open = new QPushButton("Open related asset");
+    open = new QPushButton("Open related asset");
     open->setObjectName("openProblemAsset");
+    open->setEnabled(false);
     actions->addWidget(open);
     actions->addStretch();
     repair = new QPushButton("Preview repair…");
@@ -114,10 +119,17 @@ ResourceTools::ResourceTools(QWidget *p) : QWidget(p) {
     QObject::connect(problems, &QTreeWidget::itemSelectionChanged, this, &ResourceTools::select);
     QObject::connect(open, &QPushButton::clicked, this, [this] {
         auto i = problems->currentItem();
-        if (i && navigate)
+        if (!i || !navigate)
+            return;
+        if (i->data(0, MinecraftAssetRole).isValid()) {
+            const auto assets = i->data(0, MinecraftAssetRole).toStringList();
+            if (!assets.isEmpty())
+                navigate(assets.first());
+        } else if (context && context().root == reportRoot) {
             navigate(report.diagnostics[i->data(0, Qt::UserRole).toInt()].file);
+        }
     });
-    QObject::connect(problems, &QTreeWidget::itemDoubleClicked, this, [open] { open->click(); });
+    QObject::connect(problems, &QTreeWidget::itemActivated, this, [this] { open->click(); });
     QObject::connect(repair, &QPushButton::clicked, this, &ResourceTools::fix);
     QObject::connect(exportText, &QPushButton::clicked, this, [this] { exportReport(false); });
     QObject::connect(exportJson, &QPushButton::clicked, this, [this] { exportReport(true); });
@@ -195,6 +207,7 @@ void ResourceTools::validate() {
         reportRoot = c.root;
         ++population;
         problems->clear();
+        populateMinecraft();
         populate();
         exportText->setEnabled(true);
         exportJson->setEnabled(true);
@@ -218,6 +231,32 @@ void ResourceTools::validate() {
         return qMakePair(std::move(previous), std::move(r));
     }));
 }
+void ResourceTools::setMinecraftWarnings(const QList<testing::ResourceWarning> &warnings) {
+    if (minecraftWarnings == warnings)
+        return;
+    minecraftWarnings = warnings;
+    for (int row = problems->topLevelItemCount() - 1; row >= 0; --row)
+        if (problems->topLevelItem(row)->data(0, MinecraftAssetRole).isValid())
+            delete problems->takeTopLevelItem(row);
+    populateMinecraft();
+}
+
+void ResourceTools::populateMinecraft() {
+    int row = 0;
+    for (const auto &warning : minecraftWarnings) {
+        const auto severity = warning.isError() ? mc::Severity::Error : mc::Severity::Warning;
+        const auto file = warning.assets.isEmpty() ? QString("Not from this pack")
+                                                   : warning.assets.first();
+        auto item = new QTreeWidgetItem(
+            {mc::severityName(severity), file, {}, warning.text, {}, "Minecraft"});
+        item->setData(0, MinecraftAssetRole, warning.assets);
+        item->setData(0, SeverityRole, int(severity));
+        item->setToolTip(1, warning.text);
+        toneSeverity(item);
+        problems->insertTopLevelItem(row++, item);
+    }
+}
+
 void ResourceTools::populate(int offset) {
     const int end = std::min(offset + 128, int(report.diagnostics.size()));
     for (int i = offset; i < end; ++i) {
@@ -225,7 +264,7 @@ void ResourceTools::populate(int offset) {
         auto item =
             new QTreeWidgetItem({mc::severityName(d.severity), d.file,
                                  d.field + (d.line ? " line " + QString::number(d.line) : ""),
-                                 d.message, d.suggestion});
+                                 d.message, d.suggestion, "Validation"});
         item->setData(0, Qt::UserRole, i);
         item->setData(0, SeverityRole, int(d.severity));
         toneSeverity(item);
@@ -239,7 +278,6 @@ void ResourceTools::populate(int offset) {
                 populate(end);
         });
     else {
-        problems->setColumnWidth(0, problems->fontMetrics().horizontalAdvance("Unsupported") + 48); // dot, word, padding
         problems->setColumnWidth(1, 260);
         problems->setColumnWidth(2, 150);
         problems->setColumnWidth(3, 350);
@@ -247,10 +285,21 @@ void ResourceTools::populate(int offset) {
 }
 void ResourceTools::select() {
     auto i = problems->currentItem();
+    open->setEnabled(false);
+    repair->setEnabled(false);
     if (!i) {
-        repair->setEnabled(false);
+        detail->hide();
         return;
     }
+    if (i->data(0, MinecraftAssetRole).isValid()) {
+        const auto assets = i->data(0, MinecraftAssetRole).toStringList();
+        open->setEnabled(!assets.isEmpty());
+        detail->setText(i->text(3) + "\n" +
+                        (assets.isEmpty() ? i->text(1) : assets.join("\n")));
+        detail->show();
+        return;
+    }
+    open->setEnabled(true);
     const auto &d = report.diagnostics[i->data(0, Qt::UserRole).toInt()];
     detail->setText(d.file + " " + d.field + (d.line ? " · line " + QString::number(d.line) : "") +
                     "\n" + d.message + "\n" + d.suggestion +
@@ -260,7 +309,8 @@ void ResourceTools::select() {
 }
 void ResourceTools::fix() {
     auto i = problems->currentItem();
-    if (!i || !context || context().root != reportRoot)
+    if (!i || i->data(0, MinecraftAssetRole).isValid() || !context ||
+        context().root != reportRoot)
         return;
     auto d = report.diagnostics[i->data(0, Qt::UserRole).toInt()];
     if (d.replacement.isEmpty())

@@ -2,17 +2,20 @@
 // Phase 3-D: launcher hand-off for resource-pack testing. All fixtures are
 // synthetic; no real launcher data, account files or credentials are read.
 #include "discovery.h"
+#include "fabric_testing.h"
 #include "gamelog.h"
 #include "installer.h"
 #include "minecraft_animation.h"
 #include "minecraft_testing.h"
 #include "packsync.h"
 #include "project.h"
+#include "resourcetools.h"
 #include <QComboBox>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QListWidget>
 #include <QNetworkAccessManager>
 #include <QSignalSpy>
 #include <QTcpServer>
@@ -353,6 +356,93 @@ class MinecraftTestingTest : public QObject {
             classifyLogLine("[1] [Render thread/ERROR]: Failed to load file/Nova Test - P", entry)
                 .event,
             LogEvent::PackWarning);
+    }
+    void resourceWarningsResolveOnlyLocalFiles() {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString model = "assets/nova/models/item/lantern.json";
+        const QString texture = "assets/nova/textures/item/lantern.png";
+        const QString invalid = "assets/minecraft/textures/gui/sprites/hud/food_full_hunger .png";
+        const QString blockstate = "assets/nova/blockstates/lantern.json";
+        const QString item = "assets/nova/items/lantern.json";
+        const QString metadata = "pack.mcmeta";
+        for (const auto &path : {model, texture, invalid, blockstate, item, metadata})
+            write(root.filePath(path), "fixture");
+        const QString entry = "file/Nova Test - P";
+        QCOMPARE(classifyLogLine("[1] [Worker-Main-1/WARN] (Minecraft) Invalid path in pack: "
+                                 "minecraft:shaders/test.json, ignoring", entry).event,
+                 LogEvent::PackWarning);
+        const auto assets = [&](const QString &message) {
+            return resolveResourceWarning("WARN: " + message, root.path(), entry).assets;
+        };
+        QCOMPARE(assets("Unable to load model: 'nova:item/missing_part' referenced from: nova:item/lantern#inventory"),
+                 QStringList{model});
+        QCOMPARE(assets("Missing texture nova:item/lantern in model nova:item/lantern"),
+                 (QStringList{texture, model}));
+        QCOMPARE(assets("Invalid path in pack: minecraft:textures/gui/sprites/hud/food_full_hunger .png, ignoring"),
+                 QStringList{invalid});
+        QCOMPARE(assets("Failed to parse blockstate nova:lantern#lit=true"), QStringList{blockstate});
+        QCOMPARE(assets("Could not load item model definition nova:lantern"), QStringList{item});
+        QCOMPARE(assets("Failed to load model assets/nova/models/item/lantern.json"),
+                 QStringList{model});
+        QCOMPARE(assets("Couldn't load file/Nova Test - P pack metadata: missing section"),
+                 QStringList{metadata});
+        QVERIFY(assets("Couldn't load file/Other pack metadata: missing section").isEmpty());
+        QVERIFY(assets("Missing texture references in model minecraft:item/air").isEmpty());
+        QVERIFY(assets("Failed to parse model nova:item/lantern (from pack file/Other)").isEmpty());
+        QVERIFY(assets("Unable to load model: nova:item/../item/lantern").isEmpty());
+        QVERIFY(assets("Failed to load model C:/assets/nova/models/item/lantern.json").isEmpty());
+    }
+    void minecraftWarningRowsOpenAssetsAndReset() {
+        QTemporaryDir fixture;
+        QVERIFY(fixture.isValid());
+        const auto pack = makePack(fixture.filePath("Pack"));
+        const QString model = "assets/minecraft/models/item/thing.json";
+        QString opened;
+        FabricTestDialog::Context context;
+        context.projectRoot = [&] { return pack; };
+        context.packName = [] { return QString("Pack"); };
+        context.openAsset = [&](const QString &path) { opened = path; };
+        context.runtime.base = fixture.filePath("runtime");
+        context.interactive = false;
+        FabricTestDialog dialog(context);
+        ResourceTools problems;
+        problems.navigate = context.openAsset;
+        connect(&dialog, &FabricTestDialog::resourceWarningsChanged, &problems, [&] {
+            problems.setMinecraftWarnings(dialog.resourceWarnings());
+        });
+        const auto game = dialog.runtime()->layout().game;
+        const auto log = game + "/logs/latest.log";
+        write(log, "[1] [Render thread/INFO]: Reloading ResourceManager: vanilla, file/Nova Test - Pack\n"
+                   "[2] [Worker-Main-1/WARN]: Missing texture references in model minecraft:item/thing\n"
+                   "[3] [Worker-Main-1/WARN]: Missing texture references in model minecraft:item/air\n");
+        dialog.monitor()->watch(game, "file/Nova Test - Pack");
+        const auto findings = dialog.findChild<QListWidget *>("fabricFindings");
+        const auto list = problems.findChild<QTreeWidget *>("problemsList");
+        QCOMPARE(findings->count(), 2);
+        QCOMPARE(list->topLevelItemCount(), 2);
+        QCOMPARE(list->topLevelItem(0)->text(5), QString("Minecraft"));
+        QCOMPARE(list->topLevelItem(0)->text(1), model);
+        QCOMPARE(list->topLevelItem(1)->text(1), QString("Not from this pack"));
+        QVERIFY(findings->item(1)->text().contains("Not from this pack"));
+        findings->itemActivated(findings->item(0));
+        QCOMPARE(opened, model);
+        opened.clear();
+        list->setCurrentItem(list->topLevelItem(0));
+        list->itemActivated(list->currentItem(), 1);
+        QCOMPARE(opened, model);
+        opened.clear();
+        list->setCurrentItem(list->topLevelItem(1));
+        list->itemActivated(list->currentItem(), 1);
+        findings->itemActivated(findings->item(1));
+        QVERIFY(opened.isEmpty());
+        QFile file(log);
+        QVERIFY(file.open(QIODevice::Append));
+        file.write("[4] [Render thread/INFO]: Reloading ResourceManager: vanilla, file/Nova Test - Pack\n");
+        file.close();
+        dialog.monitor()->poll();
+        QCOMPARE(findings->count(), 0);
+        QCOMPARE(list->topLevelItemCount(), 0);
     }
     // Opt-in evidence: NOVA_PHASE3D_REAL_LOG=<latest.log> replays a real
     // Minecraft log through the monitor and prints counts only (no content).

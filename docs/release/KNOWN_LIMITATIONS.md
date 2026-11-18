@@ -34,6 +34,13 @@
 - Inventory icons match Minecraft 1.21.11 for 1,447 of 1,477 comparable vanilla items at GUI scale
   3. Banners, the decorated pot, dragon and piglin heads and copper golem statues are not drawn;
   see the [model preview guide](MODEL_PREVIEW.md) for the remaining differences.
+- Minecraft warnings link to files Nova can match in the open pack. Warnings without a matching
+  file are labelled **Not from this pack**. A warning with multiple matches opens the first
+  matching file and lists the rest in its details.
+- Live sync is off by default and needs Nova's running Fabric test client with the companion
+  active. It responds to saved pack PNGs, animation metadata, model, blockstate and item
+  definitions, and pack metadata. If a document has pending Minecraft output, save or update
+  it before Nova can sync the pack.
 - Compare Icons uses the game's current GUI scale and the packs the game has loaded, so sync and
   reload first. Icons the game draws with an enchantment glint or animation are compared as captured
   in one frame. The game's images stay in Nova's test folder (`nova-companion/icons-*`).
