@@ -231,9 +231,11 @@ bool Session::authenticate(const QString &methodId) {
 bool Session::prompt(const QString &message) {
     if (current != State::Ready || message.trimmed().isEmpty())
         return false;
+    cancellingTurn = false;
     setState(State::Prompting);
     request("session/prompt", {{"sessionId", session}, {"prompt", QJsonArray{QJsonObject{{"type", "text"}, {"text", message}}}}},
             [this](const QJsonObject &reply) {
+        cancelPermissions();
         if (current == State::Prompting)
             setState(State::Ready);
         emit turnEnded(reply.contains("error") ? "error: " + text(reply["error"].toObject())
@@ -243,11 +245,17 @@ bool Session::prompt(const QString &message) {
 }
 
 void Session::cancel() {
+    cancelPermissions();
+    if (current == State::Prompting && !cancellingTurn) {
+        cancellingTurn = true;
+        notify("session/cancel", {{"sessionId", session}});
+    }
+}
+
+void Session::cancelPermissions() {
     // Pending permission questions are answered "cancelled", as the protocol requires.
     for (const auto &id : std::exchange(permissions, {}))
         write({{"jsonrpc", "2.0"}, {"id", id}, {"result", QJsonObject{{"outcome", QJsonObject{{"outcome", "cancelled"}}}}}});
-    if (current == State::Prompting)
-        notify("session/cancel", {{"sessionId", session}});
 }
 
 void Session::answerPermission(const QJsonValue &requestId, const QString &optionId) {
@@ -346,9 +354,21 @@ void Session::readOutput() {
 void Session::handle(const QJsonObject &message) {
     const auto method = message["method"].toString();
     if (message.contains("method") && message.contains("id")) {
-        if (method == "session/request_permission" && current != State::Stopping) {
-            permissions << message["id"];
-            emit permissionRequested(message["id"], message["params"].toObject());
+        if (method == "session/request_permission") {
+            const auto id = message["id"];
+            const auto params = message["params"].toObject();
+            if (permissions.contains(id))
+                return;
+            if (current != State::Prompting || cancellingTurn || params["sessionId"].toString() != session ||
+                permissions.size() >= 32) {
+                write({{"jsonrpc", "2.0"}, {"id", id}, {"result", QJsonObject{
+                    {"outcome", QJsonObject{{"outcome", "cancelled"}}}}}});
+                if (permissions.size() >= 32)
+                    emit problem("The agent sent too many tool permission requests. Additional requests were cancelled.");
+                return;
+            }
+            permissions << id;
+            emit permissionRequested(id, params);
             return;
         }
         write({{"jsonrpc", "2.0"}, {"id", message["id"]},

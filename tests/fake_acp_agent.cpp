@@ -203,22 +203,35 @@ int main(int argc, char **argv) {
                 // A code block, so the window's Markdown rendering keeps the JSON as written.
                 say(session, QString("RESULT %1\n\n```\n%2\n```\n").arg(failed ? "error" : "ok",
                     QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)).left(4000)));
-            } else if (text == "ask") {
-                send({{"jsonrpc", "2.0"}, {"id", "perm-1"}, {"method", "session/request_permission"},
-                      {"params", QJsonObject{{"sessionId", session},
-                          {"toolCall", QJsonObject{{"toolCallId", "c2"}, {"title", "write notes.txt"}, {"kind", "edit"},
-                                                   {"rawInput", QJsonObject{{"path", "notes.txt"}}}}},
-                          {"options", QJsonArray{QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}},
-                                                 QJsonObject{{"optionId", "no"}, {"name", "Reject"}, {"kind", "reject_once"}}}}}}});
-                for (;;) {
+            } else if (text == "ask" || text == "ask-queue" || text == "Review local notes before updating the draft.") {
+                const int count = text == "ask" ? 1 : 2;
+                const QJsonArray options{
+                    QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}},
+                    QJsonObject{{"optionId", "no"}, {"name", "Reject"}, {"kind", "reject_once"}},
+                    QJsonObject{{"optionId", "yes-always"}, {"name", "Always allow"}, {"kind", "allow_always"}},
+                    QJsonObject{{"optionId", "no-always"}, {"name", "Always reject"}, {"kind", "reject_always"}}};
+                QStringList unanswered;
+                for (int i = 1; i <= count; ++i) {
+                    const auto id = QString("perm-%1").arg(i);
+                    unanswered.append(id);
+                    const QString path = i == 1 ? "notes.txt" : "draft.txt";
+                    send({{"jsonrpc", "2.0"}, {"id", id}, {"method", "session/request_permission"},
+                          {"params", QJsonObject{{"sessionId", session},
+                              {"toolCall", QJsonObject{{"toolCallId", id}, {"title", "Write " + path}, {"kind", "edit"},
+                                                       {"rawInput", QJsonObject{{"path", path}}}}},
+                              {"options", options}}}});
+                }
+                while (!unanswered.isEmpty()) {
                     const auto answer = readMessage(&eof);
-                    if (eof || answer["id"] == "perm-1") {
-                        const auto outcome = answer["result"].toObject()["outcome"].toObject();
-                        say(session, "PERMISSION " + outcome["outcome"].toString() + " " + outcome["optionId"].toString());
+                    if (eof)
                         break;
+                    if (unanswered.removeOne(answer["id"].toString())) {
+                        const auto outcome = answer["result"].toObject()["outcome"].toObject();
+                        say(session, "PERMISSION " + outcome["outcome"].toString() + " " + outcome["optionId"].toString() +
+                                     " " + answer["id"].toString() + "\n");
                     }
                 }
-            } else if (text == "activity") {
+            } else if (text == "activity" || text == "Show your plan and texture checks.") {
                 update(session, {{"sessionUpdate", "plan"}, {"entries", QJsonArray{
                     QJsonObject{{"content", "Inspect pack assets"}, {"priority", "high"}, {"status", "completed"}},
                     QJsonObject{{"content", "Review texture sizes"}, {"priority", "medium"}, {"status", "in_progress"}}}}});

@@ -17,6 +17,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -132,22 +133,194 @@ void appearance(QWidget *widget, const char *property, const QString &value) {
     widget->style()->polish(widget);
 }
 
+class PermissionCard final : public QFrame {
+  public:
+    explicit PermissionCard(QWidget *parent) : QFrame(parent) {
+        setObjectName("acpPermissionCard");
+        setProperty("role", "notice");
+        auto layout = new QVBoxLayout(this);
+        layout->setContentsMargins(ui::PanelPadding, ui::SpaceL, ui::PanelPadding, ui::SpaceL);
+        layout->setSpacing(ui::SpaceM);
+        auto heading = new QHBoxLayout;
+        heading->setSpacing(ui::SpaceL);
+        auto title = new QLabel("Tool permission", this);
+        title->setProperty("role", "strong");
+        heading->addWidget(title);
+        heading->addStretch();
+        count = ui::hint({}, this);
+        count->setObjectName("acpPermissionCount");
+        heading->addWidget(count);
+        layout->addLayout(heading);
+        summary = new QLabel(this);
+        summary->setObjectName("acpPermission");
+        summary->setWordWrap(true);
+        summary->setTextFormat(Qt::PlainText);
+        summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(summary);
+        layout->addWidget(ui::hint("Your decision goes to the agent. Nova tool access is managed in Session.", this));
+        actions = new QHBoxLayout;
+        actions->setSpacing(ui::SpaceM);
+        layout->addLayout(actions);
+        hide();
+    }
+
+    std::function<void(const QJsonValue &, const QString &)> answer;
+
+    void enqueue(const QJsonValue &id, const QJsonObject &params) {
+        auto tool = params["toolCall"].toObject();
+        Request next{id, describe(tool), {}};
+        for (const auto &entry : params["options"].toArray()) {
+            const auto option = entry.toObject();
+            const auto optionId = option["optionId"].toString();
+            if (!optionId.isEmpty())
+                next.options.append({optionId, option["kind"].toString(), agentDisplayText(option["name"].toString(), 80)});
+        }
+        queue.append(std::move(next));
+        if (queue.size() == 1)
+            showFirst();
+        else
+            updateCount();
+    }
+
+    void clear() {
+        queue.clear();
+        refreshActions();
+        hide();
+    }
+
+  private:
+    struct Option { QString id, kind, name; };
+    struct Request { QJsonValue id; QString description; QList<Option> options; };
+    QLabel *summary, *count;
+    QHBoxLayout *actions;
+    QList<Request> queue;
+
+    static QString describe(const QJsonObject &tool) {
+        const auto title = agentDisplayText(tool["title"].toString("Tool call"), 160).simplified();
+        const auto args = tool["rawInput"].toObject();
+        QStringList lines{title};
+        const QStringList keys{"path", "file", "command", "arguments", "query", "url"};
+        const auto add = [&lines](const QString &key, const QJsonValue &data) {
+            if (data.isUndefined() || data.isNull())
+                return;
+            const auto text = data.isString() ? data.toString() :
+                QString::fromUtf8(QJsonDocument(QJsonArray{data}).toJson(QJsonDocument::Compact)).sliced(1).chopped(1);
+            lines << agentDisplayText(key, 32) + "  " + agentDisplayText(text, 200).simplified();
+        };
+        for (const auto &key : keys) {
+            if (lines.size() == 4)
+                break;
+            add(key, args.value(key));
+        }
+        for (auto it = args.constBegin(); lines.size() < 4 && it != args.constEnd(); ++it)
+            if (!keys.contains(it.key()))
+                add(it.key(), it.value());
+        if (lines.size() == 1) {
+            const auto locations = tool["locations"].toArray();
+            if (!locations.isEmpty()) {
+                const auto path = agentDisplayText(locations.first().toObject()["path"].toString(), 200).simplified();
+                if (!path.isEmpty())
+                    lines << "Path  " + path;
+            }
+        }
+        return lines.join('\n');
+    }
+
+    static QString label(const Option &option, bool distinct) {
+        static const QMap<QString, QString> names{
+            {"allow_once", "Allow once"}, {"allow_always", "Always allow"},
+            {"reject_once", "Reject once"}, {"reject_always", "Always reject"}};
+        const auto standard = names.value(option.kind);
+        if (standard.isEmpty())
+            return option.name.isEmpty() ? "Select" : option.name;
+        return distinct && !option.name.isEmpty() ? standard + " · " + option.name : standard;
+    }
+
+    void updateCount() { count->setText(queue.size() > 1 ? QString("%1 pending").arg(queue.size()) : QString{}); }
+
+    void choose(const QJsonValue &requestId, const QString &optionId) {
+        if (queue.isEmpty() || queue.first().id != requestId)
+            return;
+        const auto id = queue.takeFirst().id;
+        if (answer)
+            answer(id, optionId);
+        showFirst();
+    }
+
+    void refreshActions() {
+        while (auto item = actions->takeAt(0)) {
+            if (auto button = item->widget()) {
+                button->hide();
+                button->deleteLater(); // the clicked button may be on the stack
+            }
+            delete item;
+        }
+    }
+
+    void showFirst() {
+        refreshActions();
+        setVisible(!queue.isEmpty());
+        if (queue.isEmpty())
+            return;
+        const auto &request = queue.first();
+        summary->setText(request.description);
+        updateCount();
+        QMap<QString, int> kinds;
+        for (const auto &option : request.options)
+            ++kinds[option.kind];
+        const auto addButton = [this, requestId = request.id](const QString &text, const QString &name, const QString &id) {
+            auto button = new QPushButton(text, this);
+            button->setObjectName(name);
+            button->setAutoDefault(false);
+            actions->addWidget(button);
+            connect(button, &QPushButton::clicked, this, [this, requestId, id] { choose(requestId, id); });
+        };
+        if (request.options.isEmpty()) {
+            addButton("Dismiss request", "acpPermissionDismiss", {});
+        } else if (request.options.size() > 4 || kinds.size() != request.options.size() ||
+                   kinds.contains(QString{})) {
+            auto picker = new QComboBox(this);
+            picker->setAccessibleName("Tool permission options");
+            for (const auto &option : request.options)
+                picker->addItem(label(option, true), option.id);
+            picker->setPlaceholderText("Choose a decision");
+            picker->setCurrentIndex(-1);
+            actions->addWidget(picker, 1);
+            auto apply = new QPushButton("Apply decision", this);
+            apply->setAutoDefault(false);
+            apply->setEnabled(false);
+            actions->addWidget(apply);
+            connect(picker, &QComboBox::currentIndexChanged, apply, [apply](int index) { apply->setEnabled(index >= 0); });
+            connect(apply, &QPushButton::clicked, this, [this, picker, requestId = request.id] {
+                choose(requestId, picker->currentData().toString());
+            });
+            return;
+        } else {
+            static const QMap<QString, QString> buttonNames{
+                {"allow_once", "acpPermissionAllow"}, {"allow_always", "acpPermissionAllowAlways"},
+                {"reject_once", "acpPermissionReject"}, {"reject_always", "acpPermissionRejectAlways"}};
+            for (const auto &option : request.options)
+                addButton(label(option, false), buttonNames.value(option.kind), option.id);
+        }
+        actions->addStretch();
+    }
+};
+
 class AgentSessionDialog : public QDialog {
   public:
     QPointer<acp::Session> session;
     QString sessionProject, workFolder;
     quint64 grant = 0;
     bool editing = false;
-    QLabel *status, *statusDetail, *access, *notice, *permissionText;
+    QLabel *status, *statusDetail, *access, *notice;
     QLineEdit *program, *arguments;
     Composer *prompt;
     QComboBox *agentPicker, *authMethod;
     QWidget *authRow;
     acp::AgentProgram activeProgram;
     AgentConversation *conversation;
-    QPushButton *start, *edit, *revoke, *send, *cancel, *stop, *allow, *reject;
-    QJsonValue permissionId = QJsonValue::Undefined; // undefined: no request pending (null is a valid id)
-    QString allowOption, rejectOption;
+    QPushButton *start, *edit, *revoke, *send, *cancel, *stop;
+    PermissionCard *permission;
     explicit AgentSessionDialog(QWidget *parent) : QDialog(parent) {}
     // One line for things the user should know that are not part of the conversation.
     void tell(const QString &message, const QString &severity = "info") {
@@ -322,20 +495,12 @@ void Window::showAgentSession() {
     dialog->notice->hide();
     sessionSection->addWidget(dialog->notice);
 
-    dialog->permissionText = new QLabel(dialog);
-    dialog->permissionText->setObjectName("acpPermission");
-    dialog->permissionText->setWordWrap(true);
-    dialog->permissionText->setTextFormat(Qt::PlainText);
-    dialog->allow = new QPushButton("Allow once", dialog);
-    dialog->allow->setObjectName("acpPermissionAllow");
-    dialog->reject = new QPushButton("Reject", dialog);
-    dialog->reject->setObjectName("acpPermissionReject");
-    auto permissionRow = new QHBoxLayout;
-    permissionRow->setSpacing(ui::SpaceM);
-    permissionRow->addWidget(dialog->permissionText, 1);
-    permissionRow->addWidget(dialog->allow);
-    permissionRow->addWidget(dialog->reject);
-    conversationSection->addLayout(permissionRow);
+    dialog->permission = new PermissionCard(dialog);
+    conversationSection->addWidget(dialog->permission);
+    dialog->permission->answer = [dialog](const QJsonValue &id, const QString &option) {
+        if (dialog->session)
+            dialog->session->answerPermission(id, option);
+    };
 
     auto promptRow = new QHBoxLayout;
     promptRow->setSpacing(ui::SpaceL);
@@ -410,10 +575,6 @@ void Window::showAgentSession() {
         dialog->send->setEnabled(state == acp::Session::State::Ready && !dialog->prompt->toPlainText().trimmed().isEmpty());
         dialog->prompt->setEnabled(state == acp::Session::State::Ready || state == acp::Session::State::Prompting);
         dialog->cancel->setEnabled(state == acp::Session::State::Prompting);
-        const bool asking = !dialog->permissionId.isUndefined();
-        dialog->permissionText->setVisible(asking);
-        dialog->allow->setVisible(asking && !dialog->allowOption.isEmpty());
-        dialog->reject->setVisible(asking);
     };
     // Ends Nova's grant when the session that owned it ends; never touches another grant.
     auto release = [this, dialog, ours] {
@@ -453,8 +614,10 @@ void Window::showAgentSession() {
             return session && session->ownsProcess(pid);
         });
         connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release] {
+            if (session->state() == acp::Session::State::Stopping)
+                dialog->permission->clear();
             if (session->state() == acp::Session::State::Ended) {
-                dialog->permissionId = QJsonValue::Undefined;
+                dialog->permission->clear();
                 dialog->conversation->finishTurn();
                 dialog->authRow->hide();
                 release();
@@ -500,6 +663,7 @@ void Window::showAgentSession() {
         });
         // Only how a turn ended unusually is worth a line; a normal reply speaks for itself.
         connect(session, &acp::Session::turnEnded, dialog, [dialog](const QString &reason) {
+            dialog->permission->clear();
             dialog->conversation->finishTurn();
             static const QMap<QString, QString> told{
                 {"end_turn", ""}, {"cancelled", "You cancelled the agent's turn."},
@@ -512,26 +676,7 @@ void Window::showAgentSession() {
                 dialog->tell(told.value(reason, "The agent ended the turn: " + reason), "info");
         });
         connect(session, &acp::Session::problem, dialog, [dialog](const QString &message) { dialog->tell(message, "warning"); });
-        connect(session, &acp::Session::permissionRequested, dialog,
-                [dialog, refresh](const QJsonValue &id, const QJsonObject &params) {
-            if (!dialog->permissionId.isUndefined())
-                dialog->session->answerPermission(dialog->permissionId, dialog->rejectOption);
-            dialog->permissionId = id;
-            dialog->allowOption.clear();
-            dialog->rejectOption.clear();
-            for (const auto &value : params["options"].toArray()) {
-                const auto option = value.toObject();
-                if (option["kind"] == "allow_once" && dialog->allowOption.isEmpty())
-                    dialog->allowOption = option["optionId"].toString();
-                if (option["kind"] == "reject_once" && dialog->rejectOption.isEmpty())
-                    dialog->rejectOption = option["optionId"].toString();
-            }
-            const auto call = params["toolCall"].toObject();
-            dialog->permissionText->setText("The agent asks to use its own tool (not a Nova tool): " +
-                agentDisplayText(call["title"].toString(), 200) + "\n" +
-                agentDisplayText(QString::fromUtf8(QJsonDocument(call["rawInput"].toObject()).toJson(QJsonDocument::Compact)), 400));
-            refresh();
-        });
+        connect(session, &acp::Session::permissionRequested, dialog->permission, &PermissionCard::enqueue);
         dialog->tell({});
         dialog->authMethod->clear();
         if (!session->start(program, dialog->workFolder,
@@ -601,11 +746,10 @@ void Window::showAgentSession() {
         if (dialog->session)
             dialog->session->stop("Stopped by you.");
     });
-    connect(dialog->cancel, &QPushButton::clicked, dialog, [dialog, refresh] {
+    connect(dialog->cancel, &QPushButton::clicked, dialog, [dialog] {
         if (dialog->session)
             dialog->session->cancel();
-        dialog->permissionId = QJsonValue::Undefined;
-        refresh();
+        dialog->permission->clear();
     });
     auto submit = [dialog, transcript] {
         const auto text = dialog->prompt->toPlainText().trimmed();
@@ -619,14 +763,6 @@ void Window::showAgentSession() {
     connect(dialog->send, &QPushButton::clicked, dialog, submit);
     connect(dialog->prompt, &QPlainTextEdit::textChanged, dialog, refresh);
     dialog->prompt->submit = submit;
-    auto answer = [dialog, refresh](bool allowed) {
-        if (dialog->session && !dialog->permissionId.isUndefined())
-            dialog->session->answerPermission(dialog->permissionId, allowed ? dialog->allowOption : dialog->rejectOption);
-        dialog->permissionId = QJsonValue::Undefined;
-        refresh();
-    };
-    connect(dialog->allow, &QPushButton::clicked, dialog, [answer] { answer(true); });
-    connect(dialog->reject, &QPushButton::clicked, dialog, [answer] { answer(false); });
     connect(mcpService, &mcp::Service::changed, dialog, refresh);
     connect(this, &QWidget::windowTitleChanged, dialog, refresh);
     // Closing the window ends the agent and the grant it held.

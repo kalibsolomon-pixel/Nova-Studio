@@ -71,6 +71,7 @@ class Session : public QObject {
     QJsonArray servers, authMethods;
     bool waitingForAuth = false;
     bool canClose = false;
+    bool cancellingTurn = false;
     qint64 nextId = 0;
     QMap<qint64, std::function<void(const QJsonObject &)>> pending;
     QList<QJsonValue> permissions;
@@ -84,6 +85,7 @@ class Session : public QObject {
     void handle(const QJsonObject &message);
     void update(const QJsonObject &params);
     void createSession();
+    void cancelPermissions();
     void finish(const QString &why);
     void endTree();
     void remember();

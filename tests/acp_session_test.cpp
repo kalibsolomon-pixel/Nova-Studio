@@ -321,10 +321,7 @@ class AcpSessionTest : public QObject {
         QVERIFY2(shown.contains("You\nPlease check") && shown.contains("Agent reasoning") &&
                  shown.contains("Agent\nI checked the textures in Synthetic Pack"), qPrintable(shown));
         QVERIFY(!shown.contains("**")); // Markdown is rendered, not shown raw
-        // With no permission request pending, no permission controls are shown.
-        for (const auto name : {"acpPermissionAllow", "acpPermissionReject"})
-            QVERIFY2(!button(name)->isVisible(), name);
-        QVERIFY(!dialog->findChild<QLabel *>("acpPermission")->isVisible());
+        QVERIFY(!dialog->findChild<QWidget *>("acpPermissionCard")->isVisible());
         const auto evidence = qEnvironmentVariable("NOVA_EVIDENCE_DIR");
         if (evidence.isEmpty())
             return;
@@ -465,10 +462,32 @@ class AcpSessionTest : public QObject {
         QVERIFY(dialog->findChild<QLabel *>("acpNotice")->isVisible());
         composer()->setPlainText("ask");
         button("acpSend")->click();
-        QTRY_VERIFY(button("acpPermissionReject")->isVisible());
-        QVERIFY(dialog->findChild<QLabel *>("acpPermission")->text().contains("not a Nova tool"));
+        QTRY_VERIFY(button("acpPermissionReject") && button("acpPermissionReject")->isVisible());
+        QVERIFY(dialog->findChild<QLabel *>("acpPermission")->text().contains("notes.txt"));
         button("acpPermissionReject")->click();
         QTRY_VERIFY_WITH_TIMEOUT(transcript().contains("PERMISSION selected no"), 10000);
+    }
+
+    void permissionQueueHonorsEveryOption() {
+        open();
+        startReadOnly();
+        composer()->setPlainText("ask-queue");
+        button("acpSend")->click();
+        const auto summary = dialog->findChild<QLabel *>("acpPermission");
+        const auto count = dialog->findChild<QLabel *>("acpPermissionCount");
+        QVERIFY(summary && count);
+        QTRY_COMPARE(count->text(), "2 pending");
+        QVERIFY(summary->text().contains("notes.txt"));
+        const auto allowAlways = button("acpPermissionAllowAlways");
+        QTRY_VERIFY(allowAlways && allowAlways->isVisible());
+        allowAlways->click();
+        QTRY_VERIFY(summary->text().contains("draft.txt"));
+        QTRY_VERIFY(button("acpPermissionRejectAlways") && button("acpPermissionRejectAlways")->isVisible());
+        button("acpPermissionRejectAlways")->click();
+        QTRY_VERIFY(transcript().contains("PERMISSION selected yes-always perm-1"));
+        QTRY_VERIFY(transcript().contains("PERMISSION selected no-always perm-2"));
+        QVERIFY(!dialog->findChild<QWidget *>("acpPermissionCard")->isVisible());
+        QCOMPARE(service()->permission(), "Read-only");
     }
 
     // Stop ends the agent and everything it started, and revokes the grant.
