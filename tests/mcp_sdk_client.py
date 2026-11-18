@@ -757,8 +757,8 @@ async def animation_profile(client):
 
 
 async def phase1(client: ClientSession, initialized) -> dict:
-    """MCP Phase 1 through the official SDK. The SDK validates every structured result against the
-    tool's output schema, so this also checks the new schemas."""
+    """MCP Phase 1 through the official SDK. The listing omits the spec-optional outputSchema (a
+    size decision), so the SDK passes each structured result through instead of validating it."""
     instructions = initialized.instructions or ""
     for phrase in ("never filesystem paths", "not proof", "nova.drafts.save", "nova.guide.get"):
         assert phrase in instructions, (phrase, instructions)
@@ -881,9 +881,10 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
 
 
 async def phase2(client: ClientSession, wire) -> dict:
-    """MCP Phase 2 compact texture tools through the official SDK. The SDK validates every structured
-    result against the tool's output schema; jsonschema checks that the published input schemas accept
-    and reject the same arguments as Nova, except the checks that need the canvas."""
+    """MCP Phase 2 compact texture tools through the official SDK. jsonschema checks that the
+    published input schemas accept and reject the same arguments as Nova, except the checks that
+    need the canvas. The listing omits the spec-optional outputSchema (a size decision), so the
+    SDK passes each structured result through instead of validating it."""
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
     listing = next(frame["message"] for frame in reversed(wire) if frame["direction"] == "server"
@@ -892,9 +893,8 @@ async def phase2(client: ClientSession, wire) -> dict:
     validators = {}
     for name in names:
         tool = tools[name]
-        assert tool.outputSchema and tool.annotations.readOnlyHint is False, name
+        assert tool.outputSchema is None and tool.annotations.readOnlyHint is False, name
         jsonschema.Draft202012Validator.check_schema(tool.inputSchema)
-        jsonschema.Draft202012Validator.check_schema(tool.outputSchema)
         validators[name] = jsonschema.Draft202012Validator(tool.inputSchema)
     info = await client.call_tool("nova.project.info")
     for _ in range(50):
@@ -1000,6 +1000,10 @@ async def phase2(client: ClientSession, wire) -> dict:
         "params": {"base": "#12345680", "style": "Flat", "outline": False, "corner_radius": 0},
     }}
     native_validator.validate(native_request)
+    # The listing names nova.texture.edit's operations by command only, pointing at
+    # nova.edit.batch for the fields, and still rejects a command Nova rejects for this tool.
+    assert not native_validator.is_valid({**target, "expectedRevision": revision,
+                                          "operation": {"command": "layer_add"}})
     generated = await client.call_tool(native.name, native_request)
     assert not generated.isError and generated.structuredContent["changed"], generated
     after_native = await client.call_tool("nova.texture.read", {**target, "region": region})
@@ -1116,8 +1120,9 @@ async def bulk_recolor(client, wire, scope, assets, tools):
 
 
 async def phase3(client: ClientSession) -> dict:
-    """MCP Phase 3 read-only tools through the official SDK. The SDK validates every structured result
-    against the tool's output schema; errors must carry no structured content (StrictClientSession)."""
+    """MCP Phase 3 read-only tools through the official SDK. The listing omits the spec-optional
+    outputSchema (a size decision), so the SDK passes structured results through; errors must
+    still carry no structured content (StrictClientSession)."""
     import hashlib
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
@@ -1125,9 +1130,8 @@ async def phase3(client: ClientSession) -> dict:
              "nova.texture.analyze"]
     for name in names:
         tool = tools[name]
-        assert tool.outputSchema and tool.annotations.readOnlyHint is True, name
+        assert tool.outputSchema is None and tool.annotations.readOnlyHint is True, name
         jsonschema.Draft202012Validator.check_schema(tool.inputSchema)
-        jsonschema.Draft202012Validator.check_schema(tool.outputSchema)
     info = await client.call_tool("nova.project.info")
     for _ in range(50):
         if not info.isError:

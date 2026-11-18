@@ -202,10 +202,16 @@ class McpTest : public QObject {
         };
         const auto list = result(protocol.receive(request(5, "tools/list")).response)["tools"].toArray();
         QCOMPARE(list.size(), 44);
+        // The listing omits the spec-optional outputSchema (a size decision; structuredContent is
+        // unchanged). The full definitions still carry exactly 38 for the result-conformance
+        // checks, so count them there.
         int schemas = 0;
+        for (const auto &entry : toolDefinitions())
+            schemas += entry.toObject().contains("outputSchema");
+        QCOMPARE(schemas, 38);
         for (const auto &entry : list) {
             const auto tool = entry.toObject();
-            schemas += tool.contains("outputSchema");
+            QVERIFY2(!tool.contains("outputSchema"), qPrintable(tool["name"].toString()));
             const auto rejected = result(protocol.receive(call(6, tool["name"].toString(), {{"unexpected", 1}})).response);
             QVERIFY2(rejected["isError"].toBool() && !rejected.contains("structuredContent"),
                      qPrintable(tool["name"].toString()));
@@ -219,7 +225,6 @@ class McpTest : public QObject {
                      qPrintable(tool["name"].toString() + ": " + failure["message"].toString()));
             QCOMPARE(failure.keys(), (QStringList{"code", "details", "message"}));
         }
-        QCOMPARE(schemas, 38);
         const auto denied = result(toolReply(7, toolError("permission_denied", "Editing is not authorized.")));
         QVERIFY(denied["isError"].toBool() && !denied.contains("structuredContent"));
         QCOMPARE(denied["content"].toArray().first().toObject()["text"].toString(),

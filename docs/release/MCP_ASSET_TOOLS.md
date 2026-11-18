@@ -393,7 +393,8 @@ synthetic test data.
 
 ## Exact tool definitions
 
-These are the definitions `tools/list` returns (checked by the `mcp-relationships` test).
+These are the tools' complete definitions (checked by the `mcp-relationships` test). `tools/list`
+publishes their input schemas exactly as shown and omits the spec-optional `outputSchema`.
 
 ### `nova.vanilla.list`
 

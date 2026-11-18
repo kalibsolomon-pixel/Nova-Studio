@@ -58,6 +58,38 @@ int selfTest() {
               .toJson(QJsonDocument::Compact) + '\n');
     return tools.isEmpty() || listedResources.isEmpty() || !instructions ? 1 : 0;
 }
+// Test-only measurement helper: writes the published tools/list tools array to a file and prints
+// its compact UTF-8 bytes per tool, the array total and the whole JSON-RPC line (what an agent
+// receives on connect). No connection, no project access.
+int dumpTools(const QString &path) {
+    Protocol protocol;
+    auto line = [](const QJsonObject &message) {
+        return QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n';
+    };
+    protocol.receive(line({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
+        {"params", QJsonObject{{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+                               {"clientInfo", QJsonObject{{"name", "nova-dump-tools"}, {"version", "1"}}}}}}));
+    protocol.receive(line({{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}}));
+    const auto listed = protocol.receive(line({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}}));
+    const auto tools = listed.response["result"].toObject()["tools"].toArray();
+    QJsonArray perTool;
+    qsizetype toolsBytes = 0;
+    for (const auto &value : tools) {
+        const auto bytes = QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact).size();
+        toolsBytes += bytes;
+        perTool.append(QJsonObject{{"name", value.toObject()["name"]}, {"bytes", bytes}});
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return 2;
+    const auto payload = QJsonDocument(tools).toJson(QJsonDocument::Compact);
+    if (file.write(payload) != payload.size())
+        return 2;
+    print(QJsonDocument(QJsonObject{{"tools", tools.size()},
+        {"lineBytes", QJsonDocument(listed.response).toJson(QJsonDocument::Compact).size() + 1},
+        {"toolsBytes", toolsBytes}, {"perTool", perTool}}).toJson(QJsonDocument::Compact) + '\n');
+    return tools.isEmpty() ? 1 : 0;
+}
 QString offeredCode() {
     QString reason;
     const auto pending = handoff::read(&reason);
@@ -101,8 +133,11 @@ int main(int argc, char **argv) {
     }
     if (arguments.size() == 2 && arguments[1] == "--self-test")
         return selfTest();
+    if (arguments.size() == 3 && arguments[1] == "--dump-tools")
+        return dumpTools(arguments[2]);
     if (arguments.size() > 1) {
-        qWarning("Usage: nova-mcp [--version | --license | --self-test]. MCP clients start it without arguments.");
+        qWarning("Usage: nova-mcp [--version | --license | --self-test | --dump-tools <file>]. "
+                 "MCP clients start it without arguments.");
         return 2;
     }
     // An explicit code from the environment takes precedence over the offered connection.

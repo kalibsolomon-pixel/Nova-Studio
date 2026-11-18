@@ -8,6 +8,7 @@
 #include <QMap>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStringConverter>
 #include <cmath>
 
@@ -636,6 +637,48 @@ QHash<QString, QJsonObject> &briefSchemas() {
     static QHash<QString, QJsonObject> schemas;
     return schemas;
 }
+// A command-only operation form. The listing names the accepted commands and points at
+// nova.edit.batch, whose listing carries every command's fields; fields are not re-checked here.
+QJsonObject briefOperationSchema(const QJsonArray &variants, const QString &description) {
+    QJsonArray names;
+    for (const QJsonValue &variant : variants)
+        names.append(variant.toObject()["properties"].toObject()["command"].toObject()["enum"].toArray().at(0));
+    return QJsonObject{{"type", "object"}, {"required", QJsonArray{"command"}},
+        {"properties", QJsonObject{{"command", QJsonObject{{"type", "string"}, {"enum", names}}}}},
+        {"description", description}};
+}
+// Drops $defs entries that no $ref names any more (a listing replaced the branch that used them).
+void pruneSchemaDefs(QJsonObject &schema) {
+    const auto defs = schema["$defs"].toObject();
+    if (defs.isEmpty())
+        return;
+    QSet<QString> referenced;
+    const std::function<void(const QJsonObject &)> visit = [&](const QJsonObject &node) {
+        const auto ref = node["$ref"].toString();
+        if (ref.startsWith("#/$defs/"))
+            referenced.insert(ref.mid(8));
+        for (auto it = node.begin(); it != node.end(); ++it) {
+            if (it.key() == "$ref")
+                continue;
+            const auto value = it.value();
+            if (value.isObject())
+                visit(value.toObject());
+            else if (value.isArray())
+                for (const auto &item : value.toArray())
+                    if (item.isObject())
+                        visit(item.toObject());
+        }
+    };
+    visit(schema);
+    QJsonObject kept;
+    for (auto it = defs.begin(); it != defs.end(); ++it)
+        if (referenced.contains(it.key()))
+            kept.insert(it.key(), it.value());
+    if (kept.isEmpty())
+        schema.remove("$defs");
+    else
+        schema["$defs"] = kept;
+}
 const QJsonArray &tools() {
     static const auto definitions = [] {
         QJsonArray list;
@@ -785,8 +828,9 @@ const QJsonArray &tools() {
             "saved source frame. Findings are advisory.",
             {{"generation", current}, {"projectId", project}, {"assetId", asset}, {"assetIds", arrayField(asset, 1, 16)}},
             {"generation", "projectId"});
-        // nova.edit.preview and both workflow tools repeat nova.edit.batch's command schemas (about 23 KB
-        // each), and $defs cannot be shared across tools. tools/list names their operations by command only
+        // nova.edit.preview, both workflow tools, nova.texture.edit and nova.texture.adjust_bulk
+        // repeat command schemas from nova.edit.batch (the full set is about 23 KB), and $defs
+        // cannot be shared across tools. tools/list names their operations by command only
         // (listedTools()); calls are still checked against the full schemas here.
         QJsonArray commandNames;
         for (const QJsonValue &tool : list)
@@ -839,16 +883,49 @@ const QJsonArray &tools() {
     }();
     return definitions;
 }
-// What tools/list publishes: tools() with the brief operation schemas recorded while building it.
+// What tools/list publishes. Differs from tools() in three measured ways, none of which changes
+// how calls are checked (that always uses the full schemas in tools()):
+// - preview, workflow, nova.texture.edit and nova.texture.adjust_bulk operations, and
+//   nova.asset.create_preview parameters, are listed by command only; nova.edit.batch's and
+//   nova.asset.create's listings carry the fields.
+// - the optional outputSchema is omitted (MCP 2025-11-25 allows a listing without one; clients
+//   such as the official SDKs then pass structuredContent through without validating it).
+// - $defs left unreferenced by the brief forms are pruned.
 const QJsonArray &listedTools() {
     static const auto listing = [] {
         auto list = tools();
         for (qsizetype i = 0; i < list.size(); ++i) {
             auto tool = list.at(i).toObject();
-            if (const auto brief = briefSchemas().value(tool["name"].toString()); !brief.isEmpty()) {
+            const auto name = tool["name"].toString();
+            if (const auto brief = briefSchemas().value(name); !brief.isEmpty())
                 tool["inputSchema"] = brief;
-                list.replace(i, tool);
+            tool.remove("outputSchema");
+            auto schema = tool["inputSchema"].toObject();
+            auto fields = schema["properties"].toObject();
+            if (name == "nova.texture.edit") {
+                fields["operation"] = briefOperationSchema(fields["operation"].toObject()["oneOf"].toArray(),
+                    "One texture operation with the fields it has in nova.edit.batch operations; "
+                    "only these texture commands are accepted here.");
+                schema["properties"] = fields;
+            } else if (name == "nova.texture.adjust_bulk") {
+                auto operations = fields["operations"].toObject();
+                operations["items"] = briefOperationSchema(operations["items"].toObject()["oneOf"].toArray(),
+                    "One colour adjustment with the fields it has in nova.edit.batch operations, "
+                    "without layer; only these adjustment commands are accepted here.");
+                fields["operations"] = operations;
+                schema["properties"] = fields;
+            } else if (name == "nova.asset.create_preview") {
+                fields["parameters"] = briefOperationSchema(
+                    fields["parameters"].toObject()["oneOf"].toArray(),
+                    "Creation parameters exactly as in nova.asset.create; only these creation "
+                    "commands are accepted.");
+                schema["properties"] = fields;
             }
+            if (schema != tool["inputSchema"].toObject()) {
+                pruneSchemaDefs(schema);
+                tool["inputSchema"] = schema;
+            }
+            list.replace(i, tool);
         }
         return list;
     }();
