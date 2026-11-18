@@ -42,6 +42,12 @@ class AssetModel : public QAbstractItemModel {
     const QIcon &standardIcon(bool directory) const;
     mutable QThreadPool pool;
     std::shared_ptr<const mc::Library> modelSources;
+    // Recipes finished on workers wait for their OpenGL capture, which must run on the
+    // GUI thread; the drain is bounded per event-loop turn so bursts cannot stall input.
+    struct IconQueue;
+    mutable std::unique_ptr<IconQueue> iconQueue;
+    void scheduleIconDrain() const;
+    void drainIconQueue() const;
     mutable std::unique_ptr<Metrics> thumbnailMetrics;
     mutable std::unique_ptr<Cube> thumbnailCube;
     int modelRevision = 0;
@@ -51,6 +57,14 @@ class AssetModel : public QAbstractItemModel {
     // Vanilla baseline overlay: empty for legacy projects (no extra roles, unchanged rows).
     QString baselineVersion;
     std::function<QVariant(int origin)> originForeground;
+    // Thumbnail pipeline telemetry for benchmarks: model icons dropped by invalidation,
+    // OpenGL captures performed, GUI-thread nanoseconds spent capturing, the longest
+    // single capture and the longest consecutive GUI-thread icon stall.
+    struct IconStats {
+        int invalidated = 0, captured = 0;
+        qint64 captureNs = 0, longestCaptureNs = 0, longestStallNs = 0;
+    };
+    mutable IconStats iconCounters;
     int generation = 0;
     Node *node(const QModelIndex &index) const;
     std::unique_ptr<Node> build(const Index &index, QString path, Node *parent, int row);
@@ -73,6 +87,8 @@ class AssetModel : public QAbstractItemModel {
     void setCategory(const QString &value);
     int cachedBytes() const { return cache.totalCost(); }
     int pendingCount() const { return pending.size(); }
+    IconStats iconStats() const { return iconCounters; }
+    void resetIconStats() const;
     QModelIndex indexFor(const QString &path) const;
     QString pathFor(const QModelIndex &index) const;
     bool isDirectory(const QModelIndex &index) const;
