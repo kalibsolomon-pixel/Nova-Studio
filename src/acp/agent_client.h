@@ -16,12 +16,13 @@
 
 namespace nova::acp {
 
-// The agent's own executable (not a .cmd/.bat shim, whose arguments cmd.exe would re-parse).
+// An absolute native executable and separate arguments. An npm shim resolves to node.exe and its script.
 struct AgentProgram {
     QString executable;
     QStringList arguments;
 };
-QString findAgentExecutable(const QString &name); // a PATH .exe, or empty
+QString findAgentExecutable(const QString &name); // a PATH .exe or npm .cmd, or empty
+AgentProgram resolveAgentProgram(const QString &path, const QStringList &arguments, QString *problem = nullptr);
 bool acceptableExecutable(const QString &path, QString *problem);
 // The user's environment without Nova's own variables (connection codes, test hooks).
 QProcessEnvironment agentEnvironment(QProcessEnvironment base = QProcessEnvironment::systemEnvironment());
@@ -37,6 +38,7 @@ class Session : public QObject {
     bool start(const AgentProgram &program, const QString &workingDirectory, const QJsonArray &mcpServers,
                const QProcessEnvironment &environment, QString *problem = nullptr);
     bool prompt(const QString &text);
+    bool authenticate(const QString &methodId);
     void cancel();                 // session/cancel: ends the current turn
     void stop(const QString &why); // cancel, close, then end the agent's process tree
     // Answers a session/request_permission; an empty option rejects (sent as "cancelled").
@@ -55,6 +57,7 @@ class Session : public QObject {
     void agentThought(const QString &text);           // agent_thought_chunk text (its reasoning)
     void toolCall(const QJsonObject &update);         // tool_call / tool_call_update (untrusted)
     void permissionRequested(const QJsonValue &id, const QJsonObject &params);
+    void authenticationRequired(const QJsonArray &methods); // empty: sign in with the agent's own CLI
     void turnEnded(const QString &stopReason);
     void problem(const QString &message);
 
@@ -64,7 +67,8 @@ class Session : public QObject {
     QList<testing::ProcessIdentity> started; // the tree seen while running, for shutdown
     State current = State::Idle;
     QString agent, session, reason, directory;
-    QJsonArray servers;
+    QJsonArray servers, authMethods;
+    bool waitingForAuth = false;
     bool canClose = false;
     qint64 nextId = 0;
     QMap<qint64, std::function<void(const QJsonObject &)>> pending;
@@ -78,6 +82,7 @@ class Session : public QObject {
     void readOutput();
     void handle(const QJsonObject &message);
     void update(const QJsonObject &params);
+    void createSession();
     void finish(const QString &why);
     void endTree();
     void remember();

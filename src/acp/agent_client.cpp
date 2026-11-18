@@ -2,8 +2,10 @@
 #include "agent_client.h"
 #include "build_identity.h"
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 namespace nova::testing {
@@ -22,8 +24,54 @@ QString text(const QJsonObject &error) {
 } // namespace
 
 QString findAgentExecutable(const QString &name) {
-    const auto found = QStandardPaths::findExecutable(name + ".exe");
-    return acceptableExecutable(found, nullptr) ? QDir::toNativeSeparators(found) : QString{};
+    for (const auto *suffix : {".exe", ".cmd"}) {
+        const auto found = QStandardPaths::findExecutable(name + suffix);
+        if (!resolveAgentProgram(found, {}).executable.isEmpty())
+            return QDir::toNativeSeparators(found);
+    }
+    return {};
+}
+
+AgentProgram resolveAgentProgram(const QString &path, const QStringList &arguments, QString *problem) {
+    const QFileInfo file(path);
+    if (file.suffix().compare("cmd", Qt::CaseInsensitive) != 0)
+        return acceptableExecutable(path, problem) ? AgentProgram{path, arguments} : AgentProgram{};
+    auto fail = [problem](const QString &message) -> AgentProgram {
+        if (problem)
+            *problem = message;
+        return {};
+    };
+    if (!file.isAbsolute() || !file.isFile())
+        return fail("Choose an existing agent program with its full path.");
+    QFile shim(path);
+    if (!shim.open(QIODevice::ReadOnly) || shim.size() > 16384)
+        return fail("Nova could not read the npm launcher.");
+    // npm's current and older cmd-shim forms. Extract only a quoted script under the
+    // shim's node_modules directory. No batch statement or expansion is executed.
+    static const QRegularExpression invocation(
+        R"rx(^\s*(?:endLocal\s*&\s*goto\s+[^\r\n]+?\s*\|\|\s*title\s+%COMSPEC%\s*&\s*)?@?(?:"%_prog%"|node(?:\.exe)?|"%~dp0\\node\.exe")\s+"(?:%dp0%|%~dp0)\\(node_modules\\[^"%\r\n]+\.(?:js|cjs|mjs))"\s+%\*\s*$)rx",
+        QRegularExpression::CaseInsensitiveOption);
+    QString target;
+    for (const auto &line : QString::fromUtf8(shim.read(16384)).split('\n')) {
+        const auto match = invocation.match(line);
+        if (!match.hasMatch())
+            continue;
+        const auto relative = QDir::fromNativeSeparators(match.captured(1));
+        if (relative != QDir::cleanPath(relative) || (!target.isEmpty() && target != relative))
+            return fail("The npm launcher has an unsupported script path.");
+        target = relative;
+    }
+    if (target.isEmpty())
+        return fail("Choose a native .exe or a standard npm .cmd launcher.");
+    const auto script = file.absoluteDir().absoluteFilePath(target);
+    if (!QFileInfo(script).isFile())
+        return fail("The npm package script is missing. Reinstall the agent adapter.");
+    auto node = file.absoluteDir().absoluteFilePath("node.exe");
+    if (!acceptableExecutable(node, nullptr))
+        node = QStandardPaths::findExecutable("node.exe");
+    if (!acceptableExecutable(node, nullptr))
+        return fail("Install Node.js or add node.exe to PATH, then reopen Nova Studio.");
+    return {QDir::toNativeSeparators(node), QStringList{QDir::toNativeSeparators(script)} + arguments};
 }
 
 bool acceptableExecutable(const QString &path, QString *problem) {
@@ -36,7 +84,7 @@ bool acceptableExecutable(const QString &path, QString *problem) {
     if (path.isEmpty() || !file.isAbsolute())
         return refuse("Choose the agent program with its full path.");
     if (file.suffix().compare("exe", Qt::CaseInsensitive) != 0)
-        return refuse("Choose the agent's .exe program, not a script or .cmd/.bat shim.");
+        return refuse("Choose a native .exe or a standard npm .cmd launcher.");
     if (!file.isFile() || !file.isExecutable())
         return refuse("The agent program does not exist.");
     return true;
@@ -124,20 +172,60 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
         const auto info = result["agentInfo"].toObject();
         agent = (info["title"].toString(info["name"].toString("Agent")) + ' ' + info["version"].toString()).trimmed().left(120);
         canClose = result["agentCapabilities"].toObject()["sessionCapabilities"].toObject().contains("close");
-        request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
-            if (reply.contains("error")) {
-                const auto error = reply["error"].toObject();
-                return stop(error["code"].toInt() == -32000
-                    ? "The agent needs you to sign in with its own tool first."
-                    : "The agent could not start a session: " + text(error));
-            }
-            session = reply["result"].toObject()["sessionId"].toString();
-            if (session.isEmpty())
-                return stop("The agent did not return a session.");
-            setState(State::Ready);
-        });
+        for (const auto &value : result["authMethods"].toArray()) {
+            const auto method = value.toObject();
+            if (!method["id"].toString().isEmpty() && authMethods.size() < 32)
+                authMethods.append(method);
+        }
+        createSession();
     });
     return true;
+}
+
+void Session::createSession() {
+    if (current != State::Starting)
+        return;
+    request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
+        if (current != State::Starting)
+            return;
+        if (reply.contains("error")) {
+            const auto error = reply["error"].toObject();
+            if (error["code"].toInt() != -32000)
+                return stop("The agent could not start a session: " + text(error));
+            waitingForAuth = !authMethods.isEmpty();
+            emit authenticationRequired(authMethods);
+            if (!waitingForAuth)
+                stop("Sign-in required.");
+            return;
+        }
+        session = reply["result"].toObject()["sessionId"].toString();
+        if (session.isEmpty())
+            return stop("The agent did not return a session.");
+        setState(State::Ready);
+    });
+}
+
+bool Session::authenticate(const QString &methodId) {
+    if (current != State::Starting || !waitingForAuth)
+        return false;
+    for (const auto &value : authMethods) {
+        if (value.toObject()["id"].toString() != methodId)
+            continue;
+        waitingForAuth = false;
+        request("authenticate", {{"methodId", methodId}}, [this](const QJsonObject &reply) {
+            if (current != State::Starting)
+                return;
+            if (reply.contains("error")) {
+                waitingForAuth = true;
+                emit authenticationRequired(authMethods);
+                emit problem("Sign-in failed: " + text(reply["error"].toObject()));
+                return;
+            }
+            createSession();
+        });
+        return true;
+    }
+    return false;
 }
 
 bool Session::prompt(const QString &message) {

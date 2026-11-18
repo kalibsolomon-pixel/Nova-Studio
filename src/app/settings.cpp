@@ -16,7 +16,16 @@ QString previewKey(const QString &project) {
                                  QCryptographicHash::Sha256)
             .toHex());
 }
+void writeAgentSetup(QSettings &s, const Preferences &p) {
+    s.setValue("acp/agent", p.acpAgent);
+    s.setValue("acp/program", p.acpProgram);
+    s.setValue("acp/arguments", p.acpArguments);
+}
 } // namespace
+void Settings::saveAgentSetup(const Preferences &p) const {
+    QSettings s(path, QSettings::IniFormat);
+    writeAgentSetup(s, p);
+}
 QJsonObject Settings::projectPreview(const QString &project) const {
     if (QFileInfo(project).canonicalFilePath().isEmpty())
         return {};
@@ -73,6 +82,9 @@ Preferences Settings::load() const {
     p.fabricDetailedLogs = s.value("fabric/detailedLogs", false).toBool();
     p.fabricOpenTestWorld = s.value("fabric/openTestWorld", true).toBool();
     p.experimentalAgentSession = s.value("experimental/agentSession", false).toBool();
+    p.acpAgent = s.value("acp/agent", "opencode").toString().left(64);
+    p.acpProgram = s.value("acp/program").toString().left(32767);
+    p.acpArguments = s.value("acp/arguments").toString().left(32767);
     p.geometry = s.value("workspace/geometry").toByteArray();
     p.layout = s.value("workspace/layout").toByteArray();
     p.recentProjects = s.value("projects/recent").toStringList().mid(0, 10);
@@ -122,6 +134,7 @@ bool Settings::save(const Preferences &p) const {
     s.setValue("fabric/detailedLogs", p.fabricDetailedLogs);
     s.setValue("fabric/openTestWorld", p.fabricOpenTestWorld);
     s.setValue("experimental/agentSession", p.experimentalAgentSession);
+    writeAgentSetup(s, p);
     s.setValue("editor/historyMiB", p.historyMiB);
     s.setValue("workspace/geometry", p.geometry);
     s.setValue("workspace/layout", p.layout);

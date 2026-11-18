@@ -9,6 +9,7 @@
 #include "agent_client.h"
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <QJsonDocument>
@@ -19,6 +20,7 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QScreen>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -107,6 +109,8 @@ class AcpSessionTest : public QObject {
         window->findChild<QAction *>("acpSession")->trigger();
         dialog = window->findChild<QDialog *>("acpSessionDialog");
         QVERIFY(dialog);
+        auto picker = dialog->findChild<QComboBox *>("acpAgentPicker");
+        picker->setCurrentIndex(picker->findData("custom"));
         dialog->findChild<QLineEdit *>("acpAgentPath")->setText(agent());
     }
     // Starts a read-only session and waits until the agent's bridge holds the grant.
@@ -219,6 +223,50 @@ class AcpSessionTest : public QObject {
         QVERIFY(service()->connectionCode().isEmpty());
         QVERIFY(!session());
         QVERIFY(!button("acpEditing")->isEnabled());
+    }
+
+    void customArgumentsAndAuthentication() {
+        open();
+        const QString arguments = "--require-auth \"value with spaces\" &";
+        dialog->findChild<QLineEdit *>("acpAgentArguments")->setText(arguments);
+        {
+            Answer yes(QMessageBox::Yes);
+            button("acpStart")->click();
+        }
+        QTRY_VERIFY(button("acpSignIn")->isVisible());
+        QVERIFY(!service()->clientConnected());
+        QCOMPARE(dialog->findChild<QComboBox *>("acpAuthMethod")->currentText(), "Scripted sign-in");
+        button("acpSignIn")->click();
+        QTRY_VERIFY_WITH_TIMEOUT(status().startsWith("Connected") && service()->clientConnected(), 15000);
+        ask("args", "ARGUMENTS --require-auth | value with spaces | &");
+        dialog->close();
+        const auto saved = nova::Settings(qApp->property("settingsFile").toString()).load();
+        QCOMPARE(saved.acpAgent, "custom");
+        QCOMPARE(saved.acpProgram, agent());
+        QCOMPARE(saved.acpArguments, arguments);
+    }
+
+    void resolvesOnlyStandardNpmLaunchers() {
+        const auto npm = root + "/npm prefix";
+        const auto shim = npm + "/claude-code-acp.cmd";
+        const auto script = npm + "/node_modules/@zed-industries/claude-code-acp/dist/index.js";
+        write(script, "// fixture only");
+        QVERIFY(QFile::copy(agent(), npm + "/node.exe"));
+        write(shim, "@ECHO off\r\n"
+                    "endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\" "
+                    "\"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
+        const auto oldPath = qgetenv("PATH");
+        const auto restore = qScopeGuard([oldPath] { qputenv("PATH", oldPath); });
+        qputenv("PATH", QDir::toNativeSeparators(npm).toLocal8Bit() + ';' + oldPath);
+        QCOMPARE(nova::acp::findAgentExecutable("claude-code-acp"), QDir::toNativeSeparators(shim));
+        const auto resolved = nova::acp::resolveAgentProgram(shim, {"with spaces", "&&"});
+        QCOMPARE(resolved.executable, QDir::toNativeSeparators(npm + "/node.exe"));
+        const QStringList expected{QDir::toNativeSeparators(script), "with spaces", "&&"};
+        QCOMPARE(resolved.arguments, expected);
+        write(shim, "@node \"%~dp0\\node_modules\\..\\outside.js\" %*\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+        write(shim, "@node \"%~dp0\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %* & calc\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
     }
 
     // Read-only tools work; editing and saving are refused; nothing in the pack changes.

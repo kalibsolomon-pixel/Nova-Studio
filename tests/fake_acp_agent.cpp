@@ -120,16 +120,29 @@ int main(int argc, char **argv) {
     std::vector<Server> servers;
     std::vector<std::unique_ptr<QProcess>> children;
     QString session;
+    const bool requireAuth = app.arguments().contains("--require-auth");
+    bool authenticated = false;
     bool eof = false;
     while (!eof) {
         const auto message = readMessage(&eof);
         const auto method = message["method"].toString();
         const auto params = message["params"].toObject();
         if (method == "initialize") {
+            QJsonArray methods;
+            if (requireAuth)
+                methods.append(QJsonObject{{"id", "fake-sign-in"}, {"name", "Scripted sign-in"}});
             reply(message["id"], {{"protocolVersion", 1}, {"agentInfo", QJsonObject{{"name", "fake-acp-agent"}, {"version", "1"}}},
                                   {"agentCapabilities", QJsonObject{{"sessionCapabilities", QJsonObject{{"close", QJsonObject{}}}}}},
-                                  {"authMethods", QJsonArray{}}});
+                                  {"authMethods", methods}});
+        } else if (method == "authenticate" && params["methodId"] == "fake-sign-in") {
+            authenticated = true;
+            reply(message["id"], {});
         } else if (method == "session/new") {
+            if (requireAuth && !authenticated) {
+                send({{"jsonrpc", "2.0"}, {"id", message["id"]},
+                      {"error", QJsonObject{{"code", -32000}, {"message", "Sign-in needed"}}}});
+                continue;
+            }
             session = "fake-session-1";
             if (qEnvironmentVariable("FAKE_ACP_SKIP_MCP") != "1")
                 for (const auto &value : params["mcpServers"].toArray()) {
@@ -232,6 +245,8 @@ int main(int argc, char **argv) {
                              "Nothing needs changing. Tell me if you'd like me to look at the models next.");
             } else if (text == "env") {
                 say(session, QString("ENV NOVA_MCP_CODE=%1").arg(qEnvironmentVariableIsSet("NOVA_MCP_CODE") ? "present" : "absent"));
+            } else if (text == "args") {
+                say(session, "ARGUMENTS " + app.arguments().mid(1).join(" | "));
             }
             reply(message["id"], {{"stopReason", stop}});
         } else if (method == "session/close") {
