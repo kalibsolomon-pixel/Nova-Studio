@@ -251,6 +251,9 @@ class ModelPreviewGuiTests : public QObject {
         const auto raw = cube->meshData();
         QVERIFY(raw.faces.size() > 6);
         QCOMPARE(raw.maximum.z() - raw.minimum.z(), .125f); // one Minecraft pixel thick
+        QCOMPARE(panel->findChild<QComboBox *>("previewLightingMode")->currentText(),
+                 QString("Vanilla lighting"));
+        panel->findChild<QComboBox *>("previewLightingMode")->setCurrentText("Studio lighting");
         cube->neutral = true;
         cube->setContextFraming(true, true);
         QTest::qWait(100);
@@ -290,6 +293,8 @@ class ModelPreviewGuiTests : public QObject {
         cube->restoreView(view);
         QTest::qWait(100);
         capture(QString("layered-handheld-%1-%2").arg(baseAlpha).arg(overlayAlpha));
+        panel->findChild<QComboBox *>("previewLightingMode")->setCurrentText("Vanilla lighting");
+        cube->neutral = false;
     }
     void missingGeneratedSpriteIsExplicit() {
         prepareLayeredItem(255, 255, true);

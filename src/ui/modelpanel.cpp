@@ -52,10 +52,10 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     contexts = new QComboBox;
     contexts->setObjectName("modelContext");
     contexts->setAccessibleName("Display context");
-    contexts->setToolTip("raw shows the model untransformed; other entries apply that display context");
+    contexts->setToolTip("Raw shows the untransformed model. Placed uses world block lighting.");
     contexts->addItems({"raw", "gui", "firstperson_righthand", "firstperson_lefthand",
                         "thirdperson_righthand", "thirdperson_lefthand", "ground", "fixed", "head",
-                        "on_shelf"});
+                        "on_shelf", "placed"});
     v->addWidget(contexts);
     inputs = new QLineEdit;
     inputs->setObjectName("modelInputs");
@@ -178,6 +178,10 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     toggle("Neutral", &cube->neutral);
     viewLayout->addLayout(controls);
     auto lighting = new QVBoxLayout;
+    auto lightingMode = new QComboBox;
+    lightingMode->setObjectName("previewLightingMode");
+    lightingMode->setAccessibleName("Preview lighting");
+    lightingMode->addItems({"Vanilla lighting", "Studio lighting"});
     auto ambient = new QSpinBox;
     ambient->setRange(0, 100);
     ambient->setValue(55);
@@ -186,16 +190,30 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     auto light = new QComboBox;
     light->setObjectName("previewLight");
     light->addItems({"Light: upper left", "Light: upper right", "Light: front", "Light: below"});
+    auto neutral = findChild<QCheckBox *>("previewNeutral");
+    neutral->setEnabled(false);
+    ambient->setEnabled(false);
+    light->setEnabled(false);
+    lighting->addWidget(lightingMode);
     lighting->addWidget(ambient);
     lighting->addWidget(light);
     viewLayout->addLayout(lighting);
+    connect(lightingMode, &QComboBox::currentIndexChanged, this, [=, this](int mode) {
+        const bool studio = mode == 1;
+        cube->studioLighting = studio;
+        neutral->setEnabled(studio);
+        ambient->setEnabled(studio);
+        light->setEnabled(studio);
+        cube->update();
+    });
     connect(ambient, &QSpinBox::valueChanged, this, [this](int n) {
         cube->ambient = float(n) / 100;
         cube->update();
     });
     connect(light, &QComboBox::currentIndexChanged, this, [this](int n) {
         const QVector3D directions[] = {{-.4f, .8f, .6f}, {.4f, .8f, .6f}, {0, 0, 1}, {0, -1, 0}};
-        cube->lightDirection = directions[n];
+        if (n >= 0)
+            cube->lightDirection = directions[n];
         cube->update();
     });
     auto camera = new QHBoxLayout;
@@ -228,6 +246,8 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
             ambient->setValue(55);
         if (auto light = findChild<QComboBox *>("previewLight"))
             light->setCurrentIndex(0);
+        if (auto mode = findChild<QComboBox *>("previewLightingMode"))
+            mode->setCurrentIndex(0);
         choices();
         rebuild();
     });
@@ -612,6 +632,8 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
             QSignalBlocker block(ambient);
             ambient->setValue(int(cube->ambient * 100));
         }
+        if (auto mode = findChild<QComboBox *>("previewLightingMode"))
+            mode->setCurrentIndex(cube->studioLighting ? 1 : 0);
     }
 }
 void ModelPanel::savePreviewState() {
@@ -756,6 +778,9 @@ void ModelPanel::openAsset(const QString &asset, bool showMaterial) {
 }
 void ModelPanel::rebuild() {
     inputs->setVisible(target.startsWith("definition:"));
+    const auto context = contexts->currentText();
+    const auto blockstate = !mc::Location::fromAsset(target.mid(11), "blockstates").isEmpty();
+    cube->setPreviewContext(context, context == "placed" || (context == "raw" && blockstate));
     const int previousFace = cube->selectedFace;
     faces->clear();
     dependencies->clear();
@@ -858,6 +883,8 @@ void ModelPanel::rebuild() {
                     generatedSprites[path] = silhouette;
                 }
         auto part = mc::transformed(mc::generatedMesh(model, generatedSprites), instance);
+        if (combined->faces.isEmpty())
+            combined->guiLight = part.guiLight;
         if (!part.previewLimitation.isEmpty())
             previewLimitations << instance.model + ": " + part.previewLimitation;
         // Minecraft order: display * translate(-0.5) * item-definition transformation.

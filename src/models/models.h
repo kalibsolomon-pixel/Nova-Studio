@@ -15,6 +15,7 @@
 #include <array>
 
 namespace nova::mc {
+enum class GuiLight { Side, Front };
 struct Profile {
     QString version;
     bool spriteObjects = false, shadeOverride = false, itemTransforms = false;
@@ -37,6 +38,7 @@ struct Model {
     // Effective display transform per context and the {model id, JSON key} supplying it.
     QJsonObject display;
     QMap<QString, QPair<QString, QString>> displayOrigin;
+    GuiLight guiLight = GuiLight::Side;
     bool generated = false, valid = false;
 };
 struct Instance {
@@ -122,7 +124,7 @@ PreviewChoice previewModelFor(Library &library, const QString &textureAsset);
 struct Face {
     std::array<QVector3D, 4> points;
     std::array<QVector2D, 4> uv;
-    QVector3D normal;
+    QVector3D normal, lightNormal;
     QString texture, name, element, cullface;
     QString modelId;
     int elementIndex = -1;
@@ -131,7 +133,7 @@ struct Face {
     // Generated sprite layers are composited in authored order, including opaque overlays.
     int generatedLayer = -1;
     bool shade = true, forceTranslucent = false;
-    QString shadeDirection;
+    float overworldShade() const;
     QRectF uvRect() const;
 };
 struct Mesh {
@@ -139,6 +141,7 @@ struct Mesh {
     QStringList diagnostics;
     QString previewLimitation; // nonempty when contour generation used a flat approximation
     QVector3D minimum, maximum;
+    GuiLight guiLight = GuiLight::Side;
 };
 Mesh mesh(const Model &model);
 Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites);

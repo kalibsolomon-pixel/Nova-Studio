@@ -28,7 +28,7 @@ const char *axisNames[] = {"X", "Y", "Z"};
 
 QString ModelPanel::displayContext() const {
     const auto c = contexts ? contexts->currentText() : QString();
-    return c == "raw" ? QString() : c;
+    return c == "raw" || c == "placed" ? QString() : c;
 }
 QString ModelPanel::displayModelAsset() const {
     if (target.startsWith("model:"))

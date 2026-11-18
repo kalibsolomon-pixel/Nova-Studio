@@ -25,6 +25,19 @@ QVector3D normal(const QString &name) {
     const auto i = directions.indexOf(name);
     return i < 0 ? QVector3D(0, 1, 0) : n[i];
 }
+QVector3D cardinalNormal(const QVector3D &n) {
+    QVector3D closest(0, 1, 0);
+    float best = 0;
+    for (const auto &direction : directions) {
+        const auto axis = normal(direction);
+        const float alignment = QVector3D::dotProduct(n, axis);
+        if (alignment > best) {
+            best = alignment;
+            closest = axis;
+        }
+    }
+    return closest;
+}
 void bounds(Mesh &mesh) {
     bool first = true;
     for (const auto &face : mesh.faces)
@@ -40,6 +53,14 @@ void bounds(Mesh &mesh) {
         }
 }
 } // namespace
+float Face::overworldShade() const {
+    if (!shade)
+        return 1.f;
+    const auto n = cardinalNormal(lightNormal);
+    if (n.y() != 0)
+        return n.y() > 0 ? 1.f : .5f;
+    return n.z() != 0 ? .8f : .6f;
+}
 QRectF Face::uvRect() const {
     float x1 = uv[0].x(), x2 = x1, y1 = uv[0].y(), y2 = y1;
     for (const auto &p : uv) {
@@ -53,6 +74,7 @@ QRectF Face::uvRect() const {
 Mesh mesh(const Model &model) {
     Mesh mesh;
     mesh.diagnostics = model.diagnostics;
+    mesh.guiLight = model.guiLight;
     if (!model.valid)
         return mesh;
     if (model.generated && model.resolved["elements"].toArray().isEmpty()) {
@@ -66,7 +88,7 @@ Mesh mesh(const Model &model) {
             f.texture = texture;
             f.name = "south";
             f.element = "generated layer " + QString::number(layer);
-            f.normal = {0, 0, 1};
+            f.lightNormal = f.normal = {0, 0, 1};
             f.shade = false;
             float z = float(layer) * .001f;
             f.points = {{{-1, 1, z}, {-1, -1, z}, {1, -1, z}, {1, 1, z}}};
@@ -76,7 +98,7 @@ Mesh mesh(const Model &model) {
             std::swap(f.points[1], f.points[2]);
             std::swap(f.uv[0], f.uv[3]);
             std::swap(f.uv[1], f.uv[2]);
-            f.normal = {0, 0, -1};
+            f.lightNormal = f.normal = {0, 0, -1};
             f.name = "north";
             mesh.faces << f;
         }
@@ -220,7 +242,6 @@ Mesh mesh(const Model &model) {
                 continue;
             }
             face.shade = shade;
-            face.shadeDirection = override;
             face.cullface = o["cullface"].toString();
             face.tint = o["tintindex"].toInt(-1);
             const auto ref = o["texture"].toString();
@@ -267,6 +288,7 @@ Mesh mesh(const Model &model) {
             face.normal = QVector3D::crossProduct(face.points[1] - face.points[0],
                                                   face.points[2] - face.points[0])
                               .normalized();
+            face.lightNormal = override.isEmpty() ? cardinalNormal(face.normal) : normal(override);
             mesh.faces << face;
         }
     }
@@ -309,6 +331,7 @@ Mesh transformed(Mesh mesh, const Instance &instance) {
         for (auto &p : f.points)
             p = m.map(p);
         f.normal = m.mapVector(f.normal).normalized();
+        f.lightNormal = m.mapVector(f.lightNormal).normalized();
     }
     bounds(mesh);
     return mesh;

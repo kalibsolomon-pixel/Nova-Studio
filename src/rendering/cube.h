@@ -37,6 +37,8 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     QHash<QString, AlphaInfo> alphaCache;
     bool geometryDirty = true, materialsDirty = true;
     QMatrix4x4 contextTransform;
+    QString previewContext;
+    bool placedBlock = false;
     QMatrix4x4 matrix() const;
     float captureAspect = 0;
     QString noticeText;
@@ -66,7 +68,7 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     explicit Cube(Metrics *m, QWidget *parent = nullptr);
     ~Cube() override;
     bool perspective = false, wireframe = false, outlines = false, axes = false, groundGrid = false,
-         neutral = false;
+         neutral = false, studioLighting = false;
     float ambient = .55f;
     QVector3D lightDirection{-.4f, .8f, .6f};
     int selectedFace = -1;
@@ -75,6 +77,11 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     bool contextFraming = false, displayManipulation = false;
     int referenceFrame = 0;
     void setContextFraming(bool enabled, bool frontView);
+    void setPreviewContext(const QString &context, bool placed) {
+        previewContext = context;
+        placedBlock = placed;
+        update();
+    }
     // Banner over the view saying what is shown when it is not the texture's resolved
     // Minecraft model (texture-only fallback, explicit generic cube, unresolved model).
     // Empty clears it. The banner takes at most a quarter of the view's height (never

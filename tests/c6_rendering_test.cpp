@@ -9,6 +9,45 @@ using namespace nova;
 class RenderingTest : public QObject {
     Q_OBJECT
   private slots:
+    void bakedLighting() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        model.guiLight = mc::GuiLight::Front;
+        const QJsonObject faces{{"up", QJsonObject{}}, {"down", QJsonObject{}},
+                                {"north", QJsonObject{}}, {"south", QJsonObject{}},
+                                {"east", QJsonObject{}}, {"west", QJsonObject{}}};
+        QJsonObject box{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", faces}};
+        model.resolved["elements"] = QJsonArray{box};
+        const auto baked = mc::mesh(model);
+        QVERIFY(baked.guiLight == mc::GuiLight::Front);
+        QCOMPARE(baked.faces.size(), 6);
+        const QMap<QString, float> expected{{"up", 1.f}, {"down", .5f}, {"north", .8f},
+                                            {"south", .8f}, {"east", .6f}, {"west", .6f}};
+        for (const auto &face : baked.faces)
+            QCOMPARE(face.overworldShade(), expected.value(face.name));
+
+        mc::Instance quarterTurn;
+        quarterTurn.y = 90;
+        for (const auto &face : mc::transformed(baked, quarterTurn).faces)
+            if (face.name == "north")
+                QCOMPARE(face.overworldShade(), .6f);
+        box["shade"] = false;
+        model.resolved["elements"] = QJsonArray{box};
+        for (const auto &face : mc::mesh(model).faces)
+            QCOMPARE(face.overworldShade(), 1.f);
+
+        model.version = "26.3";
+        box.remove("shade");
+        box["shade_direction_override"] = "down";
+        model.resolved["elements"] = QJsonArray{box};
+        const auto overridden = mc::mesh(model);
+        QCOMPARE(overridden.faces.size(), 6);
+        for (const auto &face : overridden.faces)
+            QCOMPARE(face.overworldShade(), .5f);
+    }
+
     void transformationCodec() {
         QMatrix4x4 m;
         QString error;

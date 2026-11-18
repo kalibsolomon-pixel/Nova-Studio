@@ -13,8 +13,30 @@
 #include <numeric>
 namespace nova {
 struct Vertex {
-    float x, y, z, u, v, nx, ny, nz, shade;
+    float x, y, z, u, v, nx, ny, nz, shade, worldShade;
 };
+namespace {
+using Lights = std::array<QVector3D, 2>;
+const Lights &previewLights(bool gui, mc::GuiLight guiLight) {
+    static const Lights level{QVector3D(.2f, 1.f, -.7f).normalized(),
+                              QVector3D(-.2f, 1.f, .7f).normalized()};
+    // Lighting's GUI matrices expressed in the preview's Y-up coordinates.
+    static const auto guiLights = [](bool side) -> Lights {
+        QMatrix4x4 pose;
+        if (side) {
+            pose.rotate(62, 0, 1, 0);
+            pose.rotate(185.5f, 1, 0, 0);
+        } else {
+            pose.scale(1, -1, 1);
+        }
+        pose.rotate(-22.5f, 0, 1, 0);
+        pose.rotate(135, 1, 0, 0);
+        return {pose.mapVector(level[0]), pose.mapVector(level[1])};
+    };
+    static const Lights front = guiLights(false), side = guiLights(true);
+    return !gui ? level : guiLight == mc::GuiLight::Front ? front : side;
+}
+} // namespace
 Cube::Cube(Metrics *m, QWidget *p) : QOpenGLWidget(p), metrics(m) {
     setMinimumSize(200, 150);
     setFocusPolicy(Qt::StrongFocus);
@@ -308,19 +330,12 @@ void Cube::uploadGeometry() {
         for (int i : {0, 1, 2, 0, 2, 3}) {
             const auto p = f.points[i];
             const auto uv = f.uv[i];
-            auto n = f.normal;
-            if (!f.shadeDirection.isEmpty()) {
-                const QStringList names{"down", "up", "north", "south", "west", "east"};
-                const QVector3D ns[] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
-                                        {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
-                const auto k = names.indexOf(f.shadeDirection);
-                if (k >= 0)
-                    n = ns[k];
-            }
+            const auto n = f.lightNormal;
             vertices << Vertex{
-                p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f};
+                p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f,
+                f.overworldShade()};
         }
-    auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0}; };
+    auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0, 1}; };
     QVector<Vertex> edges;
     edges.reserve(scene().faces.size() * 10);
     for (const auto &f : scene().faces)
@@ -375,12 +390,17 @@ void Cube::initializeGL() {
     bool ok = program->addShaderFromSourceCode(
         QOpenGLShader::Vertex,
         "attribute vec3 position; attribute vec2 texcoord; attribute vec3 normal; attribute float "
-        "shade;"
+        "shade; attribute float worldShade;"
         "uniform mat4 mvp; uniform vec3 direction; uniform float ambient; uniform float neutral;"
-        "varying vec2 uv; varying float light; void "
-        "main(){gl_Position=mvp*vec4(position,1.0);uv=texcoord;"
-        "light=mix(1.0,ambient+(1.0-ambient)*max(dot(normal,normalize(direction)),0.0),shade*(1.0-"
-        "neutral));}");
+        "uniform vec3 light0; uniform vec3 light1; uniform int lightingMode;"
+        "varying vec2 uv; varying float light; void main(){"
+        "gl_Position=mvp*vec4(position,1.0);uv=texcoord;"
+        "if(lightingMode==2){"
+        "float studio=ambient+(1.0-ambient)*max(dot(normal,normalize(direction)),0.0);"
+        "light=mix(1.0,studio,shade*(1.0-neutral));"
+        "}else if(lightingMode==1){light=worldShade;}"
+        "else{float diffuse=max(dot(normal,light0),0.0)+max(dot(normal,light1),0.0);"
+        "light=min(1.0,0.4+0.6*diffuse);}}");
     ok = ok &&
          program->addShaderFromSourceCode(
              QOpenGLShader::Fragment,
@@ -514,6 +534,10 @@ void Cube::paintGL() {
     program->setUniformValue("direction", lightDirection);
     program->setUniformValue("ambient", std::clamp(ambient, 0.f, 1.f));
     program->setUniformValue("neutral", neutral ? 1.f : 0.f);
+    const auto &lights = previewLights(previewContext == "gui", scene().guiLight);
+    program->setUniformValue("light0", lights[0]);
+    program->setUniformValue("light1", lights[1]);
+    program->setUniformValue("lightingMode", studioLighting ? 2 : placedBlock ? 1 : 0);
     buffer.bind();
     auto attribute = [&](const char *name, int offset, int count) {
         int a = program->attributeLocation(name);
@@ -524,6 +548,7 @@ void Cube::paintGL() {
     attribute("texcoord", 3, 2);
     attribute("normal", 5, 3);
     attribute("shade", 8, 1);
+    attribute("worldShade", 9, 1);
     QVector<int> order(scene().faces.size());
     std::iota(order.begin(), order.end(), 0);
     auto imageFor = [&](const mc::Face &f) -> QImage {
@@ -597,6 +622,7 @@ void Cube::paintGL() {
         attribute("texcoord", 3, 2);
         attribute("normal", 5, 3);
         attribute("shade", 8, 1);
+        attribute("worldShade", 9, 1);
     };
     bindLines(lineBuffer);
     for (int i = 0; i < scene().faces.size(); ++i)
@@ -632,7 +658,7 @@ void Cube::paintGL() {
     program->release();
     // QPainter overlays below share this context: leave no model vertex arrays enabled,
     // or its fills read them and are dropped.
-    for (auto name : {"position", "texcoord", "normal", "shade"})
+    for (auto name : {"position", "texcoord", "normal", "shade", "worldShade"})
         program->disableAttributeArray(name);
     if (modelMesh && scene().faces.isEmpty()) {
         QPainter p(this);

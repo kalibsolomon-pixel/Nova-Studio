@@ -522,8 +522,13 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
             }
         }
     }
-    if (m.resolved.contains("gui_light"))
-        m.diagnostics << "gui_light retained; preview uses the selected lighting controls";
+    if (m.resolved.contains("gui_light")) {
+        const auto light = m.resolved["gui_light"].toString();
+        if (light == "front")
+            m.guiLight = GuiLight::Front;
+        else if (light != "side")
+            m.diagnostics << "gui_light must be front or side";
+    }
     const auto textures = m.resolved["textures"].toObject();
     if (textures.size() > 4096) {
         m.diagnostics << "Resolved texture-variable allocation limit";
