@@ -85,6 +85,43 @@ class RenderingTest : public QObject {
         for (const auto &face : overridden.faces)
             QCOMPARE(face.overworldShade(), .5f);
     }
+    void placedLightingWithFloor() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        QJsonObject faces;
+        for (const auto &d : {"up", "down", "south"})
+            faces[d] = QJsonObject{{"cullface", d}};
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", faces}}};
+        auto world = mc::mesh(model);
+        mc::applyPlacedLighting(world, {});
+        QCOMPARE(world.faces.size(), 3);
+        for (const auto &face : world.faces)
+            for (const auto shade : face.ambientShade)
+                QCOMPARE(shade, 1.f);
+
+        mc::applyPlacedLighting(world, "floor");
+        QCOMPARE(world.faces.size(), 2);
+        for (const auto &face : world.faces) {
+            QVERIFY(face.name != "down");
+            for (int i = 0; i < 4; ++i)
+                QCOMPARE(face.ambientShade[i], face.points[i].y() < 0 ? .6f : 1.f);
+        }
+
+        model.resolved["ambientocclusion"] = false;
+        mc::Instance rotated;
+        rotated.y = 90;
+        auto unlit = mc::transformed(mc::mesh(model), rotated);
+        mc::applyPlacedLighting(unlit, QJsonArray{QJsonValue(QJsonArray{-1, 0, 0})});
+        QCOMPARE(unlit.faces.size(), 2);
+        for (const auto &face : unlit.faces) {
+            QVERIFY(face.name != "south");
+            for (const auto shade : face.ambientShade)
+                QCOMPARE(shade, 1.f);
+        }
+    }
 
     void transformationCodec() {
         QMatrix4x4 m;

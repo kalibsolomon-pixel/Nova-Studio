@@ -379,7 +379,7 @@ void Cube::uploadGeometry() {
             const auto n = f.lightNormal;
             vertices << Vertex{
                 p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f,
-                f.overworldShade()};
+                f.overworldShade() * f.ambientShade[i]};
         }
     auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0, 1}; };
     QVector<Vertex> edges;

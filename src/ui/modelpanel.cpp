@@ -64,7 +64,8 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     inputs->setAccessibleName("Preview inputs JSON");
     inputs->setPlaceholderText("Preview inputs as JSON…");
     inputs->setToolTip("Set block or item properties and override tint RGB values with _tints. "
-                       "Use _choice for the zero-based weighted variant.");
+                       "Use _choice for the zero-based weighted variant. In Placed, set _neighbors "
+                       "to \"floor\" or a list of solid block offsets.");
     v->addWidget(inputs);
     buildDisplayEditor(v);
     materialPlayback = new MaterialPlayback(this);
@@ -793,11 +794,11 @@ void ModelPanel::rebuild() {
              mc::blockRenderLayer(itemId.id()) != mc::RenderLayer::Solid))
             blockId = itemId.id();
     }
-    inputs->setVisible(!definition.isEmpty() || !blockId.isEmpty());
+    const bool placed = context == "placed" || (context == "raw" && !blockstate.isEmpty());
+    inputs->setVisible(!definition.isEmpty() || !blockId.isEmpty() || placed);
     const auto contextName = displayContext();
     const bool oversized = library && library->source(definition)["oversized_in_gui"].toBool();
-    cube->setPreviewContext(contextName, context == "placed" || (context == "raw" && !blockstate.isEmpty()),
-                            blockId, oversized);
+    cube->setPreviewContext(contextName, placed, blockId, oversized);
     cube->setContextTransform({});
     const int previousFace = cube->selectedFace;
     faces->clear();
@@ -850,9 +851,8 @@ void ModelPanel::rebuild() {
     QStringList previewLimitations;
     QString asset;
     QVector<mc::Instance> instances;
-    messages << "Isolated preview · no neighbouring blocks or atlas shader effects";
     QJsonObject values;
-    if ((!definition.isEmpty() || !blockId.isEmpty()) && !inputs->text().trimmed().isEmpty()) {
+    if ((!definition.isEmpty() || !blockId.isEmpty() || placed) && !inputs->text().trimmed().isEmpty()) {
         QJsonParseError error;
         const auto json = QJsonDocument::fromJson(inputs->text().toUtf8(), &error);
         if (error.error != QJsonParseError::NoError || !json.isObject()) {
@@ -863,6 +863,8 @@ void ModelPanel::rebuild() {
         }
         values = json.object();
     }
+    if (placed && !values["_neighbors"].isUndefined())
+        messages << "Placed preview · solid-block neighbourhood with uniform light";
     if (target.startsWith("model:")) {
         auto id = target.mid(6);
         instances << mc::Instance{id, "raw model"};
@@ -904,6 +906,8 @@ void ModelPanel::rebuild() {
                         pixels << doc->frameComposite(frame.id);
                 }
         auto part = mc::transformed(mc::generatedMesh(model, materials, generatedFrames), instance);
+        if (placed)
+            mc::applyPlacedLighting(part, values["_neighbors"]);
         if (combined->faces.isEmpty())
             combined->guiLight = part.guiLight;
         if (!part.previewLimitation.isEmpty())

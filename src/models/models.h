@@ -133,6 +133,7 @@ struct Face {
     // Generated sprite layers are composited in authored order, including opaque overlays.
     int generatedLayer = -1;
     bool shade = true, forceTranslucent = false;
+    std::array<float, 4> ambientShade{1, 1, 1, 1};
     float overworldShade() const;
     QRectF uvRect() const;
 };
@@ -142,11 +143,13 @@ struct Mesh {
     QString previewLimitation; // nonempty when contour generation used a flat approximation
     QVector3D minimum, maximum;
     GuiLight guiLight = GuiLight::Side;
+    bool ambientOcclusion = true;
 };
 Mesh mesh(const Model &model);
 Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites,
                    const QMap<QString, QVector<QImage>> &frames = {});
 Mesh transformed(Mesh mesh, const Instance &instance);
+void applyPlacedLighting(Mesh &mesh, const QJsonValue &neighbors);
 Mesh applyTransform(Mesh mesh, const QMatrix4x4 &matrix);
 bool itemTransform(const QJsonValue &value, QMatrix4x4 &out, QString *error = nullptr);
 QMatrix4x4 displayTransform(const Model &model, const QString &context);

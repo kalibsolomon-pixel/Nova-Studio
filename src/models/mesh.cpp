@@ -2,6 +2,7 @@
 #include "models.h"
 #include "display.h"
 #include <QJsonArray>
+#include <QVector3D>
 #include <cmath>
 
 namespace nova::mc {
@@ -38,6 +39,31 @@ QVector3D cardinalNormal(const QVector3D &n) {
     }
     return closest;
 }
+struct BlockNeighbors {
+    std::array<bool, 27> solid{};
+    static int index(const QVector3D &pos) {
+        return (int(pos.z()) + 1) * 9 + (int(pos.y()) + 1) * 3 + int(pos.x()) + 1;
+    }
+    explicit BlockNeighbors(const QJsonValue &source) {
+        if (source.toString() == "floor") {
+            for (int z = -1; z <= 1; ++z)
+                for (int x = -1; x <= 1; ++x)
+                    solid[index({float(x), -1, float(z)})] = true;
+            return;
+        }
+        for (const auto &value : source.toArray()) {
+            QVector3D pos;
+            if (vector(value, pos, -1, 1) && !pos.isNull() && std::floor(pos.x()) == pos.x() &&
+                std::floor(pos.y()) == pos.y() && std::floor(pos.z()) == pos.z())
+                solid[index(pos)] = true;
+        }
+    }
+    bool contains(const QVector3D &pos) const {
+        return std::abs(pos.x()) <= 1 && std::abs(pos.y()) <= 1 && std::abs(pos.z()) <= 1 &&
+               solid[index(pos)];
+    }
+    float shadeAt(const QVector3D &pos) const { return contains(pos) ? .2f : 1.f; }
+};
 void bounds(Mesh &mesh) {
     bool first = true;
     for (const auto &face : mesh.faces)
@@ -75,6 +101,7 @@ Mesh mesh(const Model &model) {
     Mesh mesh;
     mesh.diagnostics = model.diagnostics;
     mesh.guiLight = model.guiLight;
+    mesh.ambientOcclusion = model.resolved["ambientocclusion"].toBool(true);
     if (!model.valid)
         return mesh;
     if (model.generated && model.resolved["elements"].toArray().isEmpty()) {
@@ -333,9 +360,60 @@ Mesh transformed(Mesh mesh, const Instance &instance) {
             p = m.map(p);
         f.normal = m.mapVector(f.normal).normalized();
         f.lightNormal = m.mapVector(f.lightNormal).normalized();
+        if (!f.cullface.isEmpty()) {
+            const auto axis = cardinalNormal(m.mapVector(normal(f.cullface)));
+            for (const auto &name : directions)
+                if (normal(name) == axis) {
+                    f.cullface = name;
+                    break;
+                }
+        }
     }
     bounds(mesh);
     return mesh;
+}
+void applyPlacedLighting(Mesh &mesh, const QJsonValue &input) {
+    const BlockNeighbors neighbors(input);
+    const bool fullCube = mesh.minimum == QVector3D(-1, -1, -1) && mesh.maximum == QVector3D(1, 1, 1);
+    mesh.faces.erase(std::remove_if(mesh.faces.begin(), mesh.faces.end(), [&](const Face &f) {
+        return !f.cullface.isEmpty() && neighbors.contains(normal(f.cullface));
+    }), mesh.faces.end());
+
+    if (!mesh.ambientOcclusion)
+        return;
+    for (auto &face : mesh.faces) {
+        const auto facing = cardinalNormal(face.normal);
+        const int axis = facing.x() ? 0 : facing.y() ? 1 : 2;
+        const int u = axis == 0 ? 2 : 0, v = axis == 1 ? 2 : 1;
+        const float plane = face.points[0][axis];
+        const bool planar = std::all_of(face.points.begin(), face.points.end(), [&](const QVector3D &p) {
+            return p[axis] == plane;
+        });
+        const auto base = planar && (fullCube || plane * facing[axis] > .9998f)
+                              ? facing : QVector3D{};
+        const float center = base.isNull() && fullCube ? .2f : neighbors.shadeAt(base);
+        // Average the two side samples, corner and centre, then weight by vertex position.
+        float corners[2][2];
+        for (int i = 0; i < 2; ++i)
+            for (int j = 0; j < 2; ++j) {
+                QVector3D sideU, sideV;
+                sideU[u] = i ? 1.f : -1.f;
+                sideV[v] = j ? 1.f : -1.f;
+                const float a = neighbors.shadeAt(base + sideU);
+                const float b = neighbors.shadeAt(base + sideV);
+                const bool blocked = neighbors.contains(base + sideU + facing) &&
+                                     neighbors.contains(base + sideV + facing);
+                const float corner = blocked ? a : neighbors.shadeAt(base + sideU + sideV);
+                corners[i][j] = (a + b + corner + center) * .25f;
+            }
+        for (int i = 0; i < 4; ++i) {
+            const float x = (face.points[i][u] + 1) * .5f;
+            const float y = (face.points[i][v] + 1) * .5f;
+            face.ambientShade[i] = std::lerp(std::lerp(corners[0][0], corners[1][0], x),
+                                             std::lerp(corners[0][1], corners[1][1], x), y);
+        }
+    }
+    bounds(mesh);
 }
 QMatrix4x4 displayTransform(const Model &model, const QString &context) {
     // Per-context chain resolution (including the left-hand fallback) happens while
