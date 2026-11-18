@@ -424,7 +424,7 @@ async def phase4d(client: ClientSession) -> None:
             png = next(item for item in image.content if item.type == "image")
             data = base64.b64decode(png.data)
             assert png.mimeType == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n")
-            assert struct.unpack(">II", data[16:24]) == (16, 16)
+            assert struct.unpack(">II", data[16:24]) == (256, 256)
             assert data[24:26] == bytes((8, 6))
             offset = 8
             idat = bytearray()
