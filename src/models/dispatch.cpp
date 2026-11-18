@@ -239,6 +239,13 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
                     else if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
                         value = QDate::currentDate().toString("MM-dd");
                 }
+                if (value.isUndefined() && type == "minecraft:select" && o.contains("fallback")) {
+                    // A default stack has no value for the property, so the game uses the fallback
+                    // (for example leather armour without a trim).
+                    result.diagnostics << "Using the select fallback; set " + property + " to preview a case";
+                    visit(o["fallback"].toObject(), depth + 1, label + " / select " + property + " (fallback)");
+                    return;
+                }
                 if (value.isUndefined()) {
                     result.diagnostics << "Manual item input required: " + property;
                     return;

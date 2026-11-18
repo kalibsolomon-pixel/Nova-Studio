@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import net.fabricmc.api.ClientModInitializer;
@@ -201,9 +202,11 @@ public final class NovaCompanion implements ClientModInitializer {
             for (int i = 0; i < stacks.size(); ++i)
                 if (!stacks.get(i).isEmpty())
                     graphics.renderFakeItem(stacks.get(i), cellX(i), cellY(i));
-            // A few frames let textures and models settle; the capture runs between frames.
+            // A few frames let textures and models settle. execute() runs at once on the render
+            // thread (mid-frame, before the GUI is drawn), so hand it over from another thread: the
+            // capture then runs before the next frame, on this one complete, like F2 screenshots.
             if (++frames == 4)
-                captured.accept(this);
+                CompletableFuture.runAsync(() -> captured.accept(this));
         }
 
         @Override

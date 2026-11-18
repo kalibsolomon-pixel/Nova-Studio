@@ -135,6 +135,16 @@ void ModelTest::blockstatesAndItems() {
     d = library.dispatch("assets/demo/items/r.json", {{"minecraft:damage", .7}});
     QCOMPARE(d.instances[0].model, QString("demo:b"));
     QVERIFY(!library.dispatch("assets/demo/items/r.json").diagnostics.isEmpty());
+    // An unset select property is a default stack (no trim): the game draws the fallback.
+    write(r, "assets/demo/items/s.json",
+          R"({"model":{"type":"minecraft:select","property":"minecraft:trim_material","cases":[{"when":"minecraft:iron","model":{"type":"minecraft:model","model":"demo:b"}}],"fallback":{"type":"minecraft:model","model":"demo:a"}}})");
+    library.update(r, Index::scan(r));
+    d = library.dispatch("assets/demo/items/s.json");
+    QCOMPARE(d.instances.size(), 1);
+    QCOMPARE(d.instances[0].model, QString("demo:a"));
+    QVERIFY(d.diagnostics.join(' ').contains("select fallback"));
+    d = library.dispatch("assets/demo/items/s.json", {{"minecraft:trim_material", "minecraft:iron"}});
+    QCOMPARE(d.instances[0].model, QString("demo:b"));
 }
 void ModelTest::rescaleUvlockAndModernShading() {
     QTemporaryDir dir;
