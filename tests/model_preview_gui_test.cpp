@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QLabel>
 #include <QPushButton>
 #include <QSurfaceFormat>
@@ -316,6 +317,33 @@ class ModelPreviewGuiTests : public QObject {
         QVERIFY(cube->notice().isEmpty());
         QCOMPARE(cube->meshData().maximum.z() - cube->meshData().minimum.z(), .125f);
         capture("generated-sprite-restored");
+    }
+    void inventorySlotAndOversizedBounds() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        model.guiLight = mc::GuiLight::Front;
+        const QString texture = "assets/nova/textures/item/solid.png";
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{-8, 0, 8}}, {"to", QJsonArray{24, 16, 8}},
+                        {"faces", QJsonObject{{"south", QJsonObject{
+                            {"texture", "nova:item/solid"}, {"uv", QJsonArray{0, 0, 16, 16}}}}}}}};
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::green);
+        cube->setDocument({});
+        cube->setModel(std::make_shared<mc::Mesh>(mc::mesh(model)), {}, {{texture, sprite}});
+        cube->setContextTransform({});
+        cube->setPreviewContext("gui", false);
+        QTest::qWait(50);
+        const auto outside = cube->rect().center() + QPoint(std::min(cube->width(), cube->height()) / 3, 0);
+        QCOMPARE(cube->faceAt(outside), -1);
+        cube->setPreviewContext("gui", false, {}, true);
+        QTest::qWait(50);
+        QCOMPARE(cube->faceAt(outside), 0);
+        const auto icon = cube->captureInventoryIcon(2);
+        QCOMPARE(icon.size(), QSize(32, 32));
+        QCOMPARE(icon.pixelColor(0, 0), QColor(Qt::green));
+        QCOMPARE(icon.pixelColor(31, 31), QColor(Qt::green));
     }
 
 };

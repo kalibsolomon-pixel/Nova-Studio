@@ -794,8 +794,11 @@ void ModelPanel::rebuild() {
              mc::blockRenderLayer(itemId.id()) != mc::RenderLayer::Solid))
             blockId = itemId.id();
     }
-    cube->setPreviewContext(context, context == "placed" || (context == "raw" && !blockstate.isEmpty()),
-                            blockId);
+    const auto contextName = displayContext();
+    const bool oversized = library && library->source(definition)["oversized_in_gui"].toBool();
+    cube->setPreviewContext(contextName, context == "placed" || (context == "raw" && !blockstate.isEmpty()),
+                            blockId, oversized);
+    cube->setContextTransform({});
     const int previousFace = cube->selectedFace;
     faces->clear();
     dependencies->clear();
@@ -965,7 +968,7 @@ void ModelPanel::rebuild() {
     materialPlayback->setMaterials(animations);
     if (animations.isEmpty())
         cube->setMaterialPreview(false);
-    cube->setContextTransform(QMatrix4x4());
+    cube->setContextTransform(mc::displayContextPose(contextName, mesh->minimum.y()));
     syncing = true;
     for (const auto &face : mesh->faces)
         {

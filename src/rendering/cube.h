@@ -33,9 +33,11 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     bool geometryDirty = true, materialsDirty = true;
     QMatrix4x4 contextTransform;
     QString previewContext, previewBlock;
-    bool placedBlock = false;
-    QMatrix4x4 matrix() const;
-    float captureAspect = 0;
+    bool placedBlock = false, oversizedInGui = false, inventoryCapture = false;
+    QRect guiSlot(const QSize &viewport) const;
+    QMatrix4x4 matrix(bool model = true) const;
+    QImage captureFrame(int size, bool comparison, bool inventory);
+    int captureSize = 0;
     QString noticeText;
     QLabel *noticeLabel = nullptr; // child widget: shown on screen and in grabs
     void placeNotice();
@@ -72,10 +74,12 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     bool contextFraming = false, displayManipulation = false;
     int referenceFrame = 0;
     void setContextFraming(bool enabled, bool frontView);
-    void setPreviewContext(const QString &context, bool placed, const QString &blockId = {}) {
+    void setPreviewContext(const QString &context, bool placed, const QString &blockId = {},
+                           bool oversized = false) {
         previewContext = context;
         previewBlock = blockId;
         placedBlock = placed;
+        oversizedInGui = oversized;
         update();
     }
     // Banner over the view saying what is shown when it is not the texture's resolved
@@ -107,6 +111,7 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     void restoreView(const QJsonObject &);
     void fitModel();
     QImage captureModel(bool comparison = false);
+    QImage captureInventoryIcon(int scale = 1);
     int faceAt(QPointF position) const;
     const mc::Mesh &meshData() const { return scene(); }
     void setDocument(std::shared_ptr<Document> doc);

@@ -57,6 +57,7 @@ QMatrix4x4 displayMatrix(const DisplayTransform &value, bool leftHand);
 // Composes a display matrix (mesh units) with an item-definition transformation (block
 // units, origin at the block corner) in Minecraft's order.
 QMatrix4x4 itemPose(const QMatrix4x4 &display, const QMatrix4x4 &itemTransformation);
+QMatrix4x4 displayContextPose(const QString &context, float modelMinY = 0);
 DisplayResolution resolveDisplay(const Model &model, const QString &context);
 // Original preset for element (cuboid) models. See DISPLAY_TRANSFORMS.md for derivation.
 QJsonObject blockDisplayPreset();

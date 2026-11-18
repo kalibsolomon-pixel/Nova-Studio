@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
+#include "display.h"
 #include "render_layers.h"
 #include <QFile>
 #include <QJsonArray>
@@ -10,6 +11,23 @@ using namespace nova;
 class RenderingTest : public QObject {
     Q_OBJECT
   private slots:
+    void representativeDisplayPoses() {
+        const QVector3D origin;
+        QCOMPARE(mc::displayContextPose("raw").map(origin), origin);
+        QCOMPARE(mc::displayContextPose("gui").map(origin), origin);
+        QCOMPARE(mc::displayContextPose("ground", -.5f).map({0, -.5f, 0}),
+                 QVector3D(0, -.875f, 0));
+        QCOMPARE(mc::displayContextPose("fixed").map({1, 0, 0}), QVector3D(.5f, 0, .875f));
+        QCOMPARE(mc::displayContextPose("firstperson_righthand").map(origin),
+                 QVector3D(1.12f, -1.04f, -1.44f));
+        QCOMPARE(mc::displayContextPose("firstperson_lefthand").map(origin),
+                 QVector3D(-1.12f, -1.04f, -1.44f));
+        QCOMPARE(mc::displayContextPose("head").map(origin), QVector3D(0, .5f, 0));
+        const auto right = mc::displayContextPose("thirdperson_righthand").map(origin);
+        const auto left = mc::displayContextPose("thirdperson_lefthand").map(origin);
+        QCOMPARE(right, QVector3D(-left.x(), left.y(), left.z()));
+    }
+
     void alphaLayers() {
         using mc::RenderLayer;
         QCOMPARE(mc::blockRenderLayer("minecraft:stone"), RenderLayer::Solid);
