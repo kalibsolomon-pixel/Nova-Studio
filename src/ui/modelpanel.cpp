@@ -501,9 +501,11 @@ void ModelPanel::loadResources() {
                     QSettings::IniFormat);
     const auto version = versions->currentText();
     const auto paths = prefs.value(resourceSettingsKey(root, version)).toStringList().mid(0, 8);
-    if (paths.isEmpty() && cacheVersion == version && !library->hasFallbacks() &&
-        library->version() == version)
-        return; // nothing configured and this version's baseline cache was already checked
+    // Nothing configured, and this version's baseline cache was already checked or cannot hold an
+    // entry: skip the worker and its modal progress (switching projects must stay instant).
+    if (paths.isEmpty() && (cacheVersion == version || !vanilla::BaselineCache().mayHold(version)) &&
+        !library->hasFallbacks() && library->version() == version)
+        return;
     const auto originalLibrary = library;
     const auto originalRoot = root;
     QFutureWatcher<std::shared_ptr<mc::Library>> watcher;

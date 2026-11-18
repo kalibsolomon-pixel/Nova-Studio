@@ -325,6 +325,10 @@ std::optional<BaselineEntry> BaselineCache::load(const QString &version, const Q
     return entry;
 }
 
+bool BaselineCache::mayHold(const QString &version) const {
+    const auto folder = base + "/entries/" + version;
+    return validVersionId(version) && safePath(folder) && stat(folder) == Kind::Directory;
+}
 std::optional<BaselineEntry> BaselineCache::latest(const QString &version, Check check,
                                                    QString *error) const {
     if (!validVersionId(version))
