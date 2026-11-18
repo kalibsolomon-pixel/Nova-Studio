@@ -376,6 +376,89 @@ class ModelPreviewGuiTests : public QObject {
         QCOMPARE(image.pixelColor(16, 32), QColor(Qt::red));
         QCOMPARE(image.pixelColor(48, 32).alpha(), 0);
     }
+    void specialInventoryPixels_data() {
+        QTest::addColumn<QJsonObject>("renderer");
+        QTest::addColumn<QString>("texture");
+        QTest::addColumn<QColor>("expected");
+        const struct {
+            const char *name;
+            QRgb rgb;
+        } dyes[] = {{"white", 0xf9fffe}, {"orange", 0xf9801d}, {"magenta", 0xc74ebd},
+                    {"light_blue", 0x3ab3da}, {"yellow", 0xfed83d}, {"lime", 0x80c71f},
+                    {"pink", 0xf38baa}, {"gray", 0x474f52}, {"light_gray", 0x9d9d97},
+                    {"cyan", 0x169c9c}, {"purple", 0x8932b8}, {"blue", 0x3c44aa},
+                    {"brown", 0x835432}, {"green", 0x5e7c16}, {"red", 0xb02e26},
+                    {"black", 0x1d1d21}};
+        for (const auto &dye : dyes)
+            QTest::newRow(dye.name) << QJsonObject{{"type", "banner"}, {"color", dye.name}}
+                << QString("banner/base") << QColor::fromRgb(dye.rgb);
+        const struct {
+            const char *kind;
+            const char *skin;
+        } heads[] = {{"dragon", "enderdragon/dragon"}, {"piglin", "piglin/piglin"}};
+        const QColor sample(160, 100, 50);
+        for (const auto &head : heads)
+            QTest::newRow(head.kind) << QJsonObject{{"type", "head"}, {"kind", head.kind}}
+                << QString(head.skin) << sample;
+        QTest::newRow("pot") << QJsonObject{{"type", "decorated_pot"}}
+            << QString("decorated_pot/decorated_pot_side") << sample;
+        for (const auto *wax : {"", "waxed_"})
+            for (const auto *oxidation : {"", "exposed_", "weathered_", "oxidized_"}) {
+                const auto item = QString(wax) + oxidation + "copper_golem_statue";
+                const auto skin = QString("copper_golem/") + oxidation + "copper_golem";
+                QTest::newRow(qPrintable(item))
+                    << QJsonObject{{"type", "copper_golem_statue"}, {"pose", "standing"},
+                                   {"texture", "minecraft:textures/entity/" + skin + ".png"}}
+                    << skin << sample;
+            }
+    }
+    void specialInventoryPixels() {
+        QFETCH(QJsonObject, renderer);
+        QFETCH(QString, texture);
+        QFETCH(QColor, expected);
+        const auto root = tmp.filePath(QString("special-") + QTest::currentDataTag());
+        auto write = [&](const QString &path, const QJsonObject &object) {
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(QJsonDocument(object).toJson()) > 0;
+        };
+        auto save = [&](const QString &name, QColor color) {
+            const auto path = root + "/assets/minecraft/textures/entity/" + name + ".png";
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QImage sheet(64, 64, QImage::Format_RGBA8888);
+            sheet.fill(color);
+            return sheet.save(path);
+        };
+        const auto type = renderer["type"].toString();
+        const bool banner = type == "banner", statue = type == "copper_golem_statue";
+        const QString asset = "assets/minecraft/items/special_fixture.json";
+        QJsonObject node{{"type", "special"}, {"base", "minecraft:item/special_fixture"},
+                         {"model", renderer}};
+        if (statue)
+            node = QJsonObject{{"type", "select"}, {"property", "minecraft:block_state"},
+                               {"block_state_property", "copper_golem_pose"}, {"fallback", node}};
+        QVERIFY(write(root + '/' + asset, {{"model", node}}));
+        const QJsonObject pose{{"rotation", QJsonArray{0, 0, statue ? 180 : 0}}};
+        QVERIFY(write(root + "/assets/minecraft/models/item/special_fixture.json",
+                      {{"gui_light", "front"}, {"display", QJsonObject{{"gui", pose}}}}));
+        const QColor wood(90, 60, 30);
+        if (banner)
+            QVERIFY(save("banner_base", wood));
+        if (type == "decorated_pot")
+            QVERIFY(save("decorated_pot/decorated_pot_base", Qt::blue));
+        QVERIFY(save(texture, banner ? QColor(Qt::white) : expected));
+
+        mc::Library lib("1.21.11");
+        lib.update(root, Index::scan(root));
+        const auto icon = renderInventoryIcon(lib, asset, 3);
+        QCOMPARE(icon.size(), QSize(48, 48));
+        // At x=8 the front panel or head faces +Z. The flat light rig saturates there.
+        const int modelY = banner || type == "decorated_pot" ? 8 : 5;
+        QCOMPARE(icon.pixelColor(24, 48 - 3 * modelY), expected);
+        QCOMPARE(icon.pixelColor(0, 47).alpha(), 0);
+        if (banner)
+            QCOMPARE(icon.pixelColor(24, 45), wood);
+    }
     void inventoryPixels_data() {
         QTest::addColumn<QString>("kind");
         QTest::addColumn<int>("scale");

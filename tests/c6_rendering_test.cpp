@@ -193,7 +193,7 @@ class RenderingTest : public QObject {
         QCOMPARE(chest.maximum, QVector3D(.875f, .75f, 1));
         for (const auto &face : chest.faces) {
             QCOMPARE(face.texture, QString("assets/minecraft/textures/entity/chest/trapped.png"));
-            QVERIFY(face.entityCutout);
+            QCOMPARE(face.entityLayer, mc::EntityLayer::Cutout);
             QVERIFY(face.normal.length() > .99f);
         }
         const auto open = mc::specialMesh(base, {{"type", "chest"}, {"openness", 1}});
@@ -222,6 +222,38 @@ class RenderingTest : public QObject {
         QCOMPARE(dispatched.instances.size(), 1);
         QCOMPARE(dispatched.instances.first().model, base.id);
         QCOMPARE(dispatched.instances.first().special["texture"].toString(), QString("trapped"));
+    }
+    void specialInventoryGeometry() {
+        mc::Model base;
+        base.valid = true;
+        const auto pot = mc::specialMesh(base, {{"type", "decorated_pot"}});
+        QCOMPARE(pot.faces.size(), 20);
+        QCOMPARE(pot.minimum, QVector3D(-.875f, -1, -.875f));
+        QVERIFY(qAbs(pot.maximum.y() - 1.4875f) < 1e-6f);
+        const QVector3D outward[] = {{0, 0, -1}, {-1, 0, 0}, {1, 0, 0}, {0, 0, 1}};
+        for (int i = 0; i < 4; ++i) {
+            const auto &side = pot.faces[16 + i];
+            QCOMPARE(side.normal, outward[i]);
+            QCOMPARE(side.uvRect(), QRectF(1, 0, 14, 16));
+        }
+        const auto dragon = mc::specialMesh(base, {{"type", "head"}, {"kind", "dragon"}});
+        QCOMPARE(dragon.faces.size(), 42);
+        QCOMPARE(dragon.faces.front().texture, QString("assets/minecraft/textures/entity/enderdragon/dragon.png"));
+        QCOMPARE(dragon.faces.front().entityLayer, mc::EntityLayer::CutoutNoCull);
+        QCOMPARE(dragon.faces.front().uvRect(), QRectF(11, 3.75, 1, .3125));
+        QVERIFY(dragon.maximum.z() > 2.f);
+        QCOMPARE(dragon.faces.last().element, QString("Jaw"));
+        const auto piglin = mc::specialMesh(base, {{"type", "head"}, {"kind", "piglin"}});
+        QCOMPARE(piglin.faces.size(), 36);
+        QCOMPARE(piglin.faces.front().texture, QString("assets/minecraft/textures/entity/piglin/piglin.png"));
+        QVERIFY(piglin.maximum.x() > 1.f && piglin.minimum.x() < -1.f);
+        const auto copper = mc::specialMesh(base, {{"type", "copper_golem_statue"},
+            {"pose", "standing"}, {"texture", "nova:textures/entity/oxidized.png"}});
+        QCOMPARE(copper.faces.size(), 54);
+        QCOMPARE(copper.faces.front().texture, QString("assets/nova/textures/entity/oxidized.png"));
+        QCOMPARE(copper.faces.front().entityLayer, mc::EntityLayer::CutoutNoCull);
+        QCOMPARE(copper.maximum.y(), 2.f);
+        QVERIFY(qAbs(copper.minimum.y() - (-1.f + .015f / 8)) < 1e-6f);
     }
     void contours() {
         mc::Model model;

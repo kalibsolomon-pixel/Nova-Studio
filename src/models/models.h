@@ -130,6 +130,7 @@ struct PreviewChoice {
     QStringList candidates;   // valid models using the texture, in preference order
 };
 PreviewChoice previewModelFor(Library &library, const QString &textureAsset);
+enum class EntityLayer { None, Solid, Cutout, CutoutNoCull, Overlay };
 struct Face {
     std::array<QVector3D, 4> points;
     std::array<QVector2D, 4> uv;
@@ -141,7 +142,8 @@ struct Face {
     int rotation = 0, tint = -1;
     // Generated sprite layers are composited in authored order, including opaque overlays.
     int generatedLayer = -1;
-    bool shade = true, forceTranslucent = false, entityCutout = false;
+    bool shade = true, forceTranslucent = false;
+    EntityLayer entityLayer = EntityLayer::None;
     std::array<float, 4> ambientShade{1, 1, 1, 1};
     float overworldShade() const;
     QRectF uvRect() const;
