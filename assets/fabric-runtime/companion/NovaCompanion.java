@@ -23,6 +23,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -128,6 +129,8 @@ public final class NovaCompanion implements ClientModInitializer {
             reply(folder, launch, id, "error", 0, "Ask for 1 to " + ICON_LIMIT + " items");
             return;
         }
+        final JsonElement glintField = request.get("glint");
+        final boolean noGlint = glintField != null && glintField.isJsonPrimitive() && !glintField.getAsBoolean();
         for (final JsonElement item : items.getAsJsonArray()) {
             final Identifier key = item.isJsonPrimitive() ? Identifier.tryParse(item.getAsString()) : null;
             final ItemStack stack = key != null && BuiltInRegistries.ITEM.containsKey(key)
@@ -135,13 +138,27 @@ public final class NovaCompanion implements ClientModInitializer {
                                         : ItemStack.EMPTY;
             if (stack.isEmpty())
                 missing.add(item.isJsonPrimitive() ? item.getAsString() : "");
+            else if (noGlint)
+                stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, false); // a moving overlay
             stacks.add(stack);
         }
         final Path output = folder.resolve("icons-" + id);
+        final JsonElement scaleField = request.get("guiScale");
+        final int wanted = scaleField != null && scaleField.isJsonPrimitive() ? scaleField.getAsInt() : 0;
+        if (wanted < 0 || wanted > 8) {
+            reply(folder, launch, id, "error", 0, "GUI scale must be 1 to 8, or 0 for the current one");
+            return;
+        }
         final Minecraft client = Minecraft.getInstance();
         client.execute(() -> {
             final long started = System.nanoTime();
             final Screen previous = client.screen;
+            // A requested scale applies only to this capture; the player's option is restored.
+            final int savedScale = client.options.guiScale().get();
+            if (wanted > 0) {
+                client.options.guiScale().set(wanted);
+                client.resizeDisplay();
+            }
             client.setScreen(new IconScreen(stacks, screen -> client.execute(() -> Screenshot.takeScreenshot(
                 client.getMainRenderTarget(), image -> {
                     final JsonObject result = new JsonObject();
@@ -168,6 +185,10 @@ public final class NovaCompanion implements ClientModInitializer {
                         error = e.getMessage();
                     }
                     client.setScreen(previous);
+                    if (wanted > 0) {
+                        client.options.guiScale().set(savedScale);
+                        client.resizeDisplay();
+                    }
                     result.addProperty("folder", output.getFileName().toString());
                     result.addProperty("background", String.format("#%06x", IconScreen.BACKGROUND & 0xffffff));
                     result.add("missing", missing);

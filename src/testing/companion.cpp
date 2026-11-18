@@ -65,14 +65,19 @@ bool CompanionLink::available() const {
 
 bool CompanionLink::requestReload(QString *error) { return send("reload", {}, timeoutMs, error); }
 
-bool CompanionLink::requestIcons(const QStringList &items, QString *error) {
+bool CompanionLink::requestIcons(const QStringList &items, QString *error, int guiScale, bool glint) {
     if (items.isEmpty() || items.size() > 64) {
         if (error)
             *error = "Choose 1 to 64 items";
         return false;
     }
     pendingItems = int(items.size());
-    return send("icons", {{"items", QJsonArray::fromStringList(items)}}, qMin(timeoutMs, 60000), error);
+    QJsonObject request{{"items", QJsonArray::fromStringList(items)}};
+    if (guiScale > 0)
+        request.insert("guiScale", qMin(guiScale, 8));
+    if (!glint)
+        request.insert("glint", false);
+    return send("icons", request, qMin(timeoutMs, 60000), error);
 }
 
 bool CompanionLink::send(const QString &type, QJsonObject request, int timeout, QString *error) {

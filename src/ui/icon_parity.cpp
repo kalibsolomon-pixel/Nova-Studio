@@ -181,7 +181,7 @@ void IconParityDialog::compare() {
     QString error;
     if (!context.companion) {
         error = "Minecraft is not running from Nova's test environment.";
-    } else if (context.companion->requestIcons(requested, &error)) {
+    } else if (context.companion->requestIcons(requested, &error, 0, false)) {
         compareButton->setEnabled(false);
         status->setText(QString("Minecraft is drawing %1 icons…").arg(requested.size()));
         return;

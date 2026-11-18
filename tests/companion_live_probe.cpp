@@ -8,11 +8,17 @@
 //   3. runs Compare Icons with the reference set and saves the dialog and its report.
 // For a clean comparison only vanilla and the probe pack are enabled during the run; afterwards the
 // instance's options.txt is restored (without the probe pack) and the probe pack folder is removed.
-// Usage: nova-companion-live-probe <scratch folder>. Set NOVA_VANILLA_BASELINE_ROOT to a scratch
+// With --full it then compares every vanilla item's icon at GUI scales 1-4 (each scale the game
+// window allows) and writes out/parity-1.21.11.json: per scale, the counts and every item that
+// differs or cannot be drawn. Images of the differing items go to out/scale-<n>/ for review only.
+// --rerender <folder> <scale> skips the game: it draws Nova's icon again for every
+// <item>-minecraft.png a full run saved in <folder> and counts what still differs (for renderer work).
+// Usage: nova-companion-live-probe <scratch folder> [--full | --rerender <folder> <scale>]. Set NOVA_VANILLA_BASELINE_ROOT to a scratch
 // folder: the probe downloads the official 1.21.11 baseline there for Nova's side of the
 // comparison. Set NOVA_TEST_SCREEN to keep Nova's windows on a chosen screen.
 #include "companion.h"
 #include "fabric_testing.h"
+#include "assets.h"
 #include "icon_parity.h"
 #include "index.h"
 #include "models.h"
@@ -79,6 +85,36 @@ int main(int argc, char **argv) {
         return 2;
     }
     const QString scratch = QDir(QString::fromLocal8Bit(argv[1])).absolutePath();
+    const bool full = argc > 2 && QByteArray(argv[2]) == "--full";
+    if (argc > 4 && QByteArray(argv[2]) == "--rerender") {
+        auto library = std::make_shared<mc::Library>("1.21.11");
+        const auto empty = scratch + "/empty-pack";
+        QDir().mkpath(empty);
+        library->update(empty, Index::scan(empty));
+        if (auto entry = vanilla::BaselineCache().latest("1.21.11"); entry && entry->hasModelData())
+            library->setFallbacks({mc::ResourceSource::fromBaseline(*entry)}, "1.21.11");
+        const QDir folder(QString::fromLocal8Bit(argv[3]));
+        const int scale = QByteArray(argv[4]).toInt();
+        int matching = 0, total = 0;
+        for (const auto &name : folder.entryList({"*-minecraft.png"}, QDir::Files)) {
+            const auto item = name.chopped(14);
+            const QImage game(folder.filePath(name));
+            const auto asset = "assets/minecraft/items/" + item + ".json";
+            auto comparison = compareIcons(renderInventoryIcon(*library, asset, scale), game, QColor("#8b8b8b"));
+            const int frames = qMin(inventoryIconAnimationLength(*library, asset), 64);
+            for (int k = 1; k < frames && !comparison.matches(); ++k) {
+                auto attempt = compareIcons(renderInventoryIcon(*library, asset, scale, k), game, QColor("#8b8b8b"));
+                if (attempt.differing < comparison.differing)
+                    comparison = attempt;
+            }
+            ++total;
+            matching += comparison.matches();
+            if (!comparison.matches())
+                say(QString("%1: %2 px, max %3").arg(item).arg(comparison.differing).arg(comparison.maxDelta));
+        }
+        say(QString("rerender: %1 of %2 now match").arg(matching).arg(total));
+        return 0;
+    }
     const auto out = scratch + "/out";
     const auto pack = scratch + "/Nova Probe Pack";
     QDir().mkpath(out);
@@ -248,6 +284,107 @@ int main(int argc, char **argv) {
     results["compare"] = rows;
     results["compareStatus"] = compare.findChild<QLabel *>("parityStatus")->text();
     say("Compare: " + results["compareStatus"].toString());
+
+    if (full) {
+        QStringList items;
+        if (auto entry = vanilla::BaselineCache().latest("1.21.11"))
+            for (auto it = entry->files.cbegin(); it != entry->files.cend(); ++it)
+                if (it.key().startsWith("assets/minecraft/items/") && it.key().endsWith(".json") &&
+                    !it.key().mid(23).contains('/'))
+                    items << "minecraft:" + it.key().mid(23).chopped(5);
+        items.sort();
+        say(QString("Full sweep: %1 vanilla items").arg(items.size()));
+        QJsonObject scales;
+        QList<int> done;
+        for (int requested = 1; requested <= 4; ++requested) {
+            int used = 0, matching = 0, compared = 0;
+            QJsonArray differing, undrawn, absent, animatedMatches;
+            bool skip = false;
+            for (int first = 0; first < items.size() && !skip; first += 16) {
+                const auto batch = items.mid(first, 16);
+                bool finished = false, ok = false;
+                QJsonObject answer;
+                QString failure;
+                auto connection = QObject::connect(engine->companion(), &CompanionLink::iconsFinished,
+                    [&](bool success, const QJsonObject &result, const QString &error) {
+                        finished = true, ok = success, answer = result, failure = error;
+                    });
+                QString error;
+                if (engine->companion()->requestIcons(batch, &error, requested, false))
+                    waitFor([&] { return finished; }, 90000);
+                else
+                    failure = error;
+                QObject::disconnect(connection);
+                if (!ok) {
+                    say(QString("scale %1 batch %2: %3").arg(requested).arg(first).arg(failure));
+                    for (const auto &item : batch)
+                        absent.append(item + " (" + failure + ")");
+                    continue;
+                }
+                used = answer.value("guiScale").toInt();
+                if (used != requested && done.contains(used)) {
+                    say(QString("GUI scale %1 is not available in this window (got %2); skipped").arg(requested).arg(used));
+                    skip = true;
+                    break;
+                }
+                const QColor background(answer.value("background").toString());
+                const auto files = answer.value("files").toArray();
+                for (int i = 0; i < batch.size(); ++i) {
+                    const QImage game(files.at(i).toString());
+                    const auto asset = "assets/minecraft/items/" + batch[i].mid(10) + ".json";
+                    const auto icon = renderInventoryIcon(*library, asset, used);
+                    if (game.isNull()) {
+                        absent.append(batch[i]);
+                        continue;
+                    }
+                    if (icon.isNull()) {
+                        undrawn.append(batch[i]);
+                        continue;
+                    }
+                    auto comparison = compareIcons(icon, game, background);
+                    ++compared;
+                    // Animated textures: the game shows whichever frame is current, so try each one.
+                    int entry = 0;
+                    const int frames = comparison.matches() ? 1 : qMin(inventoryIconAnimationLength(*library, asset), 64);
+                    for (int k = 1; k < frames && !comparison.matches(); ++k) {
+                        auto attempt = compareIcons(renderInventoryIcon(*library, asset, used, k), game, background);
+                        if (attempt.differing < comparison.differing)
+                            comparison = attempt, entry = k;
+                    }
+                    if (comparison.matches()) {
+                        ++matching;
+                        if (entry)
+                            animatedMatches.append(QString("%1 (entry %2)").arg(batch[i]).arg(entry));
+                        continue;
+                    }
+                    differing.append(QJsonObject{{"item", batch[i]}, {"differingPixels", comparison.differing},
+                                                 {"pixels", comparison.total}, {"maxDelta", comparison.maxDelta},
+                                                 {"animationEntries", frames}});
+                    const auto folder = QString("%1/scale-%2").arg(out).arg(used);
+                    QDir().mkpath(folder);
+                    const auto name = batch[i].mid(10);
+                    comparison.nova.save(folder + '/' + name + "-nova.png");
+                    comparison.minecraft.save(folder + '/' + name + "-minecraft.png");
+                    comparison.difference.save(folder + '/' + name + "-difference.png");
+                }
+            }
+            if (skip || used == 0)
+                continue;
+            done << used;
+            say(QString("GUI scale %1: %2 of %3 compared icons match, %4 differ, %5 not drawn by Nova, %6 not drawn by the game")
+                    .arg(used).arg(matching).arg(compared).arg(differing.size()).arg(undrawn.size()).arg(absent.size()));
+            scales[QString::number(used)] = QJsonObject{{"compared", compared}, {"matching", matching},
+                                                        {"differing", differing}, {"notDrawnByNova", undrawn},
+                                                        {"matchedOnAnimationEntry", animatedMatches},
+                                                        {"notDrawnByGame", absent}};
+        }
+        QFile report(out + "/parity-1.21.11.json");
+        if (report.open(QIODevice::WriteOnly))
+            report.write(QJsonDocument(QJsonObject{{"minecraft", "1.21.11"}, {"items", items.size()},
+                                                   {"tolerance", 2}, {"scales", scales}})
+                             .toJson());
+        results["parity"] = out + "/parity-1.21.11.json";
+    }
 
     QObject::connect(engine, &FabricRuntime::gameExited, [] { say("Minecraft exited"); });
     engine->requestStop();

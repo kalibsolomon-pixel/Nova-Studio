@@ -34,8 +34,10 @@ class CompanionLink : public QObject {
     // Asks the game to reload its resource packs (F3+T). False with a reason when it cannot.
     bool requestReload(QString *error = nullptr);
     // Asks the game to draw these items' inventory icons (1 to 64 ids such as minecraft:stone) in
-    // slots at its current GUI scale and save one PNG per item.
-    bool requestIcons(const QStringList &items, QString *error = nullptr);
+    // slots and save one PNG per item. guiScale 1-8 applies for this capture only (the game may
+    // clamp it to what its window allows; the result reports the scale used); 0 keeps the current.
+    // glint false draws enchanted-looking items without their moving glint (Nova draws none).
+    bool requestIcons(const QStringList &items, QString *error = nullptr, int guiScale = 0, bool glint = true);
     void setTimeout(int milliseconds) { timeoutMs = milliseconds; }
     void poll(); // public for deterministic tests
 
