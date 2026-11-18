@@ -723,7 +723,8 @@ void Window::ensureMcpService() {
                 }
                 describeVanillaCache(target);
             };
-            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool.startsWith("nova.drafts.") ||
+            if (tool == "nova.workflow.execute" || tool == "nova.workflow.plan" || tool == "nova.texture.adjust_bulk" ||
+                tool.startsWith("nova.drafts.") ||
                 tool == "nova.asset.create" || tool.endsWith(".edit") || tool.startsWith("nova.edit.") ||
                 !mcp::compactTextureCommand(tool).isEmpty()) {
                 auto addOpen = [&](const QString &path) {
@@ -1161,7 +1162,7 @@ void Window::ensureMcpService() {
                 {"tools", QJsonArray{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
                                      "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo",
                                      "nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map",
-                                     "nova.texture.erase", "nova.asset.open"}}};
+                                     "nova.texture.erase", "nova.texture.adjust_bulk", "nova.asset.open"}}};
             if (capabilities && asset.isEmpty())
                 return result;
             if (!capabilities && QApplication::activeModalWidget())
@@ -1507,7 +1508,7 @@ void Window::ensureMcpService() {
                     for (const auto &key : {"layer", "frame"})
                         if (op.contains(key) && QUuid(op[key].toString()).isNull())
                             return toolError("invalid_arguments", "The layer or frame identifier is invalid.");
-                    if (texture::compactCommand(name)) {
+                    if (!compact.isEmpty()) {
                         // Everything that needs the canvas is checked here, before any draft exists.
                         if (op.contains("layer") && !doc->layer(QUuid(op["layer"].toString())))
                             return toolError("invalid_arguments", "Invalid argument at /layer: the layer is not in this document.",

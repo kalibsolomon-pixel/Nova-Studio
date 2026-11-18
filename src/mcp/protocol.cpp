@@ -288,7 +288,7 @@ QJsonObject editOutputSchema(bool capabilities) {
         required.append(key);
     return objectSchema(fields, required);
 }
-void addEditingTools(QJsonArray &list, const QJsonObject &token) {
+void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArray &compact) {
     const auto uuid = stringField(36, "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$");
     const auto color = stringField(7, "^#[A-Fa-f0-9]{6}$");
     const auto name = stringField(128, "^.*\\S.*$");
@@ -381,6 +381,20 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     for (const auto &group : {texture, layers, animation, model, uv})
         for (const auto &command : group)
             commands.append(command);
+    for (const QJsonValue &tool : compact) {
+        const auto input = tool["inputSchema"].toObject();
+        auto fields = input["properties"].toObject();
+        auto keys = input["required"].toArray();
+        for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview"})
+            fields.remove(key);
+        for (qsizetype i = keys.size(); i > 0; --i)
+            if (!fields.contains(keys.at(i - 1).toString()))
+                keys.removeAt(i - 1);
+        const auto name = compactTextureCommand(tool["name"].toString());
+        fields["command"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{name}}};
+        keys.append("command");
+        commands.append(objectSchema(fields, keys));
+    }
     auto batch = target;
     batch["operations"] = arrayField(QJsonObject{{"oneOf", commands}}, 1, 8);
     auto stage = batch;
@@ -396,6 +410,28 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
             {"inputSchema", objectSchema(workflow, {"generation", "projectId", "stages"})},
             {"annotations", QJsonObject{{"readOnlyHint", plan}, {"openWorldHint", false}}}});
     }
+    const QStringList adjustments{"palette_remap", "gradient_map", "hue_saturation", "levels", "colorize",
+                                  "palette_map", "quantize"};
+    QJsonArray bulkCommands;
+    for (const QJsonValue &variant : commands) {
+        auto fields = variant["properties"].toObject();
+        if (!adjustments.contains(fields["command"].toObject()["enum"].toArray().at(0).toString()))
+            continue;
+        fields.remove("layer"); // Each asset uses its own active layer.
+        bulkCommands.append(objectSchema(fields, variant["required"].toArray()));
+    }
+    const auto bulkTarget = objectSchema({{"assetId", token},
+        {"expectedRevision", described(stringField(64, "^(?:[a-f0-9]{64}|current)$"),
+            "Use a live revision, or 'current' to open if needed and edit the revision current at preparation.")}},
+        {"assetId", "expectedRevision"});
+    list.append(QJsonObject{{"name", "nova.texture.adjust_bulk"},
+        {"description", "Apply shared colour adjustments to up to 64 pack textures, in order. Each asset has "
+                        "its own atomic undo step and result. Targets use their active layer and frame."},
+        {"inputSchema", objectSchema({{"generation", token}, {"projectId", token},
+            {"targets", arrayField(bulkTarget, 1, 64)},
+            {"operations", arrayField(QJsonObject{{"oneOf", bulkCommands}}, 1, 8)}},
+            {"generation", "projectId", "targets", "operations"})},
+        {"annotations", QJsonObject{{"readOnlyHint", false}, {"openWorldHint", false}}}});
     const auto choice = [](QJsonArray values) {
         return QJsonObject{{"type", "string"}, {"enum", values}};
     };
@@ -589,7 +625,9 @@ const QJsonArray &tools() {
         targets["expectedRevisions"] = arrayField(
             objectSchema({{"assetId", asset}, {"revision", generation}}, {"assetId", "revision"}), 1, 8);
         add("nova.workflow.validate_changes", "Validate selected assets and reject results for stale revisions.", targets, targetKeys);
-        addEditingTools(list, generation);
+        QJsonArray compact;
+        addCompactTextureTools(compact, generation);
+        addEditingTools(list, generation, compact);
         auto define = [&](const QString &name, const QString &description, QJsonObject fields,
                           QJsonArray required, bool readOnly) {
             list.append(QJsonObject{{"name", name}, {"description", description},
@@ -621,7 +659,8 @@ const QJsonArray &tools() {
                {"generation", "projectId", "documentId", "expectedRevision"}, false);
         define("nova.drafts.save_all", "Save every unsaved open document of this project; reports each result.",
                {{"generation", current}, {"projectId", project}}, {"generation", "projectId"}, false);
-        addCompactTextureTools(list, generation);
+        for (const auto &tool : std::as_const(compact))
+            list.append(tool);
         // MCP Phase 3: read-only vanilla texture cache access and asset relationships.
         const auto version = described(stringField(16, "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$"),
                                        "A Minecraft Java version such as 1.21.11.");

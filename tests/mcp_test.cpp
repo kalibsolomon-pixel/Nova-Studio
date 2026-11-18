@@ -201,7 +201,7 @@ class McpTest : public QObject {
             return QJsonDocument::fromJson(block["text"].toString().toUtf8()).object();
         };
         const auto list = result(protocol.receive(request(5, "tools/list")).response)["tools"].toArray();
-        QCOMPARE(list.size(), 42);
+        QCOMPARE(list.size(), 43);
         int schemas = 0;
         for (const auto &entry : list) {
             const auto tool = entry.toObject();
@@ -388,7 +388,7 @@ class McpTest : public QObject {
         QTRY_VERIFY(status->text().startsWith("Connected"));
         saveScreenshot(dialog, "connected");
         client.write(request(2, "tools/list"));
-        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 42);
+        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 43);
         client.write("broken\n");
         QCOMPARE(receive(client)["error"].toObject()["code"].toInt(), -32700);
 

@@ -286,12 +286,31 @@ field in the message and in `details.pointer`, and never echo the value.
 
 A revoked authorization closes the connection; no further call reaches Nova Studio.
 
-## Not included
+## Combine edits and recolour multiple textures
 
-These tools do not create assets, read the vanilla cache, edit several documents in one call, or run
-inside `nova.edit.batch` / `nova.workflow.*` stages. There is no PNG input: palette rows are what an
-agent can write directly, and a PNG would need compression and checksums for no gain at 256 × 256 or
-below.
+In `nova.edit.batch`, `nova.edit.preview` or a workflow stage, use `put_pixels`, `palette_remap`,
+`gradient_map` and `erase` as `command` values. Copy each standalone tool's pixel arguments into
+the command object. The enclosing batch or stage supplies the target and revision. Commands see
+the canvas left by preceding commands, and the whole batch is one undoable step per document.
+
+Use `nova.texture.adjust_bulk` to apply up to eight shared operations to 1–64 distinct pack textures.
+It accepts `palette_remap`, `gradient_map`, `hue_saturation`, `levels`, `colorize`, `palette_map`
+and `quantize`. Each target uses its own active visible layer and frame, and an optional per-operation
+region clips against that target's selection. For example, pass these fields with `generation` and
+`projectId`:
+
+```json
+{"targets":[{"assetId":"…","expectedRevision":"current"}],
+ "operations":[{"command":"palette_remap","mappings":[{"from":"#808080","to":"#325681"}]}]}
+```
+
+Use a live revision to require an open document at that revision. The explicit value `current` takes
+the revision at preparation and opens a background tab when needed, within Nova's 32-document opening
+limit. Each asset commits independently in input order. A failed asset leaves its pixels unchanged
+and may leave a newly opened tab. The remaining assets still run. Results report `committed` or
+`rejected` with an error code such as `revision_conflict`, `open_limit` or `edit_rejected`.
+Cancellation, a project switch or the 30-second deadline stops at an asset boundary and marks the
+remaining targets `not_run`. Earlier commits stay available for individual undo and save.
 
 ## Exact definitions
 
