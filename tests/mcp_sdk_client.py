@@ -769,7 +769,7 @@ async def phase1(client: ClientSession, initialized) -> dict:
     assert templates[0].uriTemplate == "nova://rules/{version}/{topic}"
     catalog = await client.call_tool("nova.guide.list", {})
     topics = [entry["topic"] for entry in catalog.structuredContent["topics"]]
-    assert topics == ["pack", "items", "textures", "armor", "trims", "animations", "pvp"], topics
+    assert topics == ["pack", "items", "textures", "armor", "trims", "animations", "pixel-art", "pvp"], topics
     for topic in topics:
         read = await client.read_resource(f"nova://rules/1.21.11/{topic}")
         tool = await client.call_tool("nova.guide.get", {"topic": topic, "version": "1.21.11"})
