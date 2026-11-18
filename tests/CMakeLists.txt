@@ -278,6 +278,10 @@ add_executable(nova-acp-live-probe acp_live_probe.cpp)
 target_link_libraries(nova-acp-live-probe PRIVATE nova-mcp-service nova-acp Qt6::Core Qt6::Gui)
 target_compile_definitions(nova-acp-live-probe PRIVATE NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>")
 add_dependencies(nova-acp-live-probe nova-mcp)
+# Manual live probe of the Fabric companion against the real managed runtime (starts Minecraft);
+# never registered with CTest. See tests/companion_live_probe.cpp.
+add_executable(nova-companion-live-probe companion_live_probe.cpp)
+target_link_libraries(nova-companion-live-probe PRIVATE nova-workspace)
 add_executable(nova-phase4f-filesystem-tests phase4f_filesystem_test.cpp)
 target_link_libraries(nova-phase4f-filesystem-tests PRIVATE nova-workspace Qt6::Test)
 add_test(NAME phase4f-filesystem COMMAND nova-phase4f-filesystem-tests)

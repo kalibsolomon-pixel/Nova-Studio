@@ -29,8 +29,8 @@
   download. The production Minecraft launcher hand-off is not part of this preview.
 - Reloading from Nova uses a small Nova companion mod that the test runtime compiles when it is
   prepared, so a runtime prepared by an older Nova prepares again once. A game started before that
-  shows the F3+T hint instead. The companion was compiled against Minecraft 1.21.11 and tested
-  with a simulated game; a reload and an icon capture in the real game have not been tested yet.
+  shows the F3+T hint instead. Reloading and Compare Icons were checked in Minecraft 1.21.11 at
+  GUI scale 3 (tests/companion_live_probe.cpp): the 16 reference icons matched within one colour step.
 - Compare Icons uses the game's current GUI scale and the packs the game has loaded, so sync and
   reload first. Icons the game draws with an enchantment glint or animation are compared as captured
   in one frame. The game's images stay in Nova's test folder (`nova-companion/icons-*`).
