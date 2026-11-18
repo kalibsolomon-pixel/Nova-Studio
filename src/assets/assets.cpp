@@ -7,9 +7,12 @@
 #include "render_layers.h"
 #include "tints.h"
 #include <QApplication>
+#include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QJsonDocument>
 #include <QMetaObject>
+#include <QPointer>
 #include <QRunnable>
 #include <QStyle>
 #include <functional>
@@ -26,7 +29,26 @@ struct IconRecipe {
     QImage fallback;
     QString blockId;
 };
-IconRecipe buildIcon(mc::Library library, const QString &asset) {
+// The animation of a texture from any source. The baseline cache stores files under their hashes,
+// so the .png.mcmeta is found through the library, never beside the PNG.
+std::shared_ptr<Document> textureAnimation(const mc::Library &library, const QString &texture,
+                                           const QString &file) {
+    const auto metadata = library.assetPath(texture + ".mcmeta");
+    QFile meta(metadata);
+    if (metadata.isEmpty() || !meta.open(QIODevice::ReadOnly) || meta.size() > 512 * 1024)
+        return {};
+    const auto json = QJsonDocument::fromJson(meta.readAll()).object();
+    if (!json.contains("animation"))
+        return {};
+    const auto sheet = loadPng(file).convertToFormat(QImage::Format_RGBA8888);
+    QImage placeholder(1, 1, QImage::Format_RGBA8888);
+    placeholder.fill(Qt::transparent);
+    auto document = std::make_shared<Document>(file, placeholder);
+    return !sheet.isNull() && document->importAnimation(sheet, json, library.version()) ? document : nullptr;
+}
+// animationEntry picks the playback entry of animated textures (wrapping per texture); Explorer
+// uses the first.
+IconRecipe buildIcon(mc::Library library, const QString &asset, int animationEntry = 0) {
     IconRecipe result;
     result.blockId = mc::previewBlockId(asset, library);
     const auto id = mc::Location::fromAsset(asset, "models");
@@ -48,9 +70,9 @@ IconRecipe buildIcon(mc::Library library, const QString &asset) {
             const auto pixels = qint64(size.width()) * size.height();
             if (size.isValid() && pixels <= pixelsLeft) {
                 pixelsLeft -= pixels;
-                if (QFileInfo::exists(path + ".mcmeta")) {
-                    if (auto animation = openMinecraftAnimation(path, library.version()))
-                        image = animation->frameComposite(animation->animationState().entries.front().frame);
+                if (auto animation = textureAnimation(library, texture, path)) {
+                    const auto &entries = animation->animationState().entries;
+                    image = animation->frameComposite(entries[qMax(0, animationEntry) % entries.size()].frame);
                 }
                 if (image.isNull())
                     image = loadPng(path);
@@ -80,20 +102,36 @@ IconRecipe buildIcon(mc::Library library, const QString &asset) {
     return result;
 }
 } // namespace
-QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int scale) {
-    const auto recipe = buildIcon(library, asset);
+int inventoryIconAnimationLength(const mc::Library &library, const QString &asset) {
+    int length = 1;
+    for (const auto &texture : buildIcon(library, asset).materials.keys()) {
+        const auto path = library.assetPath(texture);
+        if (!path.isEmpty())
+            if (auto animation = textureAnimation(library, texture, path))
+                length = qMax(length, int(animation->animationState().entries.size()));
+    }
+    return length;
+}
+QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int scale, int animationEntry) {
+    const auto recipe = buildIcon(library, asset, animationEntry);
     if (recipe.mesh->faces.isEmpty())
         return {};
-    Metrics metrics;
-    Cube cube(&metrics);
-    cube.setAttribute(Qt::WA_DontShowOnScreen);
-    cube.setAttribute(Qt::WA_ShowWithoutActivating);
-    cube.resize(200, 150);
-    cube.setPreviewContext("gui", false, recipe.blockId);
-    cube.setModel(recipe.mesh, {}, recipe.materials);
-    if (!cube.isValid())
-        cube.grabFramebuffer(); // creates the context
-    return cube.captureInventoryIcon(scale);
+    // One hidden renderer serves every call: creating an OpenGL context per icon dominated large
+    // comparisons. It ends with the application.
+    static Metrics metrics;
+    static QPointer<Cube> cube;
+    if (!cube) {
+        cube = new Cube(&metrics);
+        cube->setAttribute(Qt::WA_DontShowOnScreen);
+        cube->setAttribute(Qt::WA_ShowWithoutActivating);
+        cube->resize(200, 150);
+        QObject::connect(qApp, &QCoreApplication::aboutToQuit, cube, &QObject::deleteLater);
+    }
+    cube->setPreviewContext("gui", false, recipe.blockId);
+    cube->setModel(recipe.mesh, {}, recipe.materials);
+    if (!cube->isValid())
+        cube->grabFramebuffer(); // creates the context
+    return cube->captureInventoryIcon(scale);
 }
 AssetModel::AssetModel(QObject *p) : QAbstractItemModel(p), root(std::make_unique<Node>()) {
     root->directory = true;
