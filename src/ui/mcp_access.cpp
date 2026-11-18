@@ -507,7 +507,8 @@ void Window::ensureMcpService() {
             if (tool == "nova.model.inspect" || tool == "nova.asset.inspect" || batch || context || related ||
                 tool == "nova.pack.validate" || tool == "nova.workflow.validate_changes")
                 snapshot.models = modelPanel->documentSources();
-            if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla."))
+            if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla.") ||
+                snapshot.textureReadTarget.startsWith("vanilla:"))
                 describeSources(snapshot);
             if (revisions)
                 for (const auto &path : modelPanel->openModelAssets())
@@ -515,6 +516,20 @@ void Window::ensureMcpService() {
                         snapshot.revisions.insert(path, revisionToken(snapshot, *doc));
             const bool rasterMetadata = tool == "nova.texture.inspect" || tool == "nova.animation.inspect" ||
                 tool == "nova.asset.inspect" || batch || context;
+            if (!snapshot.textureReadTarget.isEmpty() && !snapshot.textureReadTarget.startsWith("vanilla:")) {
+                for (const auto &doc : session.all()) {
+                    const auto relative = QDir(project).relativeFilePath(doc->path);
+                    if (baselineDocs.contains(doc->id()) || !snapshot.index.records.contains(relative) ||
+                        mcp::assetIdentifier(snapshot, relative) != snapshot.textureReadTarget)
+                        continue;
+                    snapshot.textureReadBusy = doc->strokeOpen();
+                    if (!snapshot.textureReadBusy) {
+                        snapshot.textureReadDocument = doc->recoverySnapshot();
+                        snapshot.revisions.insert(relative, revisionToken(snapshot, *doc));
+                    }
+                    break;
+                }
+            }
             if (rasterMetadata || revisions) {
                 for (const auto &doc : session.all()) {
                     const auto relative = QDir(project).relativeFilePath(doc->path);

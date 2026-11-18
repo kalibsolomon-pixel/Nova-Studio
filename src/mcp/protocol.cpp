@@ -140,6 +140,16 @@ QJsonObject outputSchema(const QString &name) {
             add("limits", "object");
             add("animationMetadata", QJsonArray{"object", "null"});
         }
+    } else if (name == "nova.texture.read") {
+        for (auto key : {"assetId", "path", "source", "encoding"})
+            add(key, "string");
+        add("revision", QJsonArray{"string", "null"});
+        add("layer", QJsonArray{"string", "null"});
+        add("frame", QJsonArray{"integer", "null"});
+        add("colorCount", "integer");
+        add("paletteSummary", "array");
+        add("paletteSummaryTruncated", "boolean");
+        add("pixels", "object");
     } else if (name == "nova.asset.relationships") {
         for (auto key : {"generation", "projectId", "path", "kind", "minecraftVersion", "versionSource"})
             add(key, "string");
@@ -553,6 +563,21 @@ const QJsonArray &tools() {
                                    "A resource-pack path such as assets/minecraft/textures/item/diamond_sword.png.")},
                 {"version", described(version, "The Minecraft version; must be the project's target version (the default).")}},
                {"generation", "projectId", "path"}, true);
+        const auto readRegion = objectSchema({{"x", integerField(0, 4095)}, {"y", integerField(0, 4095)},
+            {"width", integerField(1, 256)}, {"height", integerField(1, 256)}}, {"x", "y", "width", "height"});
+        add("nova.texture.read",
+            "Read exact pixels from an open texture draft, a pack PNG, or the verified local vanilla cache. "
+            "Copy indexed pixels (x, y, width, height, palette and rows) into put_pixels; over 62 colours "
+            "returns rows of concatenated 8-digit RRGGBBAA hex pixels. Palette summary is sorted by luma.",
+            {{"generation", generation}, {"projectId", generation},
+             {"assetId", described(stringField(264, "^(?:[a-f0-9]{64}|vanilla:[a-z0-9_./-]+\\.png)$"),
+                                   "A pack texture assetId or vanilla:<path> from nova.vanilla.list.")},
+             {"region", described(readRegion, "Read a rectangle inside the selected image, at most 256 by 256.")},
+             {"layer", described(stringField(36, "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$"),
+                                "A layer UUID in an open draft. Defaults to the visible composite.")},
+             {"frame", described(integerField(0, 1023), "Zero-based source frame index. Defaults to the active "
+                                 "frame of an open draft or the whole saved spritesheet.")},
+             {"version", version}, {"identity", identity}}, {"generation", "assetId"});
         return list;
     }();
     return definitions;

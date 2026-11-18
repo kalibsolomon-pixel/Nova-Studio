@@ -12,5 +12,6 @@ struct Snapshot;
 constexpr qint64 VanillaImageLimit = 256 * 1024;   // PNG bytes returned inline as an image block
 constexpr qint64 VanillaMetadataLimit = 16 * 1024; // .png.mcmeta text returned inline
 QJsonObject vanillaList(const Snapshot &, const QJsonObject &arguments, const std::shared_ptr<std::atomic_bool> &cancel);
-QJsonObject vanillaTexture(const Snapshot &, const QJsonObject &arguments);
+// Internal callers can receive verified PNG bytes instead of a base64 MCP image block.
+QJsonObject vanillaTexture(const Snapshot &, const QJsonObject &arguments, QByteArray *png = nullptr);
 } // namespace nova::mcp

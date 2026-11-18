@@ -854,6 +854,21 @@ async def phase2(client: ClientSession) -> dict:
         assert content["path"] == row["path"] and content["documentId"] == row["documentId"], content
         assert content["changed"] is True and content["dirty"] is True and content["pixelsChanged"] > 0, content
         revision = content["revision"]
+        if name == "nova.texture.put_pixels":
+            read = await client.call_tool("nova.texture.read", {**target, "layer": content["layer"],
+                                          "region": {"x": 0, "y": 0, "width": 4, "height": 1}})
+            assert not read.isError, read
+            decoded = read.structuredContent
+            assert decoded["encoding"] == "indexed" and decoded["source"] == "live", decoded
+            assert decoded["revision"] == revision and decoded["colorCount"] == 2, decoded
+            pixels = decoded["pixels"]
+            colors = [pixels["palette"][int(symbol)] for symbol in pixels["rows"][0]]
+            assert colors == ["#ff0000", "#00ff0080"] * 2, colors
+            assert [entry["color"] for entry in decoded["paletteSummary"]] == pixels["palette"]
+            same = await client.call_tool(name, {**target, **pixels, "expectedRevision": revision,
+                                                 "layer": content["layer"]})
+            assert not same.isError and not same.structuredContent["changed"], same
+            revision = same.structuredContent["revision"]
     # Schema-level errors: Nova and jsonschema both reject them, and Nova names the field.
     base = {**target, "expectedRevision": revision, "x": 0, "y": 0, "width": 1, "height": 1, "palette": ["#000000"], "rows": ["0"]}
     invalid = [({**base, "palette": ["red"]}, "/palette/0"), ({**base, "rows": ["0 "]}, "/rows/0"),
@@ -907,6 +922,21 @@ async def phase3(client: ClientSession) -> dict:
     images = [item for item in texture.content if item.type == "image"]
     assert len(images) == 1 and images[0].mimeType == "image/png", texture.content
     assert hashlib.sha256(base64.b64decode(images[0].data)).hexdigest() == texture.structuredContent["sha256"]
+    water = await client.call_tool("nova.texture.read", {
+        **scope, "assetId": "vanilla:block/water_still.png", "frame": 1})
+    assert not water.isError, water
+    assert water.structuredContent["source"] == "vanilla" and water.structuredContent["frame"] == 1, water
+    assert water.structuredContent["encoding"] == "indexed", water
+    many = await client.call_tool("nova.texture.read", {
+        **scope, "assetId": "vanilla:assets/minecraft/textures/gui/big.png",
+        "region": {"x": 0, "y": 0, "width": 8, "height": 8}})
+    assert not many.isError, many
+    decoded = many.structuredContent
+    assert decoded["encoding"] == "hex" and decoded["colorCount"] == 64, decoded
+    assert decoded["paletteSummaryTruncated"] and len(decoded["paletteSummary"]) == 62, decoded
+    rows = decoded["pixels"]["rows"]
+    assert len(rows) == 8 and all(len(row) == 64 for row in rows), rows
+    assert len({row[i:i + 8] for row in rows for i in range(0, 64, 8)}) == 64, rows
     metadata = await client.call_tool("nova.vanilla.texture", {**scope, "version": version, "path": path, "include": "metadata"})
     assert not metadata.isError and not [item for item in metadata.content if item.type == "image"], metadata
     errors = {
@@ -923,6 +953,12 @@ async def phase3(client: ClientSession) -> dict:
     target = os.environ.get("NOVA_PHASE3_TEXTURE", path)
     related = await client.call_tool("nova.asset.relationships", {**scope, "path": target})
     assert not related.isError and related.structuredContent["relationships"], related
+    if "NOVA_PHASE3_TEXTURE" in os.environ:
+        assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"], "search": target})
+        asset = next(row["assetId"] for row in assets.structuredContent["assets"] if row["path"] == target)
+        disk = await client.call_tool("nova.texture.read", {**scope, "assetId": asset, "frame": 1})
+        assert not disk.isError and disk.structuredContent["source"] == "disk", disk
+        assert disk.structuredContent["frame"] == 1 and disk.structuredContent["pixels"]["height"] == 16, disk
     validation = await client.call_tool("nova.pack.validate", {"generation": scope["generation"], "limit": 50})
     assert not validation.isError, validation
     content = validation.structuredContent
@@ -963,7 +999,7 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 39
+            assert len(tools.tools) == 40
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")
@@ -1026,6 +1062,8 @@ async def main() -> None:
                 assert not item.isError
                 assert field in item.structuredContent or field in item.structuredContent["metadata"]
                 results.append(item)
+            pixels = await client.call_tool("nova.texture.read", {"generation": generation, "assetId": assets["texture"]})
+            assert not pixels.isError and pixels.structuredContent["source"] == "live", pixels
             validation = await client.call_tool("nova.pack.validate", {"generation": generation, "limit": 10})
             assert not validation.isError and validation.structuredContent["files"] == 4
             rejected = await client.call_tool("nova.asset.inspect", {"generation": generation, "assetId": "../secret"})

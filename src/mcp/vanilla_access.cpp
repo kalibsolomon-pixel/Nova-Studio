@@ -116,7 +116,7 @@ QJsonObject vanillaList(const Snapshot &s, const QJsonObject &args, const std::s
     return result;
 }
 
-QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args) {
+QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, QByteArray *png) {
     if (!vanilla::validBaselinePath(args["path"].toString()))
         return toolError("invalid_arguments", "Invalid argument at /path: expected a cached texture path such as "
                          "assets/minecraft/textures/block/stone.png.", {{"pointer", "/path"}});
@@ -140,7 +140,7 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args) {
                     "Manage Cached Baselines…).").arg(path), {{"pointer", "/path"}, {"version", version}});
     const auto size = header(entry, path);
     const auto file = entry.files.value(path);
-    const bool image = args["include"].toString("image") == "image";
+    const bool image = !png && args["include"].toString("image") == "image";
     if (image && bytes.size() > VanillaImageLimit)
         return toolError("texture_too_large",
             QString("%1 is %2 bytes; nova.vanilla.texture returns at most %3 bytes of PNG inline. Call it again "
@@ -182,6 +182,8 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args) {
     result["animationMetadata"] = animation;
     if (image)
         result["_pngImage"] = QString::fromLatin1(bytes.toBase64());
+    if (png)
+        *png = std::move(bytes);
     return result;
 }
 } // namespace nova::mcp

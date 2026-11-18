@@ -683,7 +683,7 @@ class TexturePixelsTest : public QObject {
     // ones match the published schemas.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 39);
+        QCOMPARE(definitions.size(), 40);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
         QMap<QString, QJsonObject> runtime;
@@ -1191,7 +1191,7 @@ class TexturePixelsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["tools"].toInt(), 39);
+        QCOMPARE(summary["tools"].toInt(), 40);
         QCOMPARE(QImage(root + '/' + plain).convertToFormat(QImage::Format_RGBA8888), doc->image.convertToFormat(QImage::Format_RGBA8888));
         QCOMPARE(at(doc->image, 0, 0), qRgba(0, 0, 0, 0));
         QVERIFY(!nova::EditorTestAccess::dirty(window, doc));
