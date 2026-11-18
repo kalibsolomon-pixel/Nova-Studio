@@ -140,6 +140,12 @@ QJsonObject outputSchema(const QString &name) {
             add("limits", "object");
             add("animationMetadata", QJsonArray{"object", "null"});
         }
+    } else if (name == "nova.asset.open") {
+        for (auto key : {"assetId", "path", "documentId", "revision"})
+            add(key, "string");
+        add("opened", "boolean");
+        add("document", "object");
+        add("changeSummary", "object");
     } else if (name == "nova.texture.read") {
         for (auto key : {"assetId", "path", "source", "encoding"})
             add(key, "string");
@@ -593,6 +599,11 @@ const QJsonArray &tools() {
              {"frame", described(integerField(0, 1023), "Zero-based source frame index. Defaults to the active "
                                  "frame of an open draft or the whole saved spritesheet.")},
              {"version", version}, {"identity", identity}}, {"generation", "assetId"});
+        define("nova.asset.open",
+            "Open an indexed pack texture or animation in an editor tab and obtain its edit revision. "
+            "Requires editing permission. Reuses an existing open document when possible.",
+            {{"generation", current}, {"projectId", project}, {"assetId", asset}},
+            {"generation", "projectId", "assetId"}, false);
         return list;
     }();
     return definitions;

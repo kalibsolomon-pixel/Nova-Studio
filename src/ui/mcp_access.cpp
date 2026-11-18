@@ -733,6 +733,63 @@ void Window::ensureMcpService() {
             using mcp::toolError;
             if (request.tool.startsWith("nova.drafts."))
                 return mcpDraftRequest(snapshot, request, editing, commit);
+            if (request.tool == "nova.asset.open") {
+                const auto asset = request.arguments["assetId"].toString();
+                const auto relative = mcp::resolveAssetPath(snapshot, asset);
+                if (relative.isEmpty())
+                    return toolError("asset_not_found", "The asset identifier is unknown or stale.");
+                if (!relative.endsWith(".png"))
+                    return toolError("invalid_asset_type", "Opening an asset through MCP requires a pack PNG.");
+                commit = [this, snapshot, relative, asset]() -> QJsonObject {
+                    if (QApplication::activeModalWidget())
+                        return toolError("document_busy", "Finish the current editor dialog first.");
+                    mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+                    const auto absolute = snapshot.root + '/' + relative;
+                    auto doc = reviewRaster(relative);
+                    const bool added = !doc;
+                    const bool provisional = doc && snapshot.provisional.contains(relative) && !baselineDocs.contains(doc->id());
+                    auto source = provisional ? nullptr : scope.open(relative);
+                    if (provisional ? !rasterDestination(scope, relative) : !source)
+                        return toolError("asset_unavailable", "The source asset failed project containment.");
+                    if (doc && baselineDocs.contains(doc->id()))
+                        return toolError("document_busy", "Close the vanilla baseline tab before opening this pack texture.");
+                    QString error;
+                    if (added) {
+                        if (session.all().size() >= 32)
+                            return toolError("open_limit", "Close a texture before opening more documents.");
+                        const auto metadataPath = relative + ".mcmeta";
+                        const auto metadata = relative == "pack.png" ? nullptr : scope.open(metadataPath);
+                        if (relative != "pack.png" && !metadata && !scope.vacant(metadataPath))
+                            return toolError("asset_unavailable", "The texture metadata failed project containment.");
+                        const auto editable = nativeDocumentPath(snapshot.root, absolute);
+                        auto nativeStatus = mcp::Vacancy::Unsafe;
+                        const auto native = editable.isEmpty() ? nullptr : scope.openEditableDocument(
+                            QDir(snapshot.root).relativeFilePath(editable), nativeStatus);
+                        if (native) {
+                            doc = std::make_shared<Document>(absolute, QImage{});
+                            if (!doc->loadNative(snapshot.root, &error))
+                                return toolError("open_failed", "Nova could not load the editable texture document.");
+                        } else if (nativeStatus == mcp::Vacancy::Vacant || nativeStatus == mcp::Vacancy::Missing) {
+                            doc = Document::open(absolute, &error, bool(metadata));
+                        } else {
+                            return toolError("asset_unavailable", "The editable texture document failed project containment.");
+                        }
+                        if (!doc)
+                            return toolError("open_failed", "Nova could not open the texture or its animation metadata.");
+                    }
+                    if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
+                        doc->pixelBytes() > MaxEditPixelBytes)
+                        return toolError("edit_limit", "The texture exceeds the MCP editing budget.");
+                    if (added && !session.adopt(doc))
+                        return toolError("open_limit", "The editor could not register another texture document.");
+                    showTextureDocument(doc, false);
+                    const auto state = documentState(snapshot, *doc);
+                    return {{"assetId", asset}, {"path", relative}, {"opened", added},
+                            {"documentId", documentIdentifier(doc->instanceId())}, {"revision", state["revision"]},
+                            {"document", state}, {"changeSummary", QJsonObject{{"assetPath", relative}}}};
+                };
+                return {};
+            }
             const bool create = request.tool == "nova.asset.create";
             if (create || request.tool == "nova.asset.create_preview") {
                 const auto args = request.arguments;
@@ -924,7 +981,7 @@ void Window::ensureMcpService() {
                 {"tools", QJsonArray{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
                                      "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo",
                                      "nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map",
-                                     "nova.texture.erase"}}};
+                                     "nova.texture.erase", "nova.asset.open"}}};
             if (capabilities && asset.isEmpty())
                 return result;
             if (!capabilities && QApplication::activeModalWidget())

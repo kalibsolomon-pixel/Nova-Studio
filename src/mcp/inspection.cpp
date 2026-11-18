@@ -23,18 +23,18 @@ QString assetIdentifier(const Snapshot &s, const QString &path) {
     return QString::fromLatin1(QMessageAuthenticationCode::hash(
         path.toUtf8(), s.idKey, QCryptographicHash::Sha256).toHex());
 }
-namespace {
-constexpr int AssetLimit = 60000;
-constexpr int JsonLimit = 2 * 1024 * 1024;
-QString resolve(const Snapshot &s, const QString &assetId, const std::atomic_bool &cancel) {
+QString resolveAssetPath(const Snapshot &s, const QString &assetId, const std::atomic_bool *cancel) {
     for (const auto &path : s.index.files) {
-        if (cancel.load())
+        if (cancel && cancel->load())
             break;
         if (logicalAsset(path) && assetIdentifier(s, path) == assetId)
             return path;
     }
     return {};
 }
+namespace {
+constexpr int AssetLimit = 60000;
+constexpr int JsonLimit = 2 * 1024 * 1024;
 QString kind(const QString &path) {
     if (path.endsWith(".png"))
         return "texture";
@@ -740,7 +740,7 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         return cancel->load() ? canceled() : result;
     }
     const auto requested = args["assetId"].toString();
-    const auto path = requested.isEmpty() ? QString{} : resolve(s, requested, *cancel);
+    const auto path = requested.isEmpty() ? QString{} : resolveAssetPath(s, requested, cancel.get());
     if (cancel->load())
         return canceled();
     if (!requested.isEmpty() && path.isEmpty())

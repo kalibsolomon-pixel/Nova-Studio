@@ -56,6 +56,7 @@ struct Snapshot {
     QString baselineVersion, baselineIdentity;   // the project's vanilla baseline binding, if any
 };
 QString assetIdentifier(const Snapshot &, const QString &path);
+QString resolveAssetPath(const Snapshot &, const QString &assetId, const std::atomic_bool *cancel = nullptr);
 QJsonObject inspect(const Snapshot &, const QString &tool, const QJsonObject &arguments,
                     const std::shared_ptr<std::atomic_bool> &cancel);
 }

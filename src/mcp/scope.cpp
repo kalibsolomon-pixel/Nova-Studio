@@ -125,9 +125,17 @@ Scope::~Scope() = default;
 QByteArray Scope::identity() const { return handles->id; }
 
 Vacancy Scope::vacancy(const QString &relative, QString *failed) {
+    if (!logicalAsset(relative)) {
+        if (failed)
+            *failed = relative;
+        return Vacancy::Unsafe;
+    }
+    return checkedVacancy(relative, failed);
+}
+Vacancy Scope::checkedVacancy(const QString &relative, QString *failed) {
     if (failed)
         *failed = relative;
-    if (handles->id.isEmpty() || !logicalAsset(relative))
+    if (handles->id.isEmpty())
         return Vacancy::Unsafe;
     auto parts = relative.split('/');
     const auto file = parts.takeLast();
@@ -151,7 +159,29 @@ Vacancy Scope::vacancy(const QString &relative, QString *failed) {
 }
 
 std::unique_ptr<QIODevice> Scope::open(const QString &relative) {
-    if (handles->id.isEmpty() || !logicalAsset(relative))
+    return logicalAsset(relative) ? openChecked(relative) : nullptr;
+}
+std::unique_ptr<QIODevice> Scope::openEditableDocument(const QString &relative, Vacancy &status) {
+    constexpr QLatin1StringView prefix(".nova/documents/");
+    status = Vacancy::Unsafe;
+    if (!relative.startsWith(prefix))
+        return {};
+    const auto name = QStringView(relative).mid(prefix.size());
+    if (name.size() != 70 || !name.endsWith(QLatin1StringView(".nvdoc")))
+        return {};
+    for (const auto &c : name.first(64))
+        if ((c < '0' || c > '9') && (c < 'a' || c > 'f'))
+            return {};
+    status = checkedVacancy(relative);
+    if (status != Vacancy::Occupied)
+        return {};
+    auto result = openChecked(relative);
+    if (!result)
+        status = Vacancy::Unsafe;
+    return result;
+}
+std::unique_ptr<QIODevice> Scope::openChecked(const QString &relative) {
+    if (handles->id.isEmpty())
         return {};
     auto parts = relative.split('/');
     const auto file = parts.takeLast();

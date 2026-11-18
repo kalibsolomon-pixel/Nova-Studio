@@ -463,7 +463,8 @@ void Service::dispatch(const Request &request) {
         request.tool == "nova.asset.create_preview";
     const bool prepare = request.tool == "nova.workflow.prepare";
     const bool validate = request.tool == "nova.workflow.validate_changes";
-    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool.endsWith(".edit") ||
+    const bool mutation = execute || save || request.tool == "nova.asset.create" || request.tool == "nova.asset.open" ||
+        request.tool.endsWith(".edit") ||
         !compactTextureCommand(request.tool).isEmpty() ||
         (request.tool.startsWith("nova.edit.") && !capability && !preview);
     if ((mutation || adopt) && !editing)

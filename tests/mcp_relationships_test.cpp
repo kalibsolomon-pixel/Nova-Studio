@@ -1026,7 +1026,7 @@ class RelationshipsTest : public QObject {
     // Tool definitions, schema compliance of errors and the documentation's exact definitions.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 40);
+        QCOMPARE(definitions.size(), 41);
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), value.toObject());
@@ -1226,7 +1226,7 @@ class RelationshipsTest : public QObject {
             qInfo().noquote() << "SDK phase3" << output;
             QVERIFY2(sdk.exitCode() == 0, sdk.readAllStandardError().constData());
             const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
-            QCOMPARE(summary["tools"].toInt(), 40);
+            QCOMPARE(summary["tools"].toInt(), 41);
         } else {
             qInfo() << "NOVA_MCP_SDK_PYTHON is not set: official SDK part skipped";
         }

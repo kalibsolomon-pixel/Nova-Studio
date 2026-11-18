@@ -53,9 +53,9 @@ Document::Document(QString p, QImage im)
     savedRevision = Revision::read(path);
     exportedPixels = pixelDigest();
 }
-std::shared_ptr<Document> Document::open(const QString &path, QString *error) {
+std::shared_ptr<Document> Document::open(const QString &path, QString *error, bool includeMetadata) {
     QJsonObject metadata;
-    Revision metaRevision = Revision::read(path + ".mcmeta");
+    Revision metaRevision = includeMetadata ? Revision::read(path + ".mcmeta") : Revision{};
     if (metaRevision.exists) {
         QFile file(path + ".mcmeta");
         if (!metaRevision.readable || metaRevision.size > 512 * 1024 || !file.open(QIODevice::ReadOnly)) {

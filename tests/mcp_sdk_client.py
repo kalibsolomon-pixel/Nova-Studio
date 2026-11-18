@@ -876,12 +876,12 @@ async def phase2(client: ClientSession) -> dict:
             assert comparison.structuredContent["width"] > 512, comparison.structuredContent
             assert any(item.type == "image" for item in comparison.content)
             assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"]})
-            other = next(entry["assetId"] for entry in assets.structuredContent["assets"]
-                         if entry["type"] == "texture" and entry["assetId"] != target["assetId"])
+            other_id = next(entry["assetId"] for entry in assets.structuredContent["assets"]
+                            if entry["type"] == "texture" and entry["assetId"] != target["assetId"])
             sheet = await client.call_tool("nova.asset.preview_image", {
-                **scope, "assetIds": [target["assetId"], other]})
+                **scope, "assetIds": [target["assetId"], other_id]})
             assert not sheet.isError and sheet.structuredContent["columns"] == 2, sheet
-            assert [tile["assetId"] for tile in sheet.structuredContent["assets"]] == [target["assetId"], other]
+            assert [tile["assetId"] for tile in sheet.structuredContent["assets"]] == [target["assetId"], other_id]
             assert all(tile["label"] for tile in sheet.structuredContent["assets"])
             assert any(item.type == "image" for item in sheet.content)
             read = await client.call_tool("nova.texture.read", {**target, "layer": content["layer"],
@@ -920,7 +920,20 @@ async def phase2(client: ClientSession) -> dict:
     saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
                                                         "expectedRevision": redone.structuredContent["revision"]})
     assert not saved.isError and saved.structuredContent["status"] == "saved", saved
-    return {"saved": row["path"], "tools": len(tools), "edits": len(edits), "argumentErrors": len(invalid) + len(canvas)}
+    other = await client.call_tool("nova.asset.open", {**scope, "assetId": other_id})
+    assert not other.isError and other.structuredContent["opened"], other
+    opened = other.structuredContent
+    assert len(opened["document"]["layers"]) == 2 and opened["document"]["layers"][-1]["name"] == "Overlay", opened
+    second = {**scope, "assetId": opened["assetId"]}
+    again = await client.call_tool("nova.asset.open", second)
+    assert not again.isError and not again.structuredContent["opened"], again
+    assert again.structuredContent["revision"] == opened["revision"], again
+    wrote = await client.call_tool("nova.texture.put_pixels", {**base, **second, "expectedRevision": opened["revision"]})
+    assert not wrote.isError and wrote.structuredContent["undoAvailable"], wrote
+    restored = await client.call_tool("nova.edit.undo", {**second, "expectedRevision": wrote.structuredContent["revision"]})
+    assert not restored.isError and restored.structuredContent["redoAvailable"], restored
+    return {"saved": row["path"], "opened": opened["path"], "tools": len(tools),
+            "edits": len(edits), "argumentErrors": len(invalid) + len(canvas)}
 
 
 async def phase3(client: ClientSession) -> dict:
@@ -1028,7 +1041,7 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 40
+            assert len(tools.tools) == 41
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")
@@ -1093,6 +1106,10 @@ async def main() -> None:
                 results.append(item)
             pixels = await client.call_tool("nova.texture.read", {"generation": generation, "assetId": assets["texture"]})
             assert not pixels.isError and pixels.structuredContent["source"] == "live", pixels
+            blocked = await client.call_tool("nova.asset.open", {
+                "generation": generation, "projectId": info.structuredContent["projectId"],
+                "assetId": assets["texture"]})
+            assert tool_error(blocked)["code"] == "permission_denied", blocked
             validation = await client.call_tool("nova.pack.validate", {"generation": generation, "limit": 10})
             assert not validation.isError and validation.structuredContent["files"] == 4
             rejected = await client.call_tool("nova.asset.inspect", {"generation": generation, "assetId": "../secret"})

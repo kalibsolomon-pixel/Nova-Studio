@@ -201,7 +201,7 @@ class McpTest : public QObject {
             return QJsonDocument::fromJson(block["text"].toString().toUtf8()).object();
         };
         const auto list = result(protocol.receive(request(5, "tools/list")).response)["tools"].toArray();
-        QCOMPARE(list.size(), 40);
+        QCOMPARE(list.size(), 41);
         int schemas = 0;
         for (const auto &entry : list) {
             const auto tool = entry.toObject();
@@ -219,7 +219,7 @@ class McpTest : public QObject {
                      qPrintable(tool["name"].toString() + ": " + failure["message"].toString()));
             QCOMPARE(failure.keys(), (QStringList{"code", "details", "message"}));
         }
-        QCOMPARE(schemas, 35);
+        QCOMPARE(schemas, 36);
         const auto denied = result(toolReply(7, toolError("permission_denied", "Editing is not authorized.")));
         QVERIFY(denied["isError"].toBool() && !denied.contains("structuredContent"));
         QCOMPARE(denied["content"].toArray().first().toObject()["text"].toString(),
@@ -388,7 +388,7 @@ class McpTest : public QObject {
         QTRY_VERIFY(status->text().startsWith("Connected"));
         saveScreenshot(dialog, "connected");
         client.write(request(2, "tools/list"));
-        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 40);
+        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 41);
         client.write("broken\n");
         QCOMPARE(receive(client)["error"].toObject()["code"].toInt(), -32700);
 
