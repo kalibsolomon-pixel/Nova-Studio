@@ -545,6 +545,9 @@ QStringList ModelPanel::resourceStackPaths() const {
     QSettings prefs(Settings(qApp->property("settingsFile").toString()).fileName(), QSettings::IniFormat);
     return prefs.value(resourceSettingsKey(root, library->version())).toStringList().mid(0, 8);
 }
+void ModelPanel::setMinecraftVersion(const QString &version) {
+    versions->setCurrentText(version);
+}
 void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &project) {
     if (library != value)
         materialDocuments.clear();

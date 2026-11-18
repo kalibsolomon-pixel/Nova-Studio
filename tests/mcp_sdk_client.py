@@ -1041,7 +1041,7 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 41
+            assert len(tools.tools) == 42
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")

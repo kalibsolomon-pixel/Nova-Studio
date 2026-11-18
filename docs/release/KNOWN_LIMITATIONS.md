@@ -37,7 +37,8 @@
   and Nova can neither see nor limit them. The agent's replies and reasoning are shown as the agent
   writes them; the window does not list its tool calls. Changing from read-only to editing restarts
   the agent session.
-- MCP asset creation never creates folders; an agent must ask you to create a missing folder.
+- With editing permission, `nova.pack.bootstrap` can initialize a folder with Java 1.21.11 metadata and standard
+  Minecraft texture folders. Other asset creation requires the destination folder to exist.
 
 ## Search
 

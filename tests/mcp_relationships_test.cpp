@@ -290,13 +290,19 @@ void initialize(QProcess &process) {
     receive(process);
     process.write(request(-1, "notifications/initialized"));
 }
-QString authorize(QWidget &window) {
+QString authorize(QWidget &window, bool editing = false) {
     auto dialog = window.findChild<QDialog *>("mcpAccessDialog");
     if (!dialog) {
         window.findChild<QAction *>("mcpAccess")->trigger();
         dialog = window.findChild<QDialog *>("mcpAccessDialog");
     }
-    dialog->findChild<QPushButton *>("mcpAuthorize")->click(); // read-only: these tools need no editing grant
+    if (editing)
+        QTimer::singleShot(0, &window, [] {
+            if (auto box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+                if (auto button = box->button(QMessageBox::Yes))
+                    button->click();
+        });
+    dialog->findChild<QPushButton *>(editing ? "mcpAuthorizeEditing" : "mcpAuthorize")->click();
     return window.findChild<Service *>()->connectionCode();
 }
 QJsonObject projectInfo(QProcess &client) {
@@ -1026,7 +1032,7 @@ class RelationshipsTest : public QObject {
     // Tool definitions, schema compliance of errors and the documentation's exact definitions.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 41);
+        QCOMPARE(definitions.size(), 42);
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), value.toObject());
@@ -1129,6 +1135,38 @@ class RelationshipsTest : public QObject {
         QVERIFY(rows(related, "parent_chain").first().toObject()["reason"].toString().contains("read only in part"));
     }
 
+    void copyCachedAnimation() {
+        const auto fixtures = cacheFiles();
+        populate(cacheRoot, "1.21.11", fixtures);
+        qputenv("NOVA_VANILLA_BASELINE_ROOT", QDir::toNativeSeparators(cacheRoot).toUtf8());
+        const auto before = fingerprint(cacheRoot);
+        QElapsedTimer timer;
+        timer.start();
+        nova::Window window(root, {}, timer);
+        window.show();
+        QTRY_VERIFY(nova::EditorTestAccess::indexReady(window));
+        QProcess agent;
+        start(agent, authorize(window, true));
+        initialize(agent);
+        const auto info = projectInfo(agent);
+        const QJsonObject args{{"projectId", info["projectId"]}, {"generation", info["generation"]},
+            {"indexRevision", info["indexRevision"]}, {"namespace", "nova"}, {"path", "block/copied_water"},
+            {"conflictPolicy", "reject"}, {"source", "vanilla:block/water_still.png"}};
+        agent.write(call(2, "nova.asset.create", args));
+        const auto copied = payload(receive(agent, 30000));
+        QVERIFY2(copied["provisional"].toBool(), lastLine.constData());
+        QCOMPARE(copied["frameCount"].toInt(), 4);
+        const auto doc = nova::EditorTestAccess::active(window);
+        QVERIFY(doc && doc->animated());
+        QCOMPARE(doc->animationState().defaultTicks, 2);
+        const auto original = QImage::fromData(fixtures.value(QString(T) + "block/water_still.png"), "PNG");
+        QCOMPARE(doc->image.pixel(0, 0), original.pixel(0, 0));
+        QCOMPARE(fingerprint(cacheRoot), before);
+        agent.closeWriteChannel();
+        QTRY_COMPARE(agent.state(), QProcess::NotRunning);
+        qunsetenv("NOVA_VANILLA_BASELINE_ROOT");
+    }
+
     // The real window and bridge: provider data, authorization, revocation, project switch, official SDK.
     void endToEnd() {
         populate(cacheRoot, "1.21.11", cacheFiles());
@@ -1226,7 +1264,7 @@ class RelationshipsTest : public QObject {
             qInfo().noquote() << "SDK phase3" << output;
             QVERIFY2(sdk.exitCode() == 0, sdk.readAllStandardError().constData());
             const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
-            QCOMPARE(summary["tools"].toInt(), 41);
+            QCOMPARE(summary["tools"].toInt(), 42);
         } else {
             qInfo() << "NOVA_MCP_SDK_PYTHON is not set: official SDK part skipped";
         }

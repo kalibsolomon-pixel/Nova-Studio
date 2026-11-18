@@ -133,15 +133,13 @@ QJsonObject texturePixels(const Snapshot &s, Scope &scope, const QString &path, 
             return readArgument("layer", "only an open draft has editable layers.");
         if (vanilla) {
             version = args["version"].toString(s.version);
-            sourcePath = id.mid(8);
-            if (!sourcePath.startsWith("assets/minecraft/textures/"))
-                sourcePath.prepend("assets/minecraft/textures/");
-            QByteArray png;
+            sourcePath = vanillaTexturePath(id);
+            VanillaTextureData data;
             const auto result = vanillaTexture(s, {{"path", sourcePath}, {"version", version},
-                                                   {"identity", args["identity"]}}, &png);
+                                                   {"identity", args["identity"]}}, &data);
             if (result.contains("error"))
                 return result;
-            QBuffer buffer(&png);
+            QBuffer buffer(&data.png);
             buffer.open(QIODevice::ReadOnly);
             if (const auto error = decodeTexture(&buffer, image); !error.isEmpty())
                 return error;

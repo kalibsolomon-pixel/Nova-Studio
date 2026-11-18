@@ -103,6 +103,7 @@ class ModelPanel : public QWidget {
     std::function<void(const QString &)> navigate;
     ModelPanel(Cube *, DocumentSession *, QWidget *parent = nullptr);
     void setLibrary(std::shared_ptr<mc::Library>, const QString &project);
+    void setMinecraftVersion(const QString &version);
     void setDocument(std::shared_ptr<Document>, Canvas *);
     void openAsset(const QString &asset, bool showMaterial = true);
     std::shared_ptr<mc::ModelEdit> editableModel(const QString &asset, QString *error);

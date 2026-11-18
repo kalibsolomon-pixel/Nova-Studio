@@ -161,6 +161,27 @@ Vacancy Scope::checkedVacancy(const QString &relative, QString *failed) {
 std::unique_ptr<QIODevice> Scope::open(const QString &relative) {
     return logicalAsset(relative) ? openChecked(relative) : nullptr;
 }
+bool Scope::ensureAssetDirectory(const QString &relative, QStringList &created) {
+    if (handles->id.isEmpty() || !logicalAsset(relative + "/texture.png"))
+        return false;
+    QString path = handles->root;
+    for (const auto &part : relative.split('/')) {
+        path += '/' + part;
+        auto failure = Vacancy::Unsafe;
+        if (handles->directory(path, &failure))
+            continue;
+        if (failure != Vacancy::Missing)
+            return false;
+        const auto native = QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(path);
+        if (CreateDirectoryW(reinterpret_cast<LPCWSTR>(native.utf16()), nullptr))
+            created.append(path.mid(handles->root.size() + 1));
+        else if (GetLastError() != ERROR_ALREADY_EXISTS)
+            return false;
+        if (!handles->directory(path))
+            return false;
+    }
+    return true;
+}
 std::unique_ptr<QIODevice> Scope::openEditableDocument(const QString &relative, Vacancy &status) {
     constexpr QLatin1StringView prefix(".nova/documents/");
     status = Vacancy::Unsafe;

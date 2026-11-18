@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QIODevice>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 namespace nova::mcp {
@@ -26,5 +27,6 @@ class Scope {
     std::unique_ptr<QIODevice> open(const QString &relative);
     // Internal editor sidecars only. Their paths are derived from a scoped texture.
     std::unique_ptr<QIODevice> openEditableDocument(const QString &relative, Vacancy &status);
+    bool ensureAssetDirectory(const QString &relative, QStringList &created);
 };
 }

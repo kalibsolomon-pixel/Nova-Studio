@@ -76,6 +76,13 @@ QJsonValue dimension(const std::optional<QSize> &size, bool width) {
 }
 } // namespace
 
+QString vanillaTexturePath(const QString &assetId) {
+    auto path = assetId.mid(8);
+    if (!path.startsWith(Prefix))
+        path.prepend(Prefix);
+    return path;
+}
+
 QJsonObject vanillaList(const Snapshot &s, const QJsonObject &args, const std::shared_ptr<std::atomic_bool> &cancel) {
     CacheSelection cache;
     if (const auto error = select(s, args, cache); !error.isEmpty())
@@ -116,7 +123,7 @@ QJsonObject vanillaList(const Snapshot &s, const QJsonObject &args, const std::s
     return result;
 }
 
-QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, QByteArray *png) {
+QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, VanillaTextureData *data) {
     if (!vanilla::validBaselinePath(args["path"].toString()))
         return toolError("invalid_arguments", "Invalid argument at /path: expected a cached texture path such as "
                          "assets/minecraft/textures/block/stone.png.", {{"pointer", "/path"}});
@@ -140,7 +147,7 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, QByteArra
                     "Manage Cached Baselines…).").arg(path), {{"pointer", "/path"}, {"version", version}});
     const auto size = header(entry, path);
     const auto file = entry.files.value(path);
-    const bool image = !png && args["include"].toString("image") == "image";
+    const bool image = !data && args["include"].toString("image") == "image";
     if (image && bytes.size() > VanillaImageLimit)
         return toolError("texture_too_large",
             QString("%1 is %2 bytes; nova.vanilla.texture returns at most %3 bytes of PNG inline. Call it again "
@@ -177,13 +184,15 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, QByteArra
                 row["json"] = document.object();
             row["bytes"] = qint64(meta.size());
         }
+        if (data)
+            data->metadata = std::move(meta);
         animation = row;
     }
     result["animationMetadata"] = animation;
     if (image)
         result["_pngImage"] = QString::fromLatin1(bytes.toBase64());
-    if (png)
-        *png = std::move(bytes);
+    if (data)
+        data->png = std::move(bytes);
     return result;
 }
 } // namespace nova::mcp

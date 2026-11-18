@@ -21,6 +21,9 @@ QJsonObject stringField(int max, const QString &pattern = {}) {
         field["pattern"] = pattern;
     return field;
 }
+QJsonObject textureAssetField() {
+    return stringField(264, "^(?:[a-f0-9]{64}|vanilla:[a-z0-9_./-]+\\.png)$");
+}
 QJsonObject described(QJsonObject field, const QString &description) {
     field["description"] = description;
     return field;
@@ -140,6 +143,13 @@ QJsonObject outputSchema(const QString &name) {
             add("limits", "object");
             add("animationMetadata", QJsonArray{"object", "null"});
         }
+    } else if (name == "nova.pack.bootstrap") {
+        add("created", "boolean");
+        add("changed", "boolean");
+        add("createdDirectories", "array");
+        add("minecraftVersion", "string");
+        add("packFormat", QJsonArray{"integer", "null"});
+        add("changeSummary", "object");
     } else if (name == "nova.asset.open") {
         for (auto key : {"assetId", "path", "documentId", "revision"})
             add(key, "string");
@@ -343,12 +353,17 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     const QJsonObject creation{{"projectId", token}, {"generation", token}, {"indexRevision", token},
         {"namespace", stringField(64, "^[a-z0-9_.-]+$")},
         {"path", stringField(200, "^[a-z0-9_./-]+$")}, {"conflictPolicy", choice({"reject"})},
+        {"source", described(textureAssetField(), "Copy this pack texture or cached vanilla:<path>, including animation.")},
         {"parameters", QJsonObject{{"oneOf", QJsonArray{
             commandSchema("texture", raster), commandSchema("animation", animationProperties), modelCreation}}}}};
+    auto creationKeys = creation.keys();
+    creationKeys.removeAll("source");
+    creationKeys.removeAll("parameters");
     for (const auto &tool : {"nova.asset.create_preview", "nova.asset.create"})
         list.append(QJsonObject{{"name", tool},
-            {"description", "Preflight or create a managed unsaved texture, animation, or model document."},
-            {"inputSchema", objectSchema(creation, QJsonArray::fromStringList(creation.keys()))},
+            {"description", "Preflight or create a managed unsaved asset. Supply parameters for a new document, "
+                            "or source to copy a texture and its animation."},
+            {"inputSchema", objectSchema(creation, QJsonArray::fromStringList(creationKeys))},
             {"annotations", QJsonObject{{"readOnlyHint", QString(tool).endsWith("_preview")},
                                         {"openWorldHint", false}}}});
     auto image = target;
@@ -591,7 +606,7 @@ const QJsonArray &tools() {
             "Copy indexed pixels (x, y, width, height, palette and rows) into put_pixels; over 62 colours "
             "returns rows of concatenated 8-digit RRGGBBAA hex pixels. Palette summary is sorted by luma.",
             {{"generation", generation}, {"projectId", generation},
-             {"assetId", described(stringField(264, "^(?:[a-f0-9]{64}|vanilla:[a-z0-9_./-]+\\.png)$"),
+             {"assetId", described(textureAssetField(),
                                    "A pack texture assetId or vanilla:<path> from nova.vanilla.list.")},
              {"region", described(readRegion, "Read a rectangle inside the selected image, at most 256 by 256.")},
              {"layer", described(stringField(36, "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$"),
@@ -604,6 +619,11 @@ const QJsonArray &tools() {
             "Requires editing permission. Reuses an existing open document when possible.",
             {{"generation", current}, {"projectId", project}, {"assetId", asset}},
             {"generation", "projectId", "assetId"}, false);
+        define("nova.pack.bootstrap",
+            "Initialize an authorized folder as a Java 1.21.11 resource pack. Creates pack.mcmeta and the "
+            "standard Minecraft texture folders if metadata is absent. Requires editing permission.",
+            {{"generation", current}, {"projectId", project}, {"indexRevision", generation}, {"description", stringField(128)}},
+            {"generation", "projectId", "indexRevision"}, false);
         return list;
     }();
     return definitions;
