@@ -1294,7 +1294,8 @@ class RelationshipsTest : public QObject {
         window.findChild<QDialog *>("mcpAccessDialog")->findChild<QPushButton *>("mcpRevoke")->click();
         QTRY_COMPARE(client.state(), QProcess::NotRunning);
 
-        // The official SDK validates every structured result against the declared output schemas.
+        // The official SDK runs phase 3 against the running editor; the listing omits the
+        // spec-optional outputSchema, so it passes structured results through unvalidated.
         if (const auto python = qEnvironmentVariable("NOVA_MCP_SDK_PYTHON"); !python.isEmpty()) {
             QProcess sdk;
             qputenv("NOVA_PHASE3_TEXTURE", "assets/nova/textures/block/crystal.png");

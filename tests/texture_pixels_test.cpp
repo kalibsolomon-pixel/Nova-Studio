@@ -865,20 +865,61 @@ class TexturePixelsTest : public QObject {
             QVERIFY2(failure == "invalid_arguments" && where == expected,
                      qPrintable(tool + ' ' + QJsonDocument(args).toJson(QJsonDocument::Compact) + " -> " + failure + ' ' + where));
         }
-        // tools/list names preview and workflow operations by command only, yet calls are checked in full.
+        // tools/list names preview, workflow, texture.edit and adjust_bulk operations (and
+        // create_preview parameters) by command only, and omits the spec-optional outputSchema;
+        // calls are still checked against the full schemas above.
         const auto listing = protocol.receive(request(4, "tools/list")).response["result"].toObject()["tools"].toArray();
         QCOMPARE(listing, toolListing());
         QCOMPARE(listing.size(), definitions.size());
         for (const QJsonValue &tool : listing) {
             const auto name = tool["name"].toString();
-            if (name != "nova.edit.preview" && name != "nova.workflow.plan" && name != "nova.workflow.execute")
-                continue;
+            QVERIFY2(!tool.toObject().contains("outputSchema"), qPrintable(name));
             const auto fields = tool["inputSchema"]["properties"];
-            const auto operations = name == "nova.edit.preview" ? fields["operations"]
-                                                                : fields["stages"]["items"]["properties"]["operations"];
-            const auto commands = operations["items"]["properties"]["command"]["enum"].toArray();
-            QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") && commands.contains("hue_saturation") &&
-                     commands.contains("uv_rotate"), qPrintable(name));
+            QJsonArray commands;
+            bool operation = false;
+            if (name == "nova.edit.preview")
+                commands = fields["operations"]["items"]["properties"]["command"]["enum"].toArray();
+            else if (name == "nova.workflow.plan" || name == "nova.workflow.execute")
+                commands = fields["stages"]["items"]["properties"]["operations"]["items"]
+                                       ["properties"]["command"]["enum"].toArray();
+            else if (name == "nova.texture.edit") {
+                commands = fields["operation"]["properties"]["command"]["enum"].toArray();
+                operation = true;
+            } else if (name == "nova.texture.adjust_bulk")
+                commands = fields["operations"]["items"]["properties"]["command"]["enum"].toArray();
+            else if (name == "nova.asset.create_preview")
+                commands = fields["parameters"]["properties"]["command"]["enum"].toArray();
+            else
+                continue;
+            // Exactly the commands the full schema accepts, and no foreign command.
+            QJsonArray fullCommands;
+            for (const auto &value : definitions) {
+                const auto definition = value.toObject();
+                if (definition["name"] != name)
+                    continue;
+                const auto properties = definition["inputSchema"].toObject()["properties"].toObject();
+                const auto variants = operation ? properties["operation"].toObject()["oneOf"].toArray()
+                    : name == "nova.edit.preview" ? properties["operations"].toObject()["items"].toObject()["oneOf"].toArray()
+                    : name.startsWith("nova.workflow.") ? properties["stages"].toObject()["items"].toObject()
+                                                        ["properties"].toObject()["operations"].toObject()["items"].toObject()["oneOf"].toArray()
+                    : name == "nova.texture.adjust_bulk" ? properties["operations"].toObject()["items"].toObject()["oneOf"].toArray()
+                    : properties["parameters"].toObject()["oneOf"].toArray();
+                for (const QJsonValue &variant : variants)
+                    fullCommands.append(variant["properties"]["command"]["enum"].toArray().at(0));
+            }
+            QVERIFY2(commands.size() > 0 && commands == fullCommands, qPrintable(name));
+            if (name == "nova.edit.preview" || name.startsWith("nova.workflow."))
+                QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") &&
+                         commands.contains("hue_saturation") && commands.contains("uv_rotate"), qPrintable(name));
+            if (name == "nova.texture.edit")
+                QVERIFY2(commands.size() == 21 && commands.contains("fill_rect") && commands.contains("gen_noise") &&
+                         !commands.contains("layer_add") && !commands.contains("put_pixels"), qPrintable(name));
+            if (name == "nova.texture.adjust_bulk")
+                QVERIFY2(commands.size() == 7 && commands.contains("palette_remap") && commands.contains("colorize") &&
+                         !commands.contains("fill_rect"), qPrintable(name));
+            if (name == "nova.asset.create_preview")
+                QVERIFY2(commands.size() == 3 && commands.contains("texture") && commands.contains("model"),
+                         qPrintable(name));
         }
         const auto badPut = with(with(put, "command", "put_pixels"), "palette", QJsonArray{"#00000"});
         QCOMPARE(argumentError("nova.edit.preview", {{"operations", QJsonArray{badPut}}}).first, "invalid_arguments");
@@ -1286,7 +1327,8 @@ class TexturePixelsTest : public QObject {
         file.write(QJsonDocument(QJsonObject{{"environment", environment}, {"samples", samples}}).toJson());
     }
 
-    // The official MCP Python SDK: listing, output schema validation of every result, error shape, saving.
+    // The official MCP Python SDK: listing, argument acceptance parity, error shape, saving.
+    // The listing omits the spec-optional outputSchema, so the SDK passes results through.
     void officialSdk() {
         const auto python = qEnvironmentVariable("NOVA_MCP_SDK_PYTHON");
         if (python.isEmpty())

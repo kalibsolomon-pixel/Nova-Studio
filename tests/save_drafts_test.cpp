@@ -765,8 +765,8 @@ class SaveDraftsTest : public QObject {
         }
     }
 
-    // The official MCP Python SDK: instructions, resources, guide parity, drafts and saving, with
-    // structured results validated against the declared output schemas.
+    // The official MCP Python SDK: instructions, resources, guide parity, drafts and saving. The
+    // listing omits the spec-optional outputSchema, so the SDK passes structured results through.
     void officialSdk() {
         const auto python = qEnvironmentVariable("NOVA_MCP_SDK_PYTHON");
         if (python.isEmpty())

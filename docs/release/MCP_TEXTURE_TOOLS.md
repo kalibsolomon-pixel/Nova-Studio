@@ -249,8 +249,9 @@ full canvas.
 Use `nova.texture.edit` with an `operation` such as
 `{"command":"hue_saturation","params":{"hue":-25,"saturation":10}}`. The same
 commands work in `nova.edit.batch`, `nova.edit.preview`, and workflow stages. Each
-operation accepts only the parameters in `tools/list`. Optional parameters use
-Nova's editor defaults. Colours use the same CSS order as the compact tools.
+operation accepts only the parameters that `tools/list` shows under `nova.edit.batch`
+(the listing names the other tools' operations by command only). Optional parameters
+use Nova's editor defaults. Colours use the same CSS order as the compact tools.
 
 - Colour and tone: `hue_saturation`, `levels`, `colorize`, `quantize`, `palette_map`.
   `levels` requires `input_white` to exceed `input_black`. `palette_map` requires
@@ -323,14 +324,17 @@ remaining targets `not_run`. Earlier commits stay available for individual undo 
 
 ## SDK wire measurements
 
-The SDK fixture uses 16 × 16 textures. Counts are compact UTF-8 JSON-RPC lines and sampled
-`o200k_base` tokens. Transaction IDs and revisions vary between runs. The edit compares a
-one-pixel `put_pixels` with default document state before and `include: "summary"` after.
+The SDK fixture uses 16 × 16 textures. Counts are compact UTF-8 JSON-RPC lines; the older
+rounds also sampled `o200k_base` tokens, but the SDK virtual environment used for measurement
+has no tokenizer installed, so the latest round reports bytes only. Transaction IDs and
+revisions vary between runs. The edit compares a one-pixel `put_pixels` with default document
+state before and `include: "summary"` after.
 
 | Measurement | Before bytes / tokens | After bytes / tokens |
 | --- | ---: | ---: |
 | `tools/list`, expanded schemas before deduplication | 239,176 / 68,282 | 187,042 / 50,371 |
 | `tools/list`, brief preview and workflow operations | 187,042 / 50,371 | 121,095 / not resampled |
+| `tools/list`, trimmed listing, measured by `--dump-tools` (see below) | 121,096 / — | 77,391 / — |
 | One edit reply | 2,868 / 1,148 | 1,513 / 566 |
 | Edit text block | 1,321 / 556 | 458 / 173 |
 | Five-texture recolour requests | 4,060 / 1,815 | 908 / 386 |
@@ -340,15 +344,27 @@ The recolour compares five separate open-and-remap pairs (10 calls) with one bul
 original 42-tool listing was 113,065 bytes. The expanded measurement includes the new command
 schemas, and the final listing also includes the analyzer.
 
-`nova.edit.preview`, `nova.workflow.plan` and `nova.workflow.execute` list each operation by its
-`command` name only, because their full schemas repeat `nova.edit.batch`. Nova still checks their
-calls against the full command schemas, so an invalid operation fails with the same pointer as in a
-batch.
+The trimmed listing (`nova-mcp --dump-tools <file>` prints the per-tool bytes) removes, from
+`tools/list` only:
+
+- the spec-optional `outputSchema` (MCP 2025-11-25 keeps it optional; the official SDKs pass
+  `structuredContent` through unvalidated when a tool lists none, and Nova's replies are
+  unchanged — 24.7 KB of the 121 KB listing was repeated output schemas);
+- `nova.texture.edit` operations and `nova.texture.adjust_bulk` operations, and
+  `nova.asset.create_preview` parameters, each named by command only where the full command
+  set repeats `nova.edit.batch` or `nova.asset.create`.
+
+`nova.edit.preview`, `nova.workflow.plan`, `nova.workflow.execute`, `nova.texture.edit` and
+`nova.texture.adjust_bulk` list each operation by its `command` name only, because their full
+schemas repeat `nova.edit.batch`. Nova still checks their calls against the full command
+schemas, so an invalid operation fails with the same pointer as in a batch.
 
 ## Exact definitions
 
-These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-mcp.exe` reports (the
-`texture-pixels` test compares them).
+These are the compact tools' complete definitions. `tools/list` publishes their input schemas
+exactly as shown and omits the spec-optional `outputSchema` (the `texture-pixels` test compares
+these definitions with the full set Nova validates calls against, which keeps the output
+schemas).
 
 ### `nova.texture.put_pixels`
 
