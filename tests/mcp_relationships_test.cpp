@@ -907,10 +907,14 @@ class RelationshipsTest : public QObject {
             }
             QCOMPARE(matches, 1);
         }
-        // Verify the MCP structured and text content both preserve the shared classification.
+        // A compact reply keeps the counts. The full text fallback preserves all classification fields.
         const auto reply = toolReply(7, packResult)["result"].toObject();
         QCOMPARE(reply["structuredContent"].toObject(), packResult);
-        QCOMPARE(QJsonDocument::fromJson(reply["content"].toArray().first().toObject()["text"].toString().toUtf8()).object(), packResult);
+        const auto summary = QJsonDocument::fromJson(reply["content"].toArray().first().toObject()["text"].toString().toUtf8()).object();
+        QCOMPARE(summary["counts"], packResult["counts"]);
+        QVERIFY(!summary.contains("diagnostics"));
+        const auto full = toolReply(8, packResult, true)["result"].toObject();
+        QCOMPARE(QJsonDocument::fromJson(full["content"].toArray().first().toObject()["text"].toString().toUtf8()).object(), packResult);
         QCOMPARE(changes["validationSources"].toObject()["models"].toString(), "live_when_open");
         if (draft)
             QCOMPARE(changes["revisions"].toArray().first().toObject()["revision"].toString(), "r-generated-preview");

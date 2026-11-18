@@ -1,4 +1,4 @@
-# Compact texture editing tools (MCP)
+# Texture authoring tools (MCP)
 
 Four MCP tools change many pixels of an open texture in one call:
 
@@ -320,6 +320,24 @@ and may leave a newly opened tab. The remaining assets still run. Results report
 `rejected` with an error code such as `revision_conflict`, `open_limit` or `edit_rejected`.
 Cancellation, a project switch or the 30-second deadline stops at an asset boundary and marks the
 remaining targets `not_run`. Earlier commits stay available for individual undo and save.
+
+## SDK wire measurements
+
+The SDK fixture uses 16 × 16 textures. Counts are compact UTF-8 JSON-RPC lines and sampled
+`o200k_base` tokens. Transaction IDs and revisions vary between runs. The edit compares a
+one-pixel `put_pixels` with default document state before and `include: "summary"` after.
+
+| Measurement | Before bytes / tokens | After bytes / tokens |
+| --- | ---: | ---: |
+| `tools/list`, expanded schemas before deduplication | 239,176 / 68,282 | 187,042 / 50,371 |
+| One edit reply | 2,868 / 1,148 | 1,513 / 566 |
+| Edit text block | 1,321 / 556 | 458 / 173 |
+| Five-texture recolour requests | 4,060 / 1,815 | 908 / 386 |
+| Five-texture recolour replies | 24,240 / 9,525 | 3,296 / 1,292 |
+
+The recolour compares five separate open-and-remap pairs (10 calls) with one bulk call. The
+original 42-tool listing was 113,065 bytes. The expanded measurement includes the new command
+schemas, and the final listing also includes the analyzer.
 
 ## Exact definitions
 

@@ -810,6 +810,10 @@ async def phase1(client: ClientSession, initialized) -> dict:
     return {"saved": draft["path"], "unsavedCount": saved.structuredContent["unsavedCount"], "topics": len(topics)}
 
 
+def wire_bytes(message):
+    return len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+
+
 def cycle_bytes(frames, native_preview=False):
     """Count compact UTF-8 JSON-RPC lines reconstructed from SDK request and response frames."""
     calls = {frame["message"]["id"] for frame in frames
@@ -830,7 +834,7 @@ def cycle_bytes(frames, native_preview=False):
             kind = "responseBytes"
             sizes["responseTextBytes"] += sum(len(block["text"].encode("utf-8"))
                                               for block in message["result"]["content"] if block["type"] == "text")
-        sizes[kind] += len(json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+        sizes[kind] += wire_bytes(message)
     return sizes
 
 
@@ -848,7 +852,9 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
     legacy_target = {**target, "maxEdge": 16}
     pixels = await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": revision})
     assert pixels.structuredContent["width"] == pixels.structuredContent["height"] == 16
+    edit_start = len(wire)
     edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision, "include": "summary"})
+    typical = cycle_bytes(wire[edit_start:])
     assert edit.structuredContent["changed"]
     assert "layers" not in edit.structuredContent and "frames" not in edit.structuredContent
     text = json.loads(edit.content[0].text)
@@ -871,7 +877,7 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
     after = cycle_bytes(wire[start:])
     reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
     assert before["calls"] == 3 and after["calls"] == 2
-    return {"before": before, "after": after}, reset.structuredContent["revision"]
+    return {"before": before, "after": after, "typicalEdit": typical}, reset.structuredContent["revision"]
 
 
 async def phase2(client: ClientSession, wire) -> dict:
@@ -880,6 +886,8 @@ async def phase2(client: ClientSession, wire) -> dict:
     and reject the same arguments as Nova, except the checks that need the canvas."""
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+    listing = next(frame["message"] for frame in reversed(wire) if frame["direction"] == "server"
+                   and "tools" in frame["message"].get("result", {}))
     names = ["nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map", "nova.texture.erase"]
     validators = {}
     for name in names:
@@ -1006,6 +1014,20 @@ async def phase2(client: ClientSession, wire) -> dict:
     bad = await client.call_tool(native.name, {**target, "expectedRevision": revision, "operation": {
         "command": "resize_image", "params": {"width": 257, "height": 16}}})
     assert tool_error(bad)["code"] == "invalid_arguments", bad
+    resized = await client.call_tool("nova.edit.batch", {**target, "expectedRevision": revision, "operations": [
+        {"command": "resize_image", "params": {"width": 24, "height": 16}},
+        {"command": "fill_rect", "layer": capabilities.structuredContent["document"]["activeLayer"],
+         "x": 23, "y": 0, "width": 1, "height": 1, "color": "#aa1122", "opacity": 255},
+        {"command": "put_pixels", "x": 22, "y": 0, "width": 1, "height": 1, "palette": ["#335577"], "rows": ["0"]},
+    ]})
+    assert not resized.isError and resized.structuredContent["width"] == 24, resized
+    expanded = await client.call_tool("nova.texture.read", {**target, "region": {
+        "x": 22, "y": 0, "width": 2, "height": 1}})
+    assert set(expanded.structuredContent["pixels"]["palette"]) == {"#aa1122", "#335577"}, expanded
+    undo_resize = await client.call_tool("nova.edit.undo", {
+        **target, "expectedRevision": resized.structuredContent["revision"]})
+    assert not undo_resize.isError and undo_resize.structuredContent["width"] == 16, undo_resize
+    revision = undo_resize.structuredContent["revision"]
     saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
                                                         "expectedRevision": revision})
     assert not saved.isError and saved.structuredContent["status"] == "saved", saved
@@ -1024,7 +1046,7 @@ async def phase2(client: ClientSession, wire) -> dict:
     bulk = await bulk_recolor(client, wire, scope, assets.structuredContent["assets"], tools)
     return {"saved": row["path"], "opened": opened["path"], "tools": len(tools),
             "edits": len(edits), "argumentErrors": len(invalid) + len(canvas), "textureCycle": cycle,
-            "bulkRecolor": bulk}
+            "bulkRecolor": bulk, "toolsListBytes": wire_bytes(listing)}
 
 
 async def bulk_recolor(client, wire, scope, assets, tools):
@@ -1161,6 +1183,10 @@ async def phase3(client: ClientSession) -> dict:
         sampled = analysis.structuredContent["assets"][0]
         assert sampled["source"] == "disk" and sampled["layout"]["animated"], sampled
         assert sampled["colorCount"] >= 1, sampled
+        denied = await client.call_tool("nova.texture.adjust_bulk", {**scope,
+            "targets": [{"assetId": asset, "expectedRevision": "current"}],
+            "operations": [{"command": "hue_saturation", "params": {"hue": 25}}]})
+        assert tool_error(denied)["code"] == "permission_denied", denied
         disk = await client.call_tool("nova.texture.read", {**scope, "assetId": asset, "frame": 1})
         assert not disk.isError and disk.structuredContent["source"] == "disk", disk
         assert disk.structuredContent["frame"] == 1 and disk.structuredContent["pixels"]["height"] == 16, disk

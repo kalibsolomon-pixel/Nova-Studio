@@ -789,7 +789,7 @@ class SaveDraftsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["topics"].toInt(), 7);
+        QCOMPARE(summary["topics"].toInt(), 8);
         QCOMPARE(disk(root + '/' + plain).pixelColor(7, 7), QColor(Qt::darkCyan));
         QVERIFY(!nova::EditorTestAccess::dirty(window, doc));
     }

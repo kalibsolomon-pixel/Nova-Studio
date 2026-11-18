@@ -1504,15 +1504,16 @@ void Window::ensureMcpService() {
                     doc->pixelBytes() > MaxEditPixelBytes)
                     return toolError("edit_limit", "The document exceeds the editing budget.");
                 QJsonArray nativeCommands;
+                auto canvas = doc->image.rect();
                 for (const auto &value : operations) {
                     if (modelOperation(value))
                         return toolError("invalid_asset_type", "This command requires a model document.");
                     const auto op = value.toObject();
                     const auto name = op["command"].toString();
-                    auto inside = [&](int x, int y) { return doc->image.rect().contains(x, y); };
+                    auto inside = [&](int x, int y) { return canvas.contains(x, y); };
                     if (name == "fill" && !inside(op["x"].toInt(), op["y"].toInt()))
                         return toolError("invalid_arguments", "The seed lies outside the canvas.");
-                    if (name == "fill_rect" && !doc->image.rect().contains(
+                    if (name == "fill_rect" && !canvas.contains(
                             QRect(op["x"].toInt(), op["y"].toInt(), op["width"].toInt(), op["height"].toInt())))
                         return toolError("invalid_arguments", "The rectangle lies outside the canvas.");
                     for (const auto &point : op["points"].toArray()) {
@@ -1537,6 +1538,10 @@ void Window::ensureMcpService() {
                         if (needsMap != op.contains("mapLayer"))
                             return toolError("invalid_arguments",
                                 "Supply mapLayer exactly when height_source is Heightmap layer or Normal map layer.");
+                    }
+                    if (name == "resize_image") {
+                        const auto params = op["params"].toObject();
+                        canvas.setSize(QSize(params["width"].toInt(), params["height"].toInt()));
                     }
                     nativeCommands.append(mcp::nativeTextureCommand(name) ? nativeOperation(op) : op);
                 }

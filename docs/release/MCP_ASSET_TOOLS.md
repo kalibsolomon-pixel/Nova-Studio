@@ -4,7 +4,7 @@ Nova Studio's MCP Phase 3 tools help an agent understand a resource pack before 
 **read-only**: they never change the pack, Nova's caches or any other file, never start a download, and never
 accept a filesystem path. They work in read-only and editing connections alike and follow the same rules as every
 other Nova tool: the user authorizes one project at a time, revocation and project switches end access, and each
-call needs the `generation` and `projectId` from `nova.project.info`.
+project-scoped call uses `generation` and, where the tool requires it, `projectId` from `nova.project.info`.
 
 | Tool | What it answers |
 | --- | --- |
@@ -30,8 +30,9 @@ call needs the `generation` and `projectId` from `nova.project.info`.
   call preserves existing pack metadata. Get a fresh `indexRevision` after initialization before
   creating assets.
 
-Use `nova.texture.read` for indexed pixels and `nova.asset.preview_image` for labelled contact
-sheets or revision comparisons. See [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
+Use `nova.texture.read` for indexed pixels, `nova.asset.preview_image` for labelled contact sheets or
+revision comparisons, and `nova.texture.analyze` for palette and layout checks. See
+[MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
 
 ## Where the data comes from
 
@@ -43,16 +44,15 @@ Nova uses these sources, in this order of precedence. The first source that has 
    Minecraft version, in their configured order. A folder made with `prepare-vanilla-cache.py` counts as a
    *verified vanilla resource source* only if its `nova-vanilla.json` matches the official client Nova pins for that
    version; otherwise Nova refuses it and reports it as unavailable.
-4. **Nova's vanilla texture cache**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
-   Baseline). It holds **textures and their `.png.mcmeta` only**. It contains no models, item definitions,
-   blockstates or equipment definitions and is never used as a model source.
+4. **Nova's vanilla baseline**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
+   Baseline). Current entries hold textures, animation metadata, models, item definitions and blockstates.
+   Older entries can hold just textures and animation metadata.
 
 Consequences an agent must respect:
 
-- Vanilla *models* (for example `minecraft:item/generated` or `minecraft:block/cube_all`) are available only when
-  the user configured a verified vanilla resource source. Without one, Nova reports links to them as unresolved or
-  unchecked. It never guesses a model, never treats a texture as a cube, and never reads a Minecraft JAR, the
-  `.minecraft` folder or any other location.
+- Vanilla models such as `minecraft:item/generated` and `minecraft:block/cube_all` resolve from a verified
+  source on the resource stack or a verified baseline with model data. When neither source supplies the
+  model, Nova reports the link as unresolved or unchecked.
 - If the cache has no entry for a version, Nova says so (`vanilla_not_cached`). Only the user can add a version, in
   Nova, which asks before downloading. An MCP request never downloads anything.
 - Responses name resource paths (`assets/<namespace>/...`), stack positions and folder names. They never contain

@@ -54,17 +54,20 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   their editable layers, and animations write the PNG and its `.png.mcmeta` (one column) plus their
   editable source. If any part fails, the document stays unsaved and keeps its recovery copy.
   **Save All is not atomic:** each document is saved separately and the result shows which failed.
-- **Compact texture editing.** With editing access, an agent can paint a whole region from a palette
+- **Texture editing.** With editing access, an agent can paint a whole region from a palette
   (`nova.texture.put_pixels`), replace colours (`nova.texture.palette_remap`), recolour by brightness
-  (`nova.texture.gradient_map`) or erase (`nova.texture.erase`) in one call each. Each call is one
-  undoable step on the open document and follows its selection and active layer; like every agent
-  edit, it is not saved until you or the agent save. Exact rules and schemas:
+  (`nova.texture.gradient_map`) or erase (`nova.texture.erase`) in one call each. Combine these tools
+  with native adjustments, generators and resize commands in a batch or workflow stage. Use
+  `nova.texture.adjust_bulk` for up to 64 related textures. Each texture has its own result, revision
+  and undo step. Exact rules and schemas are in
   [MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
-- **Texture workflow.** Read pack or cached vanilla pixels with `nova.texture.read`, plan a palette,
-  and open the target with `nova.asset.open` if needed. Edit using the current revision and request
-  `returnPreview` for an enlarged result image in the same response. Use
-  `nova.asset.preview_image` with `compare` to review the last change or `assetIds` to browse a
-  contact sheet.
+- **Texture workflow.** Read pack or cached vanilla pixels with `nova.texture.read` and plan a palette.
+  Edit using the current revision, opening the texture with `nova.asset.open` if needed. Use
+  `nova.asset.preview_image` with `compare` to review the edit and `nova.texture.analyze` to check
+  contrast, seams and layout. Request `returnPreview` during an edit to get an enlarged image immediately.
+- **Response size.** Edits accept `include: "summary"` to omit editor state. Clients that read only
+  text can pass `verbosity: "full"` for the complete JSON result. The default text summary keeps
+  essential handles and revisions.
 - **Starting a pack or copying a texture.** With editing permission, an agent can initialize an
   authorized folder with Java 1.21.11 pack metadata using `nova.pack.bootstrap`. Use
   `nova.asset.create` with `source` to copy a pack or cached vanilla texture and its animation into
@@ -77,7 +80,7 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   definitions, so vanilla parents resolve without setup; a verified vanilla source you add under
   **Models › Resource stack** takes precedence. Agents cannot download a version: add it in Nova (Resources ›
   Vanilla Baseline). Details: [MCP_ASSET_TOOLS.md](MCP_ASSET_TOOLS.md).
-- **Guides.** Agents can read Nova's resource-pack guides (`nova.guide.get`, or the MCP resources
+- **Guides.** Agents can read Nova's resource-pack guides, including `pixel-art` (`nova.guide.get`, or the MCP resources
   `nova://rules/<version>/<topic>`). Guides exist for Minecraft Java 1.21.11 only, checked against
   the official 1.21.11 client; other versions return "no verified guide".
 - **Style notes.** **File › Project Properties › Edit style notes…** stores an optional style brief
