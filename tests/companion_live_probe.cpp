@@ -11,6 +11,9 @@
 // With --full it then compares every vanilla item's icon at GUI scales 1-4 (each scale the game
 // window allows) and writes out/parity-1.21.11.json: per scale, the counts and every item that
 // differs or cannot be drawn. Images of the differing items go to out/scale-<n>/ for review only.
+// --warnings then checks live sync and warning links in the real game: a stone model with a missing
+// texture is saved, live sync reloads it, the warning must name models/block/stone.json; the model is
+// fixed with two quick saves, which must give one reload and clear the warning.
 // --rerender <folder> <scale> skips the game: it draws Nova's icon again for every
 // <item>-minecraft.png a full run saved in <folder> and counts what still differs (for renderer work).
 // Usage: nova-companion-live-probe <scratch folder> [--full | --rerender <folder> <scale>]. Set NOVA_VANILLA_BASELINE_ROOT to a scratch
@@ -33,7 +36,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCheckBox>
 #include <QLabel>
+#include <QListWidget>
 #include <QTableWidget>
 #include <QThread>
 #include <cstdio>
@@ -86,6 +91,7 @@ int main(int argc, char **argv) {
     }
     const QString scratch = QDir(QString::fromLocal8Bit(argv[1])).absolutePath();
     const bool full = argc > 2 && QByteArray(argv[2]) == "--full";
+    const bool warnings = argc > 2 && QByteArray(argv[2]) == "--warnings";
     if (argc > 4 && QByteArray(argv[2]) == "--rerender") {
         auto library = std::make_shared<mc::Library>("1.21.11");
         const auto empty = scratch + "/empty-pack";
@@ -285,6 +291,52 @@ int main(int argc, char **argv) {
     results["compareStatus"] = compare.findChild<QLabel *>("parityStatus")->text();
     say("Compare: " + results["compareStatus"].toString());
 
+    if (warnings) {
+        const auto model = QString("assets/minecraft/models/block/stone.json");
+        auto save = [&](const QByteArray &json) {
+            QDir().mkpath(QFileInfo(pack + '/' + model).path());
+            QFile file(pack + '/' + model);
+            file.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            file.write(json);
+        };
+        int reloads = 0;
+        QObject::connect(&dialog, &FabricTestDialog::reloadReported, [&](const QString &m) {
+            reloads += m.startsWith("Reloaded in Minecraft"); // sync progress is reported too
+            say("live sync: " + m);
+        });
+        dialog.findChild<QCheckBox *>("fabricLiveReload")->setChecked(true);
+        auto findings = dialog.findChild<QListWidget *>("fabricFindings");
+        auto stoneRows = [&] {
+            QStringList rows;
+            for (int i = 0; i < findings->count(); ++i)
+                if (findings->item(i)->data(Qt::UserRole).toStringList().contains(model))
+                    rows << findings->item(i)->text();
+            return rows;
+        };
+        save(R"({"parent":"minecraft:block/cube_all","textures":{"all":"nova:block/missing_live_reload"}})");
+        dialog.packFilesChanged({model});
+        waitFor([&] { return reloads >= 1; }, 180000);
+        waitFor([&] { return !stoneRows().isEmpty(); }, 20000);
+        const auto linked = stoneRows();
+        say(QString("warning linked to %1: %2").arg(model, linked.isEmpty() ? QString("NONE") : linked.join(" | ")));
+        for (int i = 0; i < findings->count() && i < 12; ++i)
+            say("  finding: " + findings->item(i)->text() + " -> " +
+                findings->item(i)->data(Qt::UserRole).toStringList().join(", "));
+        results["warningLinked"] = !linked.isEmpty();
+        // Two quick saves while fixing it: one reload, and the warning goes.
+        const int before = reloads;
+        save(R"({"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/stone"}})");
+        dialog.packFilesChanged({model});
+        waitFor([] { return false; }, 400);
+        dialog.packFilesChanged({model});
+        waitFor([&] { return reloads > before; }, 180000);
+        waitFor([] { return false; }, 6000); // a second reload would have started by now
+        results["liveSyncReloads"] = reloads - before;
+        results["warningCleared"] = stoneRows().isEmpty();
+        say(QString("two quick saves gave %1 reload(s); stone warning cleared: %2")
+                .arg(reloads - before).arg(stoneRows().isEmpty() ? "yes" : "NO"));
+        QFile::remove(pack + '/' + model);
+    }
     if (full) {
         QStringList items;
         if (auto entry = vanilla::BaselineCache().latest("1.21.11"))

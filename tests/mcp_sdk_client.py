@@ -1062,7 +1062,12 @@ async def bulk_recolor(client, wire, scope, assets, tools):
     mapping = {"mappings": [{"from": "#808080", "to": "#325681"}]}
 
     async def call(tool, args):
-        response = await client.call_tool(tool, {**scope, **args})
+        # validation_unavailable means nothing ran (the index refreshes after the save above).
+        for attempt in range(100):
+            response = await client.call_tool(tool, {**scope, **args})
+            if not (response.isError and tool_error(response)["code"] == "validation_unavailable"):
+                break
+            await asyncio.sleep(0.05)
         assert not response.isError, response
         return response.structuredContent
 

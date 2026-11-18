@@ -188,6 +188,7 @@ class Window : public QMainWindow {
     ResourceTools *resourceTools = nullptr;
     class MinecraftTestDialog *minecraftTest = nullptr; // dormant launcher hand-off (Phase 3-D)
     class FabricTestDialog *fabricTest = nullptr;       // default backend (Phase 3-D.1)
+    void ensureFabricTest();
     void minecraftTesting(bool syncOnly);
     void reloadMinecraft();
     void launcherHandoffTesting(bool syncOnly);
@@ -195,6 +196,7 @@ class Window : public QMainWindow {
     QStringList unsavedMinecraftOutputs();
     void buildResourceTools(QMenu *view);
     void showProblems(bool validate);
+    void openProblemAsset(const QString &path);
     void createResourceAsset();
     void modelBatch();
     std::shared_ptr<mc::Library> modelLibrary = std::make_shared<mc::Library>();

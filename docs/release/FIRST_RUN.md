@@ -36,8 +36,13 @@ your documents.
 4. **Resources › Test in Minecraft…** (Ctrl+Shift+M) prepares a managed Minecraft Java Edition
    1.21.11 runtime the first time (a download you confirm), copies the pack into it and starts the
    game. **Sync Test Pack** (Ctrl+Alt+M) updates the running game after more edits and reloads its
-   resources for you, then reports the reload time and any resource warnings. **Reload in
-   Minecraft** (Ctrl+Alt+R) reloads without syncing. **Compare Icons…** in the Test in Minecraft
+   resources for you, then reports the reload time and any resource warnings. Look for the
+   **Minecraft** source in **Problems**, or open the findings in **Test in Minecraft**.
+   Double-click a warning or select it and press Enter to open its linked pack file.
+   To sync automatically as you save, enable **Sync and reload while Minecraft is running**
+   under **Advanced** in **Test in Minecraft**. Nova waits about 1.5 seconds after the last pack
+   save. If another document still has changes to write to the pack, the status bar names it.
+   **Reload in Minecraft** (Ctrl+Alt+R) reloads without syncing. **Compare Icons…** in the Test in Minecraft
    window has the running game draw inventory icons and shows them beside Nova's, with a pixel
    difference for each. Nova Studio never asks for or stores your Microsoft or Minecraft account
    credentials.

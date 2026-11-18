@@ -484,6 +484,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
             mcpService->projectChanged();
         endAgentSessionForProjectChange();
         project.clear();
+        if (fabricTest)
+            fabricTest->projectChanged();
         clearComparisons();
         if (auto related = findChild<QDialog *>("relatedAssetsDialog"))
             related->close();
@@ -639,6 +641,8 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         persist();
         modelPanel->discardModelRecovery();
         project = QDir(pathText->text()).canonicalPath();
+        if (fabricTest)
+            fabricTest->projectChanged();
         if (mcpService)
             mcpService->projectChanged();
         endAgentSessionForProjectChange();
@@ -1061,6 +1065,12 @@ Window::Window(QString p, QString output, QElapsedTimer time)
         });
         if (paths.isEmpty())
             return;
+        // Pack writes converge here, including animation pairs, model authoring,
+        // pack metadata and saves from external editors.
+        if (preferences.fabricLiveReload && !launcherHandoffEnabled()) {
+            ensureFabricTest();
+            fabricTest->packFilesChanged(paths);
+        }
         pendingChanges.append(paths);
         if (pendingChanges.size() > 4096) {
             fullRescan = true;

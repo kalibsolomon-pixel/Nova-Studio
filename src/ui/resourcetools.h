@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "gamelog.h"
 #include "validation.h"
 #include <QComboBox>
 #include <QFutureWatcher>
@@ -19,7 +20,7 @@ class ResourceTools : public QWidget {
     QTreeWidget *problems;
     QComboBox *scope;
     QLabel *status, *detail;
-    QPushButton *run, *cancelButton, *repair, *exportText, *exportJson;
+    QPushButton *run, *cancelButton, *open, *repair, *exportText, *exportJson;
     QProgressBar *progress;
     mc::ValidationEngine engine;
     mc::ValidationReport report;
@@ -27,7 +28,9 @@ class ResourceTools : public QWidget {
     QFutureWatcher<QPair<mc::ValidationEngine, mc::ValidationReport>> *watcher = nullptr;
     QString reportRoot;
     quint64 population = 0;
+    QList<testing::ResourceWarning> minecraftWarnings;
     void populate(int offset = 0);
+    void populateMinecraft();
     void select();
     void fix();
     void exportReport(bool json);
@@ -39,6 +42,7 @@ class ResourceTools : public QWidget {
     explicit ResourceTools(QWidget *parent = nullptr);
     ~ResourceTools() override;
     void validate();
+    void setMinecraftWarnings(const QList<testing::ResourceWarning> &warnings);
 };
 void createAssetDialog(const ResourceContext &, QWidget *parent,
                        const std::function<void(const QStringList &)> &created);

@@ -36,6 +36,7 @@ struct Preferences {
     bool fabricDetailedLogs = false;
     bool fabricOpenTestWorld = true;
     bool fabricAutoReload = true; // reload the running game's resources after each sync
+    bool fabricLiveReload = false; // sync and reload after saving pack files
     QString acpAgent = "opencode", acpProgram, acpArguments;
 };
 class Settings {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fabric_testing.h"
+#include "theme.h"
 #include "icon_parity.h"
 #include "packsync.h"
 #include "settings.h"
@@ -19,6 +20,8 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QScopeGuard>
 #include <QScreen>
 #include <QTimer>
 #include <QUrl>
@@ -39,7 +42,8 @@ QLabel *value(const QString &name) {
 } // namespace
 
 FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
-    : QDialog(parent), context(std::move(ctx)), log(new GameLogMonitor(this)) {
+    : QDialog(parent), context(std::move(ctx)), log(new GameLogMonitor(this)),
+      liveSyncTimer(new QTimer(this)) {
     setObjectName("fabricTestDialog");
     setWindowTitle("Test in Minecraft");
     setMinimumWidth(560);
@@ -88,6 +92,15 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     findings->setMaximumHeight(150);
     findings->hide();
     layout->addWidget(findings);
+    connect(findings, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+        const auto assets = item->data(Qt::UserRole).toStringList();
+        if (!assets.isEmpty() && this->context.openAsset)
+            this->context.openAsset(assets.first());
+    });
+    ui::afterEvents(findings, {QEvent::PaletteChange}, [this] {
+        renderedReload = -1;
+        refreshFindings();
+    });
 
     // Advanced settings stay collapsed: ordinary use needs none of them.
     advancedButton = new QPushButton("Advanced ▸");
@@ -126,8 +139,12 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
     detailedLogs->setObjectName("fabricDetailedLogs");
     autoReload = new QCheckBox("Reload Minecraft's resources after each sync");
     autoReload->setObjectName("fabricAutoReload");
+    liveReload = new QCheckBox("Sync and reload while Minecraft is running");
+    liveReload->setObjectName("fabricLiveReload");
+    liveReload->setToolTip("Sync saved pack files after a short pause, then reload the running game.");
     advancedForm->addRow(openWorld);
     advancedForm->addRow(autoReload);
+    advancedForm->addRow(liveReload);
     advancedForm->addRow(detailedLogs);
     repairButton = new QPushButton("Repair runtime…");
     repairButton->setObjectName("fabricRepair");
@@ -172,6 +189,7 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
         detailedLogs->setChecked(p->fabricDetailedLogs);
         openWorld->setChecked(p->fabricOpenTestWorld);
         autoReload->setChecked(p->fabricAutoReload);
+        liveReload->setChecked(p->fabricLiveReload);
     } else {
         openWorld->setChecked(true);
         autoReload->setChecked(true);
@@ -234,6 +252,15 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
         persist();
         refresh();
     });
+    connect(liveReload, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (auto p = context.preferences)
+            p->fabricLiveReload = enabled;
+        if (!enabled)
+            cancelLiveSync();
+    });
+    liveSyncTimer->setSingleShot(true);
+    liveSyncTimer->setTimerType(Qt::PreciseTimer);
+    connect(liveSyncTimer, &QTimer::timeout, this, &FabricTestDialog::syncSavedPack);
     connect(detailedLogs, &QCheckBox::toggled, this, [this, persist] {
         persist();
         rebuildRuntime();
@@ -279,17 +306,21 @@ FabricTestDialog::FabricTestDialog(Context ctx, QWidget *parent)
                 "settings and synced packs are kept."))
             engine->prepare(true);
     });
-    connect(log, &GameLogMonitor::changed, this, &FabricTestDialog::refresh);
+    connect(log, &GameLogMonitor::changed, this, [this] {
+        updateWarnings();
+        refresh();
+    });
     rebuildRuntime();
 }
 
 void FabricTestDialog::rebuildRuntime() {
-    if (engine && (engine->busy() || engine->running())) {
+    if (syncing || (engine && (engine->busy() || engine->running()))) {
         inform("Runtime in use",
                "Change runtime settings after Minecraft closes or preparation finishes.");
         refresh();
         return;
     }
+    cancelLiveSync();
     auto options = context.runtime;
     if (auto p = context.preferences) {
         options.minecraftVersion = p->fabricMinecraftVersion;
@@ -307,9 +338,12 @@ void FabricTestDialog::rebuildRuntime() {
     });
     connect(engine->companion(), &CompanionLink::reloadFinished, this,
             &FabricTestDialog::companionReloadFinished);
+    connect(engine->companion(), &CompanionLink::iconsFinished, this,
+            &FabricTestDialog::resumeLiveSync);
     connect(engine, &FabricRuntime::preparationFinished, this,
             &FabricTestDialog::continueAfterPreparation);
     connect(engine, &FabricRuntime::gameExited, this, [this](int code) {
+        cancelLiveSync();
         if (context.activity)
             context.activity(QString("Minecraft test client exited (code %1)").arg(code));
         updateMonitoring();
@@ -420,26 +454,81 @@ void FabricTestDialog::launchAfterSync() {
 }
 
 bool FabricTestDialog::syncPack() {
+    return syncPack(false);
+}
+
+bool FabricTestDialog::canLiveSync() const {
+    return liveReload->isChecked() && engine->running() && engine->companion()->available();
+}
+
+void FabricTestDialog::packFilesChanged(const QStringList &paths) {
+    if (!canLiveSync())
+        return;
     const auto root = context.projectRoot ? context.projectRoot() : QString();
-    if (root.isEmpty()) {
-        inform("Open a resource pack", "Open a resource pack to sync it to Minecraft.");
+    if (root.isEmpty())
+        return;
+    static const QRegularExpression output(
+        R"(^(?:pack\.(?:mcmeta|png)|(?:[^/]+/)*assets/[^/]+/(?:.+\.png(?:\.mcmeta)?|(?:models|blockstates|items)/.+\.json))$)",
+        QRegularExpression::CaseInsensitiveOption);
+    for (const auto &path : paths)
+        if (output.match(path).hasMatch() && QFileInfo(root + '/' + path).isFile()) {
+            liveSyncPending = true;
+            liveSyncTimer->start(1500);
+            return;
+        }
+}
+
+void FabricTestDialog::cancelLiveSync() {
+    liveSyncPending = false;
+    liveSyncTimer->stop();
+}
+
+void FabricTestDialog::resumeLiveSync() {
+    if (liveSyncPending && !liveSyncTimer->isActive() && !syncing &&
+        !engine->companion()->busy())
+        liveSyncTimer->start(0);
+}
+
+void FabricTestDialog::syncSavedPack() {
+    if (!liveSyncPending || !canLiveSync())
+        return cancelLiveSync();
+    if (syncing || engine->companion()->busy())
+        return; // the in-flight operation resumes us after the debounce
+    liveSyncPending = false;
+    syncPack(true);
+}
+
+bool FabricTestDialog::syncPack(bool live) {
+    if (syncing) {
+        emit reloadReported("The test pack is already syncing");
         return false;
     }
+    const auto syncFailed = [this, live](const QString &title, const QString &message) {
+        if (live)
+            emit reloadReported(title + " · " + message);
+        else
+            inform(title, message, true);
+        return false;
+    };
+    const auto root = context.projectRoot ? context.projectRoot() : QString();
+    if (root.isEmpty())
+        return syncFailed("Open a resource pack", "Open a resource pack to sync it to Minecraft.");
     if (const auto unsaved = context.unsavedDocuments ? context.unsavedDocuments() : QStringList{};
         !unsaved.isEmpty()) {
-        inform("Save changes first",
-               "Minecraft can only load what is saved in the pack. Save or update these documents, "
-               "then sync again:\n" +
-                   unsaved.mid(0, 8).join('\n'),
-               true);
-        return false;
+        if (live)
+            return syncFailed("Live sync paused", "Save or update " + unsaved.first() +
+                                  (unsaved.size() > 1
+                                       ? QString(" and %1 more").arg(unsaved.size() - 1)
+                                       : QString()));
+        return syncFailed("Save changes first",
+                          "Minecraft can only load what is saved in the pack. Save or update these "
+                          "documents, then sync again:\n" + unsaved.mid(0, 8).join('\n'));
     }
     const auto game = engine->layout().game;
-    if (!QDir().mkpath(game)) {
-        inform("Sync failed", "Nova could not create its Minecraft test folder.", true);
-        return false;
-    }
-    syncButton->setEnabled(false);
+    if (!QDir().mkpath(game))
+        return syncFailed("Sync failed", "Nova could not create its Minecraft test folder.");
+    syncing = true;
+    refresh();
     const auto name = context.packName();
     const auto staging = engine->layout().base + "/staging";
     QFutureWatcher<SyncOutcome> watcher;
@@ -450,11 +539,11 @@ bool FabricTestDialog::syncPack() {
     if (!watcher.isFinished())
         loop.exec(); // the UI keeps painting while the export runs in the pool
     const auto outcome = watcher.result();
-    syncButton->setEnabled(true);
+    syncing = false;
+    const auto resume = qScopeGuard([this] { resumeLiveSync(); });
+    refresh();
     if (!outcome.ok) {
-        inform("Sync failed", outcome.error, true);
-        refresh();
-        return false;
+        return syncFailed(live ? "Live sync failed" : "Sync failed", outcome.error);
     }
     lastSync = outcome.syncedAt;
     engine->recordMetadata("lastSync", lastSync.toString(Qt::ISODate));
@@ -462,16 +551,32 @@ bool FabricTestDialog::syncPack() {
         context.activity(
             QString("Synced “%1” to the Fabric test environment").arg(outcome.folderName));
     refresh();
+    if (root != context.projectRoot())
+        return false;
+    if (live && !canLiveSync())
+        return true;
     if (engine->running()) {
-        if (autoReload->isChecked() && engine->companion()->available() && reloadInGame())
+        QString error;
+        if ((live || autoReload->isChecked()) && engine->companion()->available() &&
+            reloadInGame(&error)) {
             guidance->setText("Synced. Reloading resources in Minecraft…");
-        else
+            if (live)
+                emit reloadReported("Test pack synced · Reloading in Minecraft…");
+        } else {
             guidance->setText("Synced. Press F3+T in Minecraft to reload resources.");
+            if (live && !error.isEmpty())
+                emit reloadReported("Test pack synced · " + error);
+        }
     }
     return true;
 }
 
 bool FabricTestDialog::reloadInGame(QString *error) {
+    if (syncing) {
+        if (error)
+            *error = "The test pack is still syncing.";
+        return false;
+    }
     if (!engine->running()) {
         if (error)
             *error = "Minecraft is not running from Nova's test environment.";
@@ -486,14 +591,15 @@ bool FabricTestDialog::reloadInGame(QString *error) {
 
 void FabricTestDialog::companionReloadFinished(bool ok, qint64 durationMs, const QString &error) {
     log->poll(); // the reload's warnings are in the log by now
-    const auto warnings = log->state().warnings.size();
+    const auto warningCount = log->state().warnings.size();
     QString message;
     if (ok) {
         const auto seconds = QString::number(double(durationMs) / 1000.0, 'f', 1);
         reloadNote = "Reloaded by Nova in " + seconds + " s";
         message = "Reloaded in Minecraft in " + seconds + " s · " +
-                  (warnings ? QString("%1 resource warning%2").arg(warnings).arg(warnings == 1 ? "" : "s")
-                            : QString("no resource warnings"));
+                  (warningCount
+                       ? QString("%1 resource warning%2").arg(warningCount).arg(warningCount == 1 ? "" : "s")
+                       : QString("no resource warnings"));
     } else {
         reloadNote = "Reload failed: " + error;
         message = "Minecraft did not reload: " + error;
@@ -502,9 +608,14 @@ void FabricTestDialog::companionReloadFinished(bool ok, qint64 durationMs, const
         context.activity(message);
     refresh();
     emit reloadReported(message);
+    resumeLiveSync();
 }
 
 bool FabricTestDialog::confirmShutdown() {
+    if (syncing) {
+        emit reloadReported("Wait for the test pack to finish syncing");
+        return false;
+    }
     if (engine->busy()) {
         engine->cancel(); // preparation is Nova's own work
         return true;
@@ -545,10 +656,63 @@ bool FabricTestDialog::confirmShutdown() {
 
 void FabricTestDialog::updateMonitoring() {
     if (isVisible() || engine->running()) {
-        if (!log->active() || log->gameDirectory() != engine->layout().game)
-            log->watch(engine->layout().game, "file/" + packFolder());
+        const auto entry = "file/" + packFolder();
+        if (!log->active() || log->gameDirectory() != engine->layout().game ||
+            log->packEntry() != entry) {
+            log->watch(engine->layout().game, entry);
+            updateWarnings();
+        }
     } else
         log->stop(); // no polling while nothing can change
+}
+
+void FabricTestDialog::projectChanged() {
+    cancelLiveSync();
+    updateMonitoring();
+    updateWarnings();
+    refresh();
+}
+
+void FabricTestDialog::updateWarnings() {
+    const auto root = context.projectRoot ? context.projectRoot() : QString();
+    const auto entry = "file/" + packFolder();
+    QList<ResourceWarning> next;
+    if (!root.isEmpty() && log->gameDirectory() == engine->layout().game && log->packEntry() == entry)
+        for (const auto &warning : log->state().warnings)
+            next.append(resolveResourceWarning(warning, root, entry));
+    if (next == warnings)
+        return;
+    warnings = std::move(next);
+    renderedReload = -1;
+    emit resourceWarningsChanged();
+}
+
+void FabricTestDialog::refreshFindings() {
+    const auto &state = log->state();
+    const bool noWarnings = engine->running() && state.resourcesLoaded && warnings.isEmpty();
+    if (renderedReload == state.reloads && renderedNoWarnings == noWarnings)
+        return;
+    renderedReload = state.reloads;
+    renderedNoWarnings = noWarnings;
+    findings->clear();
+    for (const auto &warning : warnings) {
+        auto text = warning.text;
+        for (const auto prefix : {"WARN: ", "ERROR: ", "FATAL: "})
+            if (text.startsWith(prefix)) {
+                text.remove(0, qstrlen(prefix));
+                break;
+            }
+        const auto source = warning.assets.isEmpty() ? QString("Not from this pack")
+                                                     : warning.assets.first();
+        auto item = new QListWidgetItem(
+            (warning.isError() ? "Error · " : "Warning · ") + text + " · " + source, findings);
+        item->setForeground(warning.isError() ? ui::current().danger : ui::current().warning);
+        item->setData(Qt::UserRole, warning.assets);
+        item->setToolTip(warning.assets.isEmpty() ? text : text + "\n" + warning.assets.join("\n"));
+    }
+    if (noWarnings)
+        findings->addItem("No resource warnings in Minecraft's log for the latest reload.");
+    findings->setVisible(findings->count() > 0);
 }
 
 void FabricTestDialog::showEvent(QShowEvent *event) {
@@ -642,17 +806,17 @@ void FabricTestDialog::refresh() {
     } else
         progress->setRange(0, 0); // amount of work unknown: no invented percentage
     const bool project = context.projectRoot && !context.projectRoot().isEmpty();
-    testButton->setEnabled(project && engine->supported() && !busy && state != S::Launching &&
+    testButton->setEnabled(project && engine->supported() && !busy && !syncing && state != S::Launching &&
                            state != S::Stopping);
     testButton->setText(running              ? "Sync to Running Game"
                         : engine->prepared() ? "Test in Minecraft"
                                              : "Prepare && Test");
-    syncButton->setEnabled(project && !busy);
+    syncButton->setEnabled(project && !busy && !syncing);
     const bool companion = running && engine->companion()->available();
     reloadButton->setVisible(running);
     compareButton->setVisible(running);
-    compareButton->setEnabled(companion && !engine->companion()->busy());
-    reloadButton->setEnabled(companion && !engine->companion()->busy());
+    compareButton->setEnabled(companion && !syncing && !engine->companion()->busy());
+    reloadButton->setEnabled(companion && !syncing && !engine->companion()->busy());
     reloadButton->setToolTip(companion ? "Reload resources in the running game, like F3+T (Ctrl+Alt+R)"
                                        : "This game was started without Nova's companion. Press F3+T in "
                                          "Minecraft, or restart it from Nova.");
@@ -664,8 +828,8 @@ void FabricTestDialog::refresh() {
         stopButton->setText(engine->stopTimedOut() ? "Stop Now" : "Stop Minecraft");
         stopButton->setEnabled(running);
     }
-    repairButton->setEnabled(!busy && !running && engine->supported());
-    versionBox->setEnabled(!busy && !running);
+    repairButton->setEnabled(!busy && !running && !syncing && engine->supported());
+    versionBox->setEnabled(!busy && !running && !syncing);
     javaValue->setText(engine->components().gameJava.isEmpty()
                            ? (context.preferences && !context.preferences->fabricGameJava.isEmpty()
                                   ? QDir::toNativeSeparators(context.preferences->fabricGameJava)
@@ -696,12 +860,7 @@ void FabricTestDialog::refresh() {
               "” once; Nova opens it directly afterwards.";
     guidance->setText(tip);
     guidance->setVisible(!tip.isEmpty());
-    findings->clear();
-    for (const auto &warning : s.warnings)
-        findings->addItem(warning);
-    if (running && s.resourcesLoaded && s.warnings.isEmpty())
-        findings->addItem("No resource warnings in Minecraft's log for the latest reload.");
-    findings->setVisible(findings->count() > 0);
+    refreshFindings();
 }
 
 } // namespace nova
