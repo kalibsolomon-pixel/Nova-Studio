@@ -28,7 +28,7 @@ const char *axisNames[] = {"X", "Y", "Z"};
 
 QString ModelPanel::displayContext() const {
     const auto c = contexts ? contexts->currentText() : QString();
-    return c == "raw" ? QString() : c;
+    return c == "raw" || c == "placed" ? QString() : c;
 }
 QString ModelPanel::displayModelAsset() const {
     if (target.startsWith("model:"))
@@ -179,8 +179,8 @@ void ModelPanel::buildDisplayEditor(QVBoxLayout *layout) {
                               "right hand. Unlinking writes an explicit left-hand value.");
     contextFraming = new QCheckBox("Context framing");
     contextFraming->setObjectName("displayFraming");
-    contextFraming->setToolTip("Fixed camera with a one-block (or GUI slot) reference so scale "
-                               "and translation are visible. Not a player-pose simulation.");
+    contextFraming->setToolTip("Show a fixed one-block or inventory-slot reference for scale "
+                               "and translation.");
     options->addWidget(displayUniform, 0, 0);
     options->addWidget(displaySnap, 0, 1);
     options->addWidget(displayLinked, 1, 0);

@@ -985,6 +985,9 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     previewDock->setWidget(previewHost);
     addDockWidget(Qt::BottomDockWidgetArea, previewDock);
     modelPanel = new ModelPanel(cube, &session);
+    modelPanel->previewResourcesChanged = [this](const auto &catalog) {
+        model->setModelSources(catalog);
+    };
     modelPanel->modelRegistered = [this](const QString &path) {
         QElapsedTimer index;
         index.start();

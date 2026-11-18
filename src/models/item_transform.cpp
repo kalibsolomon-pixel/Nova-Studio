@@ -93,10 +93,12 @@ bool itemTransform(const QJsonValue &value, QMatrix4x4 &out, QString *error) {
     return true;
 }
 Mesh applyTransform(Mesh mesh, const QMatrix4x4 &matrix) {
+    const auto normalMatrix = matrix.inverted().transposed();
+    const bool mirrored = matrix.determinant() < 0;
     for (auto &f : mesh.faces) {
         for (auto &p : f.points)
             p = matrix.map(p);
-        if (matrix.determinant() < 0) {
+        if (mirrored) {
             std::swap(f.points[0], f.points[3]);
             std::swap(f.points[1], f.points[2]);
             std::swap(f.uv[0], f.uv[3]);
@@ -104,6 +106,7 @@ Mesh applyTransform(Mesh mesh, const QMatrix4x4 &matrix) {
         }
         f.normal = QVector3D::crossProduct(f.points[1] - f.points[0], f.points[2] - f.points[0])
                        .normalized();
+        f.lightNormal = normalMatrix.mapVector(f.lightNormal).normalized();
     }
     bool first = true;
     for (const auto &f : mesh.faces)

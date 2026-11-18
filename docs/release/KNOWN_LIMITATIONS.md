@@ -12,17 +12,19 @@
 
 ## Editing and Minecraft
 
-- The 3D preview approximates Minecraft's rendering. Check final results in the game.
+- The 3D preview has fixed hand, head, ground and frame poses. In-game animation, stack offsets,
+  lighting from the world lightmap, atlas mipmaps, fog, shader packs and enchantment glint can
+  change the result. The Placed context samples a local light model for air and solid cubes.
 - Vanilla parents such as `item/generated` resolve only when the target version has a baseline
   cache entry with model data (the default after a fresh download or **Download / Repair
   Baseline…**), or when a verified vanilla folder is configured in the Model panel's resource
   stack; a texture-only cache from an older Nova keeps working and shows the update hint. The
   cache never enters the project or the export.
-- Common generated and handheld item models use thin, alpha-contoured texture layers and
-  resolved item display transforms from project models and explicitly configured resource
-  stacks. Missing sprites, sprites above 1024 pixels per side, or contours beyond the
-  4096-span budget use a named flat approximation. Missing model data retains the explicit
-  preview fallback. This does not expand the vanilla cache or provide full rendering parity.
+- Generated items use per-frame alpha edges and a one-pixel thickness. Missing sprites, sprites
+  above 1024 pixels per side and contours over the 4096-element budget use flat layers.
+- Special item previews cover chests, shulker boxes, beds, common skulls and heads, plain shields
+  and inactive conduits. Runtime banner patterns, player skins, decorated pots, dragon and piglin
+  heads, and other special renderers remain incomplete. See the [model preview guide](MODEL_PREVIEW.md).
 - Test in Minecraft targets Minecraft Java Edition 1.21.11 with Fabric and needs a one-time
   download. The production Minecraft launcher hand-off is not part of this preview.
 

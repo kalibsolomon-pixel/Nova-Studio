@@ -4,16 +4,19 @@
 // texture without a usable model is shown flat with a visible, named fallback reason -
 // never silently as a cube. The texture stays editable throughout. With NOVA_EVIDENCE_DIR
 // set, each case is captured from the real OpenGL view.
+#include "assets.h"
 #include "modelpanel.h"
 #include "display.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QLabel>
 #include <QPushButton>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <cmath>
 using namespace nova;
 
 class ModelPreviewGuiTests : public QObject {
@@ -251,6 +254,9 @@ class ModelPreviewGuiTests : public QObject {
         const auto raw = cube->meshData();
         QVERIFY(raw.faces.size() > 6);
         QCOMPARE(raw.maximum.z() - raw.minimum.z(), .125f); // one Minecraft pixel thick
+        QCOMPARE(panel->findChild<QComboBox *>("previewLightingMode")->currentText(),
+                 QString("Vanilla lighting"));
+        panel->findChild<QComboBox *>("previewLightingMode")->setCurrentText("Studio lighting");
         cube->neutral = true;
         cube->setContextFraming(true, true);
         QTest::qWait(100);
@@ -290,6 +296,8 @@ class ModelPreviewGuiTests : public QObject {
         cube->restoreView(view);
         QTest::qWait(100);
         capture(QString("layered-handheld-%1-%2").arg(baseAlpha).arg(overlayAlpha));
+        panel->findChild<QComboBox *>("previewLightingMode")->setCurrentText("Vanilla lighting");
+        cube->neutral = false;
     }
     void missingGeneratedSpriteIsExplicit() {
         prepareLayeredItem(255, 255, true);
@@ -311,6 +319,197 @@ class ModelPreviewGuiTests : public QObject {
         QVERIFY(cube->notice().isEmpty());
         QCOMPARE(cube->meshData().maximum.z() - cube->meshData().minimum.z(), .125f);
         capture("generated-sprite-restored");
+    }
+    void inventorySlotAndOversizedBounds() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        model.guiLight = mc::GuiLight::Front;
+        const QString texture = "assets/nova/textures/item/solid.png";
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{-8, 0, 8}}, {"to", QJsonArray{24, 16, 8}},
+                        {"faces", QJsonObject{{"south", QJsonObject{
+                            {"texture", "nova:item/solid"}, {"uv", QJsonArray{0, 0, 16, 16}}}}}}}};
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::green);
+        cube->setDocument({});
+        cube->setModel(std::make_shared<mc::Mesh>(mc::mesh(model)), {}, {{texture, sprite}});
+        cube->setContextTransform({});
+        cube->setPreviewContext("gui", false);
+        QTest::qWait(50);
+        const auto outside = cube->rect().center() + QPoint(std::min(cube->width(), cube->height()) / 3, 0);
+        QCOMPARE(cube->faceAt(outside), -1);
+        cube->setPreviewContext("gui", false, {}, true);
+        QTest::qWait(50);
+        QCOMPARE(cube->faceAt(outside), 0);
+        const auto icon = cube->captureInventoryIcon(2);
+        QCOMPARE(icon.size(), QSize(32, 32));
+        QCOMPARE(icon.pixelColor(0, 0), QColor(Qt::green));
+        QCOMPARE(icon.pixelColor(31, 31), QColor(Qt::green));
+    }
+    void explorerUsesInventoryModel() {
+        const auto dir = tmp.filePath("icons");
+        const QString model = "assets/nova/models/item/diagonal.json";
+        const QString texture = "assets/nova/textures/item/diagonal.png";
+        QVERIFY(QDir().mkpath(dir + "/assets/nova/models/item"));
+        QVERIFY(QDir().mkpath(dir + "/assets/nova/textures/item"));
+        QFile json(dir + '/' + model);
+        QVERIFY(json.open(QIODevice::WriteOnly));
+        json.write("{\"gui_light\":\"front\",\"elements\":[{\"from\":[0,0,8],\"to\":[8,16,8],"
+                   "\"faces\":{\"south\":{\"texture\":\"nova:item/diagonal\",\"uv\":[0,0,16,16]}}}]}");
+        json.close();
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::red);
+        QVERIFY(sprite.save(dir + '/' + texture));
+        const auto index = Index::scan(dir);
+        auto catalog = std::make_shared<mc::Library>("1.21.11");
+        catalog->update(dir, index);
+        AssetModel explorer;
+        explorer.setIndex(index, dir);
+        explorer.setModelSources(catalog);
+        const auto row = explorer.indexFor(model);
+        QVERIFY(row.isValid());
+        auto icon = [&] { return qvariant_cast<QIcon>(explorer.data(row, Qt::DecorationRole)); };
+        icon();
+        QTRY_VERIFY(explorer.cachedBytes() > 0);
+        const auto image = icon().pixmap(64, 64).toImage();
+        QCOMPARE(image.pixelColor(16, 32), QColor(Qt::red));
+        QCOMPARE(image.pixelColor(48, 32).alpha(), 0);
+    }
+    void inventoryPixels_data() {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<int>("scale");
+        for (const auto kind : {"cube_all", "generated", "handheld", "front", "tinted",
+                                "cutout", "translucent"}) {
+            QTest::newRow(qPrintable(QString("%1-16").arg(kind))) << QString(kind) << 1;
+            QTest::newRow(qPrintable(QString("%1-32").arg(kind))) << QString(kind) << 2;
+        }
+    }
+    void inventoryPixels() {
+        QFETCH(QString, kind);
+        QFETCH(int, scale);
+        const auto root = tmp.filePath("golden");
+        const QString asset = "assets/nova/models/item/card.json";
+        QVERIFY(QDir().mkpath(root + "/assets/nova/models/item"));
+        const bool cubeAll = kind == "cube_all";
+        const bool generated = kind == "generated" || kind == "handheld";
+        const bool translucent = kind == "translucent";
+        const bool cutout = kind == "cutout";
+        const QString spriteId = cubeAll || cutout || translucent ? "nova:block/card"
+                                                                  : "nova:item/card";
+        const auto texture = mc::Location::parse(spriteId).asset("textures");
+        QJsonObject source;
+        if (cubeAll || generated) {
+            const QString parent = cubeAll ? "minecraft:block/cube_all"
+                                           : "minecraft:item/" + kind;
+            source["parent"] = parent;
+            source["textures"] = QJsonObject{{cubeAll ? "all" : "layer0", spriteId}};
+        } else {
+            source["gui_light"] = "front";
+            source["elements"] = QJsonArray{QJsonObject{
+                {"from", QJsonArray{0, 0, 8}}, {"to", QJsonArray{16, 16, 8}},
+                {"faces", QJsonObject{{"south", QJsonObject{{"texture", spriteId},
+                    {"tintindex", 0}, {"uv", QJsonArray{0, 0, 16, 16}}}}}}}};
+        }
+        QFile file(root + '/' + asset);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(file.write(QJsonDocument(source).toJson()) > 0);
+        file.close();
+        auto index = Index::scan(root);
+        mc::Library lib("1.21.11");
+        lib.update(root, index);
+        QString error;
+        lib.setFallbacks({mc::ResourceSource::open(stack, "1.21.11", &error)});
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        const auto model = lib.model("nova:item/card");
+        QVERIFY2(model.valid, qPrintable(model.diagnostics.join('\n')));
+        const QRgb tint = kind == "tinted" ? qRgb(128, 200, 64) : qRgb(255, 255, 255);
+        mc::Instance instance{model.id, {}};
+        instance.tints << tint;
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x) {
+                const int alpha = translucent ? (x < 8 ? 25 : 128)
+                                : cutout ? (x < 8 ? 25 : 26)
+                                : generated && (x < 3 || y < 3 || x > 12 || y > 12) ? 0 : 255;
+                sprite.setPixelColor(x, y, QColor(160, 80, 40, alpha));
+            }
+        const QMap<QString, QImage> materials{{texture, sprite}};
+        const auto geometry = mc::displayMesh(model, instance, "gui", materials);
+        cube->setDocument({});
+        cube->setContextTransform({});
+        cube->setPreviewContext("gui", false, cubeAll ? "minecraft:stone"
+                                               : cutout ? "minecraft:iron_bars"
+                                               : translucent ? "minecraft:glass" : QString());
+        cube->setModel(std::make_shared<mc::Mesh>(geometry), {}, materials);
+        const auto actual = cube->captureInventoryIcon(scale);
+        QCOMPARE(actual.size(), QSize(16 * scale, 16 * scale));
+        if (!evidence.isEmpty() && scale == 2 && (cubeAll || kind == "generated")) {
+            QDir().mkpath(evidence);
+            const auto save = [&](const QImage &pixels, const QString &lighting) {
+                return pixels.scaled(256, 256, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+                    .save(evidence + '/' + kind + '-' + lighting + ".png");
+            };
+            cube->studioLighting = true;
+            const auto studio = cube->captureInventoryIcon(scale);
+            cube->studioLighting = false;
+            QVERIFY(save(studio, "studio"));
+            QVERIFY(save(actual, "vanilla"));
+        }
+
+        // Lighting's normalized vectors rotated by Ry(-22.5) Rx(135) for flat,
+        // and Ry(62) Rx(185.5) Ry(-22.5) Rx(135) for side, expressed in Y-up.
+        // The guarded dot products in light.glsl contribute 60% over 40% ambient.
+        const QVector3D first = cubeAll ? QVector3D(-.9334393f, .2626947f, -.2443002f)
+                                        : QVector3D(-.2225190f, .1714986f, .9597258f);
+        const QVector3D second = cubeAll ? QVector3D(-.1035714f, .9766068f, .1884464f)
+                                         : QVector3D(-.2150121f, .9718253f, .0965678f);
+        // Independently intersect each slot pixel's centre ray with the fixture cube.
+        // A slab intersection in unrotated cube space identifies its visible face.
+        QMatrix4x4 rotation;
+        rotation.rotate(30, 1, 0, 0);
+        rotation.rotate(225, 0, 1, 0);
+        const auto inverse = rotation.transposed();
+        const auto ray = inverse.mapVector({0, 0, -1});
+        for (int y = 0; y < actual.height(); ++y)
+            for (int x = 0; x < actual.width(); ++x) {
+                int alpha = sprite.pixelColor(x / scale, y / scale).alpha();
+                QVector3D normal(0, 0, 1);
+                if (cubeAll) {
+                    const auto start = inverse.mapVector({
+                        2.f * (x + .5f) / actual.width() - 1,
+                        1 - 2.f * (y + .5f) / actual.height(), 4}) / .6f;
+                    float near = -100, far = 100;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        if (qFuzzyIsNull(ray[axis]))
+                            continue;
+                        const float a = (-1 - start[axis]) / ray[axis];
+                        const float b = (1 - start[axis]) / ray[axis];
+                        if (std::min(a, b) > near) {
+                            near = std::min(a, b);
+                            normal = {};
+                            normal[axis] = a < b ? -1.f : 1.f;
+                        }
+                        far = std::min(far, std::max(a, b));
+                    }
+                    normal = rotation.mapVector(normal);
+                    alpha = near <= far ? 255 : 0;
+                }
+                const auto illum = std::min(1.f, .4f + .6f *
+                    (std::max(0.f, QVector3D::dotProduct(first, normal)) +
+                     std::max(0.f, QVector3D::dotProduct(second, normal))));
+                alpha = alpha < 26 ? 0 : cutout ? 255 : alpha;
+                const auto pixel = actual.pixelColor(x, y);
+                const int expected[] = {
+                    alpha ? qRound(160 * illum * qRed(tint) / 255) : 0,
+                    alpha ? qRound(80 * illum * qGreen(tint) / 255) : 0,
+                    alpha ? qRound(40 * illum * qBlue(tint) / 255) : 0, alpha};
+                const int observed[] = {pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()};
+                for (int channel = 0; channel < 4; ++channel)
+                    QVERIFY2(std::abs(observed[channel] - expected[channel]) <= 1,
+                             qPrintable(QString("%1,%2 channel %3 expected %4 got %5")
+                                        .arg(x).arg(y).arg(channel).arg(expected[channel]).arg(observed[channel])));
+            }
     }
 
 };

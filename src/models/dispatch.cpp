@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
+#include "tints.h"
+#include <QDate>
 #include <QJsonArray>
 #include <cmath>
 #include <functional>
@@ -115,7 +117,9 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
         return true;
     };
     const auto definition = sources[asset];
-    if (!Location::fromAsset(asset, "blockstates").isEmpty()) {
+    const auto blockId = Location::fromAsset(asset, "blockstates");
+    TintColors tintColors(*this);
+    if (!blockId.isEmpty()) {
         if (definition.contains("variants") && definition.contains("multipart"))
             result.diagnostics << "Conflicting variants and multipart definitions";
         const auto variants = definition["variants"].toObject();
@@ -142,7 +146,12 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
             if (!o.contains("when") || (o["when"].isObject() && condition(o["when"].toObject(), 0)))
                 weighted(o["apply"], QString("multipart %1").arg(part));
         }
+        const auto colors = tintColors.block(blockId, inputs);
+        for (auto &instance : result.instances)
+            instance.tints = colors;
     } else if (!Location::fromAsset(asset, "items").isEmpty()) {
+        const auto manualTints = inputs["_tints"].toArray();
+        const bool vanillaItem = Location::parse(Location::fromAsset(asset, "items")).nameSpace == "minecraft";
         QMatrix4x4 subtree;
         std::function<void(const QJsonObject &, int, QString)> visit;
         visit = [&](const QJsonObject &o, int depth, QString label) {
@@ -182,25 +191,39 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
                             result.diagnostics << "Tint source limit";
                             break;
                         }
-                        auto source = t.toObject();
-                        auto type = Location::parse(source["type"].toString()).id();
+                        const auto source = t.toObject();
+                        const auto type = Location::parse(source["type"].toString()).id();
+                        const auto manual = tintRgb(manualTints.at(tintIndex));
                         QRgb color = qRgb(255, 255, 255);
-                        auto manual = inputs["_tints"].toArray();
-                        if (type == "minecraft:constant" && source["value"].isDouble())
-                            color = 0xff000000u | quint32(source["value"].toInteger());
-                        else if (type == "minecraft:map_color" && profile.version == "26.3")
+                        if (type == "minecraft:map_color" && profile.version == "26.3")
                             result.diagnostics << "map_color tint was removed in 26.3";
-                        else if (tintIndex < manual.size() && manual[tintIndex].isDouble()) {
-                            color = 0xff000000u | quint32(manual[tintIndex].toInteger());
+                        else if (manual && type != "minecraft:constant") {
+                            color = *manual;
                             result.diagnostics
                                 << "Simulated runtime tint from explicit _tints preview input: " +
                                        type;
-                        } else
+                        } else if (const auto base = tintColors.item(type, source)) {
+                            color = *base;
+                        } else {
                             result.diagnostics
-                                << "Runtime tint needs explicit _tints RGB preview input: " + type;
+                                << "Unknown or invalid item tint source: " + type;
+                        }
                         instance.tints << color;
                         ++tintIndex;
                     }
+                }
+            } else if (type == "minecraft:special") {
+                const auto renderer = o["model"].toObject();
+                if (renderer.isEmpty()) {
+                    result.diagnostics << "Invalid special renderer";
+                    return;
+                }
+                const auto previousCount = result.instances.size();
+                append({{"model", o["base"]}}, label + " / special");
+                if (result.instances.size() > previousCount) {
+                    auto &instance = result.instances.last();
+                    instance.transformation = subtree;
+                    instance.special = renderer;
                 }
             } else if (type == "minecraft:composite") {
                 for (const auto &child : o["models"].toArray())
@@ -209,11 +232,17 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
             } else if (type == "minecraft:condition" || type == "minecraft:select" ||
                        type == "minecraft:range_dispatch") {
                 const auto property = o["property"].toString();
-                if (!inputs.contains(property)) {
+                auto value = inputs[property];
+                if (value.isUndefined() && vanillaItem) {
+                    if (property == "minecraft:using_item")
+                        value = false;
+                    else if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
+                        value = QDate::currentDate().toString("MM-dd");
+                }
+                if (value.isUndefined()) {
                     result.diagnostics << "Manual item input required: " + property;
                     return;
                 }
-                const auto value = inputs[property];
                 if (type == "minecraft:condition") {
                     if (!value.isBool()) {
                         result.diagnostics << "Boolean item input required: " + property;
