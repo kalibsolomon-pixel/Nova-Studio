@@ -105,6 +105,15 @@ Every tool returns the usual edit result (`revision`, `dirty`, `undoAvailable`, 
 
 Use the returned `revision` as `expectedRevision` for the next edit.
 
+Edit tools accept `include: "summary"` to omit document details such as dimensions, layers and
+frames from the result. The default `include: "document"` returns the usual state. Both forms keep
+the new revision, draft status and undo availability. On `nova.workflow.execute`, `include` applies
+to every stage.
+
+Successful tool replies contain the result in `structuredContent` and a compact JSON summary in
+the text block. Clients that only consume text can read the summary's IDs and revisions, or pass
+`verbosity: "full"` to get the complete result as JSON text. `verbosity` also works on read tools.
+
 ## Read exact pixels
 
 `nova.texture.read` accepts `generation` and a pack `assetId` from `nova.assets.list`. For a vanilla
@@ -410,6 +419,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -697,6 +719,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -995,6 +1030,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -1249,6 +1297,19 @@ These are the `tools/list` definitions, byte-for-byte equivalent to what `nova-m
       "returnPreview": {
         "type": "boolean",
         "description": "Append an upscaled PNG of the result."
+      },
+      "include": {
+        "description": "summary omits document dimensions, layers, frames and other editor state.",
+        "enum": [
+          "document",
+          "summary"
+        ]
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [

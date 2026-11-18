@@ -151,7 +151,8 @@ void Service::projectChanged() {
         } else {
             pendingEdit = false;
             ++editSequence;
-            send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error));
+            send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error,
+                           workflow && workflow->fullText));
             workflow.reset();
         }
     }
@@ -273,7 +274,8 @@ void Service::receive() {
                     const auto error = toolError("operation_canceled", "Publication stopped at the next document boundary.");
                     if (reviewingEdit)
                         stopReview("operation_canceled");
-                    send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error));
+                    send(toolReply(pendingId, workflow ? workflowResult("stopped", error) : error,
+                                   workflow && workflow->fullText));
                     workflow.reset();
                     emit changed();
                 } else if (workflow) {
@@ -433,6 +435,7 @@ void Service::publishBulk(quint64 sequence, const std::shared_ptr<Workflow> &pro
                 if (!checkpoint())
                     return {};
                 args["operations"] = operations;
+                args["include"] = "summary";
                 Commit edit;
                 const Request request{pendingId, "nova.edit.batch", args, {}, {}, false, checkpoint};
                 const auto preflight = editHandler(*scope, request, true, edit);
@@ -488,7 +491,7 @@ void Service::publishBulk(quint64 sequence, const std::shared_ptr<Workflow> &pro
         }
         const auto response = workflowResult(complete ? "complete" : "stopped", complete ? QJsonObject{} : progress->stopReason);
         workflow.reset();
-        send(toolReply(pendingId, response));
+        send(toolReply(pendingId, response, progress->fullText));
     }
     emit changed();
     if (pendingEdit && sequence == editSequence)
@@ -555,7 +558,7 @@ void Service::publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> 
         }
         const auto response = workflowResult(complete ? "complete" : "stopped", failure);
         workflow.reset();
-        send(toolReply(pendingId, response));
+        send(toolReply(pendingId, response, progress->fullText));
     }
     emit changed();
     if (pendingEdit && sequence == editSequence)
@@ -650,7 +653,7 @@ void Service::dispatch(const Request &request) {
             return reject("editing_unavailable", "No editor is available for this project.");
         if (capability) {
             Commit unused;
-            send(toolReply(request.id, editHandler(data, request, editing, unused)));
+            send(toolReply(request.id, editHandler(data, request, editing, unused), request.arguments["verbosity"] == "full"));
             return;
         }
         pendingEdit = true;
@@ -705,7 +708,7 @@ void Service::dispatch(const Request &request) {
                 if (mutation || plan)
                     emit changed();
                 if (authenticated && generation == replyGeneration)
-                    send(toolReply(request.id, result));
+                    send(toolReply(request.id, result, request.arguments["verbosity"] == "full"));
             };
             if (stale || (!editing && !preview))
                 return finish(toolError("stale_project", "Editing authorization expired."));
@@ -726,6 +729,7 @@ void Service::dispatch(const Request &request) {
             try {
                 if (bulk) {
                     const auto progress = std::make_shared<Workflow>();
+                    progress->fullText = request.arguments["verbosity"] == "full";
                     progress->bulkTargets = request.arguments["targets"].toArray();
                     progress->total = int(progress->bulkTargets.size());
                     progress->elapsed.start();
@@ -757,6 +761,8 @@ void Service::dispatch(const Request &request) {
                         targets.insert(asset);
                         args["generation"] = current.generation;
                         args["projectId"] = current.projectId;
+                        if (request.arguments.contains("include"))
+                            args["include"] = request.arguments["include"];
                         Commit commit;
                         const Request stage{request.id, plan ? "nova.edit.preview" : "nova.edit.batch",
                                             args, {}, {}, execute, continuePreparation};
@@ -776,6 +782,7 @@ void Service::dispatch(const Request &request) {
                     if (plan)
                         return finish({{"status", "ready"}, {"stages", previews}, {"totalStages", stages.size()}});
                     auto state = std::make_shared<Workflow>();
+                    state->fullText = request.arguments["verbosity"] == "full";
                     state->total = int(stages.size());
                     workflow = state;
                     review.state = "Prepared";
@@ -898,7 +905,7 @@ void Service::dispatch(const Request &request) {
                 }
                 emit changed();
             }
-            send(toolReply(pendingId, result));
+            send(toolReply(pendingId, result, request.arguments["verbosity"] == "full"));
         }
         active->deleteLater();
     });

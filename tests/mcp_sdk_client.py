@@ -848,10 +848,16 @@ async def texture_cycle(client: ClientSession, wire, target, revision):
     legacy_target = {**target, "maxEdge": 16}
     pixels = await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": revision})
     assert pixels.structuredContent["width"] == pixels.structuredContent["height"] == 16
-    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision})
+    edit = await call("nova.texture.put_pixels", {**write, "expectedRevision": revision, "include": "summary"})
     assert edit.structuredContent["changed"]
+    assert "layers" not in edit.structuredContent and "frames" not in edit.structuredContent
+    text = json.loads(edit.content[0].text)
+    assert text["revision"] == edit.structuredContent["revision"] and text["assetId"] == target["assetId"], text
+    assert "transactionId" not in text and "summary" in text, text
     await call("nova.asset.preview_image", {**legacy_target, "expectedRevision": edit.structuredContent["revision"]})
     before = cycle_bytes(wire[start:], native_preview=True)
+    full = await call("nova.texture.read", {**target, "verbosity": "full"})
+    assert json.loads(full.content[0].text) == full.structuredContent, full
     reset = await call("nova.edit.undo", {**target, "expectedRevision": edit.structuredContent["revision"]})
     revision = reset.structuredContent["revision"]
 

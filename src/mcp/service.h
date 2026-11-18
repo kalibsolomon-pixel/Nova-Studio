@@ -72,6 +72,7 @@ class Service : public QObject {
         QJsonArray bulkTargets;
         QElapsedTimer elapsed;
         int committed = 0;
+        bool fullText = false;
     };
     std::shared_ptr<Workflow> workflow;
     QJsonObject workflowResult(const QString &status, const QJsonObject &failure = {}) const;

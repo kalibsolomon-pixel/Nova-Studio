@@ -437,6 +437,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -566,6 +572,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -716,6 +728,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -815,6 +833,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maximum": 200,
         "minimum": 1,
         "type": "integer"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [

@@ -182,6 +182,24 @@ QJsonObject parse(const QByteArray &json) { return QJsonDocument::fromJson(json)
 // Round-trips through text so integer and floating-point JSON numbers compare alike.
 QJsonObject canonical(const QJsonObject &object) { return parse(QJsonDocument(object).toJson(QJsonDocument::Compact)); }
 
+QJsonValue expandSchema(const QJsonValue &value, const QJsonObject &defs) {
+    if (value.isObject()) {
+        auto object = value.toObject();
+        if (object.contains("$ref"))
+            return defs[object["$ref"].toString().mid(8)];
+        for (auto it = object.begin(); it != object.end(); ++it)
+            it.value() = expandSchema(it.value(), defs);
+        return object;
+    }
+    if (value.isArray()) {
+        QJsonArray array;
+        for (const QJsonValue &item : value.toArray())
+            array.append(expandSchema(item, defs));
+        return array;
+    }
+    return value;
+}
+
 // ---- Synthetic benchmark textures: opaque pixel-art-like patterns from a fixed seed.
 QImage synthetic(int width, int height, int colors, quint32 seed) {
     std::mt19937 random(seed);
@@ -691,6 +709,16 @@ class TexturePixelsTest : public QObject {
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
         for (auto it = phase1.begin(); it != phase1.end(); ++it) {
             auto now = runtime.value(it.key()), then = canonical(it.value().toObject());
+            auto input = now["inputSchema"].toObject();
+            const auto defs = input.take("$defs").toObject();
+            input = expandSchema(input, defs).toObject();
+            auto fields = input["properties"].toObject();
+            QVERIFY(!fields.take("verbosity").isUndefined());
+            fields.remove("include");
+            if (it.key() == "nova.vanilla.texture") // The legacy include controls image data.
+                fields["include"] = then["inputSchema"].toObject()["properties"].toObject()["include"];
+            input["properties"] = fields;
+            now["inputSchema"] = input;
             auto oldCommands = [](QJsonObject variants) {
                 QJsonArray commands;
                 for (const QJsonValue &variant : variants["oneOf"].toArray()) {

@@ -95,7 +95,16 @@ QString revisionToken(const mcp::Snapshot &scope, const DocumentType &doc) {
     return QString::fromLatin1(QMessageAuthenticationCode::hash(
         payload, scope.idKey, QCryptographicHash::Sha256).toHex());
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
+template <typename DocumentType>
+QJsonObject editRevisionState(const mcp::Snapshot &scope, const DocumentType &doc) {
+    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
+            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
+            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)}};
+}
+QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (!details)
+        return state;
     QJsonArray layers, frames;
     for (const auto &layer : doc.layers())
         layers.append(QJsonObject{{"id", layer.id.toString(QUuid::WithoutBraces)}, {"name", layer.name},
@@ -106,21 +115,24 @@ QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc) {
             break;
         frames.append(QJsonObject{{"id", frame.id.toString(QUuid::WithoutBraces)}, {"name", frame.name}});
     }
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"width", doc.image.width()}, {"height", doc.image.height()},
-            {"animated", doc.animated()}, {"layers", layers}, {"frames", frames},
-            {"frameCount", qint64(animation.frames.size())}, {"playbackCount", qint64(animation.entries.size())},
-            {"defaultTicks", animation.defaultTicks}, {"interpolate", animation.interpolate},
-            {"activeFrame", doc.activeFrame().toString(QUuid::WithoutBraces)},
-            {"activeLayer", doc.activeLayer().toString(QUuid::WithoutBraces)}};
+    state["width"] = doc.image.width();
+    state["height"] = doc.image.height();
+    state["animated"] = doc.animated();
+    state["layers"] = layers;
+    state["frames"] = frames;
+    state["frameCount"] = qint64(animation.frames.size());
+    state["playbackCount"] = qint64(animation.entries.size());
+    state["defaultTicks"] = animation.defaultTicks;
+    state["interpolate"] = animation.interpolate;
+    state["activeFrame"] = doc.activeFrame().toString(QUuid::WithoutBraces);
+    state["activeLayer"] = doc.activeLayer().toString(QUuid::WithoutBraces);
+    return state;
 }
-QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc) {
-    return {{"revision", revisionToken(scope, doc)}, {"dirty", doc.modified()},
-            {"undoAvailable", doc.ownsHistoryHead(scope.generation, false)},
-            {"redoAvailable", doc.ownsHistoryHead(scope.generation, true)},
-            {"elementCount", doc.authoritative()["elements"].toArray().size()}};
+QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc, bool details = true) {
+    auto state = editRevisionState(scope, doc);
+    if (details)
+        state["elementCount"] = doc.authoritative()["elements"].toArray().size();
+    return state;
 }
 QJsonArray describeOperations(const QJsonArray &operations) {
     QJsonArray description;
@@ -1183,11 +1195,13 @@ void Window::ensureMcpService() {
 
             const bool redo = request.tool == "nova.edit.redo";
             const bool history = redo || request.tool == "nova.edit.undo";
+            const bool includeDocument = request.arguments["include"] != "summary";
             // A compact texture tool is one native command built from its own arguments.
             const auto compact = mcp::compactTextureCommand(request.tool);
             auto compactOperation = [&] {
                 auto operation = request.arguments;
-                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview"})
+                for (const auto key : {"generation", "projectId", "assetId", "expectedRevision", "returnPreview",
+                                       "verbosity", "include"})
                     operation.remove(key);
                 operation["command"] = compact;
                 return operation;
@@ -1317,7 +1331,7 @@ void Window::ensureMcpService() {
                 if (preview)
                     return previewResult(*model);
                 const auto revision = revisionToken(snapshot, *model);
-                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview,
+                commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview, includeDocument,
                           changes = summary(path, revision),
                           operations, count = operations.size()]() -> QJsonObject {
                     if (modelPanel->openModelDocument(path) != model ||
@@ -1387,7 +1401,7 @@ void Window::ensureMcpService() {
                     }
                     metrics.record("mcp_model_native_mutation", publication);
                     const bool changed = revisionToken(snapshot, *model) != revision;
-                    auto response = documentState(snapshot, *model);
+                    auto response = documentState(snapshot, *model, includeDocument);
                     completeEdit(response, transaction, history ? 1 : count, changed);
                     response["changeSummary"] = changes;
                     if (changed) {
@@ -1539,7 +1553,7 @@ void Window::ensureMcpService() {
             const auto revision = revisionToken(snapshot, *doc);
             commit = [this, doc, relative, snapshot, revision, interactionActive, prepared, history, provisional,
                       changes = summary(relative, revision), compact, asset,
-                      operations, redo, returnPreview, workflowStage = request.workflowStage,
+                      operations, redo, returnPreview, includeDocument, workflowStage = request.workflowStage,
                       count = operations.size()]() -> QJsonObject {
                 if (!session.owns(doc) || revisionToken(snapshot, *doc) != revision)
                     return toolError("revision_conflict", "The texture changed before commit.");
@@ -1610,7 +1624,7 @@ void Window::ensureMcpService() {
                     return toolError("edit_rejected", error.isEmpty() ? QString("The commit budget changed.") : error);
                 }
                 metrics.record(doc->animated() ? "mcp_animation_native_publication" : "mcp_texture_native_publication", publication);
-                auto response = documentState(snapshot, *doc);
+                auto response = documentState(snapshot, *doc, includeDocument);
                 completeEdit(response, transaction, history ? 1 : count, revisionToken(snapshot, *doc) != revision);
                 response["changeSummary"] = changes;
                 if (!compact.isEmpty())

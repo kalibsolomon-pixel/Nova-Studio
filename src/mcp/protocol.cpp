@@ -4,6 +4,7 @@
 #include "guides.h"
 #include "imageops.h"
 #include <QJsonDocument>
+#include <QMap>
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QStringConverter>
@@ -579,6 +580,52 @@ void addCompactTextureTools(QJsonArray &list, const QJsonObject &token) {
          {"strength", described(integerField(1, 255), "Eraser coverage, 255 (default) for fully transparent.")}},
         {"region"});
 }
+QJsonObject mapSchemaChildren(QJsonObject schema, const std::function<QJsonObject(const QJsonObject &)> &visit) {
+    if (schema.contains("properties")) {
+        auto fields = schema["properties"].toObject();
+        for (auto it = fields.begin(); it != fields.end(); ++it)
+            it.value() = visit(it.value().toObject());
+        schema["properties"] = fields;
+    }
+    if (schema.contains("items"))
+        schema["items"] = visit(schema["items"].toObject());
+    if (schema.contains("oneOf")) {
+        QJsonArray choices;
+        for (const QJsonValue &value : schema["oneOf"].toArray())
+            choices.append(visit(value.toObject()));
+        schema["oneOf"] = choices;
+    }
+    return schema;
+}
+QJsonObject shareSchemaNodes(const QJsonObject &schema) {
+    const auto encoded = [](const QJsonObject &node) { return QJsonDocument(node).toJson(QJsonDocument::Compact); };
+    QMap<QByteArray, int> counts;
+    const std::function<QJsonObject(const QJsonObject &)> count = [&](const QJsonObject &node) {
+        ++counts[encoded(node)];
+        return mapSchemaChildren(node, count);
+    };
+    mapSchemaChildren(schema, count);
+    QMap<QByteArray, QString> references;
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
+        const auto name = 's' + QString::number(references.size(), 36);
+        const qsizetype referenceBytes = 18 + name.size(); // {"$ref":"#/$defs/<name>"}
+        const auto saved = (it.value() - 1) * it.key().size() - it.value() * referenceBytes;
+        if (saved > name.size() + 4)
+            references.insert(it.key(), name);
+    }
+    QJsonObject shared;
+    const std::function<QJsonObject(const QJsonObject &)> replace = [&](const QJsonObject &node) {
+        const auto name = references.value(encoded(node));
+        if (name.isEmpty())
+            return mapSchemaChildren(node, replace);
+        shared[name] = node;
+        return QJsonObject{{"$ref", "#/$defs/" + name}};
+    };
+    auto compact = mapSchemaChildren(schema, replace);
+    if (!shared.isEmpty())
+        compact["$defs"] = shared;
+    return encoded(compact).size() < encoded(schema).size() ? compact : schema;
+}
 const QJsonArray &tools() {
     static const auto definitions = [] {
         QJsonArray list;
@@ -722,6 +769,23 @@ const QJsonArray &tools() {
             "standard Minecraft texture folders if metadata is absent. Requires editing permission.",
             {{"generation", current}, {"projectId", project}, {"indexRevision", generation}, {"description", stringField(128)}},
             {"generation", "projectId", "indexRevision"}, false);
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            auto tool = list.at(i).toObject();
+            const auto name = tool["name"].toString();
+            auto schema = tool["inputSchema"].toObject();
+            auto properties = schema["properties"].toObject();
+            properties["verbosity"] = QJsonObject{{"enum", QJsonArray{"summary", "full"}}};
+            if (name.endsWith(".edit") || name == "nova.edit.batch" || name == "nova.edit.undo" ||
+                name == "nova.edit.redo" || name == "nova.workflow.execute" || !compactTextureCommand(name).isEmpty())
+                properties["include"] = QJsonObject{{"enum", QJsonArray{"document", "summary"}},
+                    {"description", "summary omits document dimensions, layers, frames and other editor state."}};
+            schema["properties"] = properties;
+            if (name.endsWith(".edit") || name == "nova.edit.batch" || name == "nova.edit.preview" ||
+                name == "nova.workflow.plan" || name == "nova.workflow.execute" || name == "nova.texture.adjust_bulk")
+                schema = shareSchemaNodes(schema);
+            tool["inputSchema"] = schema;
+            list.replace(i, tool);
+        }
         return list;
     }();
     return definitions;
@@ -734,15 +798,22 @@ QString expected(const QJsonObject &schema, const QString &fallback) {
     return description.isEmpty() ? fallback : "expected " + description.left(1).toLower() + description.mid(1);
 }
 // Same acceptance rules as before; on failure it names the JSON pointer and the rule.
-SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QString &pointer) {
+SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QString &pointer, const QJsonObject &defs) {
     auto fail = [&](const QString &why) {
         return SchemaError{pointer, QString("Invalid argument at %1: %2").arg(pointer.isEmpty() ? "/" : pointer, why)};
     };
+    if (schema.contains("$ref")) {
+        const auto ref = schema["$ref"].toString();
+        const auto target = defs[ref.mid(8)].toObject();
+        if (!ref.startsWith("#/$defs/") || target.isEmpty())
+            return fail("the server schema reference could not be resolved.");
+        return check(value, target, pointer, defs);
+    }
     if (schema.contains("oneOf")) {
         const auto options = schema["oneOf"].toArray();
         int matches = 0;
         for (const auto &option : options)
-            matches += check(value, option.toObject(), pointer).isEmpty();
+            matches += check(value, option.toObject(), pointer, defs).isEmpty();
         if (matches == 1)
             return {};
         if (matches > 1)
@@ -752,7 +823,7 @@ SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QStr
         for (const auto &option : options) {
             const auto names = option.toObject()["properties"].toObject()["command"].toObject()["enum"].toArray();
             if (command.isString() && names.contains(command))
-                return check(value, option.toObject(), pointer);
+                return check(value, option.toObject(), pointer, defs);
         }
         if (command.isString())
             return fail(QString("unknown command \"%1\".").arg(command.toString().left(48)));
@@ -783,7 +854,7 @@ SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QStr
             if (!properties.contains(it.key()))
                 return {child, QString("Unknown argument %1. Allowed: %2.").arg(child,
                                    properties.isEmpty() ? QString("none") : properties.keys().join(", "))};
-            if (const auto error = check(it.value(), properties[it.key()].toObject(), child); !error.isEmpty())
+            if (const auto error = check(it.value(), properties[it.key()].toObject(), child, defs); !error.isEmpty())
                 return error;
         }
         return {};
@@ -796,7 +867,7 @@ SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QStr
         if (values.size() < min || values.size() > max)
             return fail(QString("expected %1 to %2 items.").arg(min).arg(max));
         for (qsizetype i = 0; i < values.size(); ++i)
-            if (const auto error = check(values[i], schema["items"].toObject(), pointer + '/' + QString::number(i));
+            if (const auto error = check(values[i], schema["items"].toObject(), pointer + '/' + QString::number(i), defs);
                 !error.isEmpty())
                 return error;
         return {};
@@ -860,7 +931,9 @@ QJsonObject toolError(const QString &code, const QString &message, const QJsonOb
 QJsonObject resourceReply(const QJsonValue &id, const QString &uri, const QString &mimeType, const QString &text) {
     return reply(id, {{"contents", QJsonArray{QJsonObject{{"uri", uri}, {"mimeType", mimeType}, {"text", text}}}}});
 }
-SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema) { return check(value, schema, {}); }
+SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema) {
+    return check(value, schema, {}, schema["$defs"].toObject());
+}
 const QJsonArray &toolDefinitions() { return tools(); }
 bool nativeTextureCommand(const QString &command) { return nativeTextureCommands().contains(command); }
 QString compactTextureCommand(const QString &tool) {
@@ -869,15 +942,63 @@ QString compactTextureCommand(const QString &tool) {
             return name;
     return {};
 }
-QJsonObject toolReply(const QJsonValue &id, const QJsonObject &payload) {
+namespace {
+QJsonObject humanSummaryFields(const QJsonObject &payload) {
+    QJsonObject summary;
+    for (const auto key : {"assetId", "path", "documentId", "draftRevision", "revision", "generation", "projectId",
+                           "indexRevision", "name", "type", "source", "version", "minecraftVersion", "status",
+                           "identity", "nextOffset", "changed", "opened", "dirty", "undoAvailable", "redoAvailable",
+                           "pixelsChanged", "encoding", "layer", "frame", "found", "truncated", "committed", "rejected",
+                           "error", "failure"})
+        if (payload.contains(key))
+            summary[key] = payload[key];
+    const auto edit = payload["changeSummary"].toObject();
+    if (!summary.contains("assetId") && edit.contains("assetId"))
+        summary["assetId"] = edit["assetId"];
+    if (!summary.contains("path") && edit.contains("assetPath"))
+        summary["path"] = edit["assetPath"];
+    return summary;
+}
+QJsonObject humanSummary(const QJsonObject &payload) {
+    auto summary = humanSummaryFields(payload);
+    for (const auto key : {"pixels", "colorCount", "text", "counts", "saved", "failed", "stageOutcomes"})
+        if (payload.contains(key))
+            summary[key] = payload[key];
+    for (const auto key : {"assets", "drafts", "results", "stages", "textures", "topics"}) {
+        const auto rows = payload[key].toArray();
+        if (rows.isEmpty())
+            continue;
+        QJsonArray items;
+        for (const QJsonValue &value : rows) {
+            auto row = humanSummaryFields(value.toObject());
+            for (const auto field : {"topic", "title", "uri", "documentOpen", "animated"})
+                if (value.toObject().contains(field))
+                    row[field] = value[field];
+            if (!row.isEmpty())
+                items.append(row);
+        }
+        summary[key] = items;
+    }
+    if (payload["document"].isObject())
+        summary["document"] = humanSummaryFields(payload["document"].toObject());
+    if (summary == payload)
+        return summary;
+    const auto change = payload["changed"];
+    const QString headline = change.isBool() ? (change.toBool() ? "Changes applied. " : "No changes applied. ") : "";
+    summary["summary"] = headline + "Use verbosity full for the complete result.";
+    return summary;
+}
+} // namespace
+QJsonObject toolReply(const QJsonValue &id, const QJsonObject &payload, bool fullText) {
     auto metadata = payload;
     const auto image = metadata.take("_pngImage").toString();
-    const auto json = QJsonDocument(metadata).toJson(QJsonDocument::Compact);
+    const bool error = payload.contains("error");
+    const auto json = QJsonDocument(fullText || error ? metadata : humanSummary(metadata)).toJson(QJsonDocument::Compact);
     QJsonObject result{{"content", QJsonArray{QJsonObject{{"type", "text"},
                         {"text", QString::fromUtf8(json)}}}}};
     // Output schemas describe successful results, and clients may validate any structured
     // content against them. A tool error is therefore reported in its text block only.
-    if (payload.contains("error"))
+    if (error)
         result["isError"] = true;
     else
         result["structuredContent"] = metadata;
@@ -987,14 +1108,14 @@ Request Protocol::receive(const QByteArray &line) {
             const auto args = params["arguments"].toObject();
             const auto invalid = params.contains("arguments") && !params["arguments"].isObject()
                 ? SchemaError{"", "Invalid argument at /: expected an object of named arguments."}
-                : check(args, def["inputSchema"].toObject(), {});
+                : checkArguments(args, def["inputSchema"].toObject());
             if (!invalid.isEmpty()) {
                 result.response = toolReply(result.id, toolError("invalid_arguments", invalid.message,
                                                                  {{"pointer", invalid.pointer}}));
                 return result;
             }
             if (name == "nova.guide.list") {
-                result.response = toolReply(result.id, guides::catalog());
+                result.response = toolReply(result.id, guides::catalog(), args["verbosity"] == "full");
                 return result;
             }
             if (name == "nova.guide.get") {
@@ -1003,7 +1124,7 @@ Request Protocol::receive(const QByteArray &line) {
                     ? QJsonObject{{"uri", found.guide.uri}, {"topic", found.guide.topic},
                                   {"version", found.guide.version}, {"title", found.guide.title},
                                   {"mimeType", "text/markdown"}, {"text", found.guide.text}}
-                    : toolError(found.code, found.message, found.details));
+                    : toolError(found.code, found.message, found.details), args["verbosity"] == "full");
                 return result;
             }
             result.tool = name;

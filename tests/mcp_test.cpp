@@ -231,6 +231,11 @@ class McpTest : public QObject {
         const auto content = ok["content"].toArray();
         QCOMPARE(content.size(), 2);
         QCOMPARE(content[1].toObject()["type"].toString(), "image");
+        const QJsonObject edit{{"changed", true}, {"revision", "r"}, {"layers", QJsonArray{1, 2}}};
+        const auto brief = text(result(toolReply(9, edit)));
+        QVERIFY(brief.contains("summary") && !brief.contains("layers"));
+        QCOMPARE(brief["revision"].toString(), "r");
+        QCOMPARE(text(result(toolReply(10, edit, true))), edit);
     }
 
     void containment() {
