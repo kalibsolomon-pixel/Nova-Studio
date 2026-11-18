@@ -330,6 +330,7 @@ one-pixel `put_pixels` with default document state before and `include: "summary
 | Measurement | Before bytes / tokens | After bytes / tokens |
 | --- | ---: | ---: |
 | `tools/list`, expanded schemas before deduplication | 239,176 / 68,282 | 187,042 / 50,371 |
+| `tools/list`, brief preview and workflow operations | 187,042 / 50,371 | 121,095 / not resampled |
 | One edit reply | 2,868 / 1,148 | 1,513 / 566 |
 | Edit text block | 1,321 / 556 | 458 / 173 |
 | Five-texture recolour requests | 4,060 / 1,815 | 908 / 386 |
@@ -338,6 +339,11 @@ one-pixel `put_pixels` with default document state before and `include: "summary
 The recolour compares five separate open-and-remap pairs (10 calls) with one bulk call. The
 original 42-tool listing was 113,065 bytes. The expanded measurement includes the new command
 schemas, and the final listing also includes the analyzer.
+
+`nova.edit.preview`, `nova.workflow.plan` and `nova.workflow.execute` list each operation by its
+`command` name only, because their full schemas repeat `nova.edit.batch`. Nova still checks their
+calls against the full command schemas, so an invalid operation fails with the same pointer as in a
+batch.
 
 ## Exact definitions
 

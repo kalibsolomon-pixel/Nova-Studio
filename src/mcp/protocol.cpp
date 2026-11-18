@@ -3,6 +3,7 @@
 #include "build_identity.h"
 #include "guides.h"
 #include "imageops.h"
+#include <QHash>
 #include <QJsonDocument>
 #include <QMap>
 #include <QRandomGenerator>
@@ -631,6 +632,10 @@ QJsonObject shareSchemaNodes(const QJsonObject &schema) {
         compact["$defs"] = shared;
     return encoded(compact).size() < encoded(schema).size() ? compact : schema;
 }
+QHash<QString, QJsonObject> &briefSchemas() {
+    static QHash<QString, QJsonObject> schemas;
+    return schemas;
+}
 const QJsonArray &tools() {
     static const auto definitions = [] {
         QJsonArray list;
@@ -780,6 +785,24 @@ const QJsonArray &tools() {
             "saved source frame. Findings are advisory.",
             {{"generation", current}, {"projectId", project}, {"assetId", asset}, {"assetIds", arrayField(asset, 1, 16)}},
             {"generation", "projectId"});
+        // nova.edit.preview and both workflow tools repeat nova.edit.batch's command schemas (about 23 KB
+        // each), and $defs cannot be shared across tools. tools/list names their operations by command only
+        // (listedTools()); calls are still checked against the full schemas here.
+        QJsonArray commandNames;
+        for (const QJsonValue &tool : list)
+            if (tool["name"] == "nova.edit.batch")
+                for (const QJsonValue &variant : tool["inputSchema"]["properties"]["operations"]["items"]["oneOf"].toArray())
+                    commandNames.append(variant["properties"]["command"]["enum"].toArray().at(0));
+        const QJsonObject briefOperation{{"type", "object"}, {"required", QJsonArray{"command"}},
+            {"properties", QJsonObject{{"command", QJsonObject{{"type", "string"}, {"enum", commandNames}}}}},
+            {"description", "One operation exactly as in nova.edit.batch operations; that schema lists each "
+                            "command's fields."}};
+        auto shorten = [&](QJsonObject fields) {
+            auto operations = fields["operations"].toObject();
+            operations["items"] = briefOperation;
+            fields["operations"] = operations;
+            return fields;
+        };
         for (qsizetype i = 0; i < list.size(); ++i) {
             auto tool = list.at(i).toObject();
             const auto name = tool["name"].toString();
@@ -791,6 +814,21 @@ const QJsonArray &tools() {
                 properties["include"] = QJsonObject{{"enum", QJsonArray{"document", "summary"}},
                     {"description", "summary omits document dimensions, layers, frames and other editor state."}};
             schema["properties"] = properties;
+            if (name == "nova.edit.preview" || name == "nova.workflow.plan" || name == "nova.workflow.execute") {
+                auto brief = schema;
+                auto fields = brief["properties"].toObject();
+                if (fields.contains("stages")) {
+                    auto stages = fields["stages"].toObject();
+                    auto stage = stages["items"].toObject();
+                    stage["properties"] = shorten(stage["properties"].toObject());
+                    stages["items"] = stage;
+                    fields["stages"] = stages;
+                } else {
+                    fields = shorten(fields);
+                }
+                brief["properties"] = fields;
+                briefSchemas().insert(name, brief);
+            }
             if (name.endsWith(".edit") || name == "nova.edit.batch" || name == "nova.edit.preview" ||
                 name == "nova.workflow.plan" || name == "nova.workflow.execute" || name == "nova.texture.adjust_bulk")
                 schema = shareSchemaNodes(schema);
@@ -800,6 +838,21 @@ const QJsonArray &tools() {
         return list;
     }();
     return definitions;
+}
+// What tools/list publishes: tools() with the brief operation schemas recorded while building it.
+const QJsonArray &listedTools() {
+    static const auto listing = [] {
+        auto list = tools();
+        for (qsizetype i = 0; i < list.size(); ++i) {
+            auto tool = list.at(i).toObject();
+            if (const auto brief = briefSchemas().value(tool["name"].toString()); !brief.isEmpty()) {
+                tool["inputSchema"] = brief;
+                list.replace(i, tool);
+            }
+        }
+        return list;
+    }();
+    return listing;
 }
 QString escapePointer(QString key) {
     return key.left(64).replace('~', "~0").replace('/', "~1");
@@ -946,6 +999,7 @@ SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema) {
     return check(value, schema, {}, schema["$defs"].toObject());
 }
 const QJsonArray &toolDefinitions() { return tools(); }
+const QJsonArray &toolListing() { return listedTools(); }
 bool nativeTextureCommand(const QString &command) { return nativeTextureCommands().contains(command); }
 QString compactTextureCommand(const QString &tool) {
     for (const auto name : {"put_pixels", "palette_remap", "gradient_map", "erase"})
@@ -1109,7 +1163,7 @@ Request Protocol::receive(const QByteArray &line) {
     } else if (method == "tools/list") {
         if (params.contains("cursor"))
             return fail(-32602, "Unknown tools cursor");
-        result.response = reply(result.id, {{"tools", tools()}});
+        result.response = reply(result.id, {{"tools", listedTools()}});
     } else {
         const auto name = params["name"].toString();
         for (const auto &entry : tools()) {

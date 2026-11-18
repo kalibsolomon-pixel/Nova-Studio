@@ -865,6 +865,23 @@ class TexturePixelsTest : public QObject {
             QVERIFY2(failure == "invalid_arguments" && where == expected,
                      qPrintable(tool + ' ' + QJsonDocument(args).toJson(QJsonDocument::Compact) + " -> " + failure + ' ' + where));
         }
+        // tools/list names preview and workflow operations by command only, yet calls are checked in full.
+        const auto listing = protocol.receive(request(4, "tools/list")).response["result"].toObject()["tools"].toArray();
+        QCOMPARE(listing, toolListing());
+        QCOMPARE(listing.size(), definitions.size());
+        for (const QJsonValue &tool : listing) {
+            const auto name = tool["name"].toString();
+            if (name != "nova.edit.preview" && name != "nova.workflow.plan" && name != "nova.workflow.execute")
+                continue;
+            const auto fields = tool["inputSchema"]["properties"];
+            const auto operations = name == "nova.edit.preview" ? fields["operations"]
+                                                                : fields["stages"]["items"]["properties"]["operations"];
+            const auto commands = operations["items"]["properties"]["command"]["enum"].toArray();
+            QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") && commands.contains("hue_saturation") &&
+                     commands.contains("uv_rotate"), qPrintable(name));
+        }
+        const auto badPut = with(with(put, "command", "put_pixels"), "palette", QJsonArray{"#00000"});
+        QCOMPARE(argumentError("nova.edit.preview", {{"operations", QJsonArray{badPut}}}).first, "invalid_arguments");
         // The framing limit bounds every payload before it is parsed.
         QJsonArray rows;
         for (int i = 0; i < 256; ++i)

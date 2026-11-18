@@ -37,7 +37,8 @@ struct SchemaError {
     bool isEmpty() const { return message.isEmpty(); }
 };
 SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema);
-const QJsonArray &toolDefinitions();
+const QJsonArray &toolDefinitions(); // full schemas, which every call is checked against
+const QJsonArray &toolListing();     // what tools/list publishes (brief batch operations)
 // The native command behind a compact texture tool (nova.texture.put_pixels -> put_pixels); empty
 // for every other tool. These tools are mutations and need editing permission.
 QString compactTextureCommand(const QString &tool);
