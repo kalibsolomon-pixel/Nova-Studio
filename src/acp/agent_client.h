@@ -56,6 +56,7 @@ class Session : public QObject {
     void agentText(const QString &text);              // agent_message_chunk text
     void agentThought(const QString &text);           // agent_thought_chunk text (its reasoning)
     void toolCall(const QJsonObject &update);         // tool_call / tool_call_update (untrusted)
+    void planChanged(const QJsonArray &entries);
     void permissionRequested(const QJsonValue &id, const QJsonObject &params);
     void authenticationRequired(const QJsonArray &methods); // empty: sign in with the agent's own CLI
     void turnEnded(const QString &stopReason);

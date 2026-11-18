@@ -320,6 +320,11 @@ void Session::readOutput() {
     buffer += process.readAllStandardOutput();
     qsizetype end;
     while ((end = buffer.indexOf('\n')) >= 0) {
+        if (end > LineLimit) {
+            buffer.clear();
+            stop("The agent sent an oversized message.");
+            return;
+        }
         const auto line = buffer.left(end).trimmed();
         buffer.remove(0, end + 1);
         if (line.isEmpty())
@@ -373,6 +378,8 @@ void Session::update(const QJsonObject &params) {
             emit agentThought(content["text"].toString());
     } else if (kind == "tool_call" || kind == "tool_call_update") {
         emit toolCall(change);
+    } else if (kind == "plan") {
+        emit planChanged(change["entries"].toArray());
     }
 }
 

@@ -7,6 +7,7 @@
 #include "search.h"
 #include "service.h"
 #include "agent_client.h"
+#include "theme.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -18,6 +19,8 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QTextEdit>
+#include <QTextBlock>
+#include <QToolButton>
 #include <QProcess>
 #include <QPushButton>
 #include <QScreen>
@@ -89,7 +92,15 @@ class AcpSessionTest : public QObject {
 
     Service *service() { return window->findChild<Service *>(); }
     nova::acp::Session *session() { return dialog->findChild<nova::acp::Session *>(); }
-    QString transcript() { return dialog->findChild<QTextEdit *>("acpConversation")->toPlainText(); }
+    QList<QTextEdit *> messages() {
+        return dialog->findChild<QWidget *>("acpConversation")->findChildren<QTextEdit *>();
+    }
+    QString transcript() {
+        QStringList text;
+        for (auto message : messages())
+            text << message->accessibleName() + '\n' + message->toPlainText();
+        return text.join('\n');
+    }
     QString status() {
         return dialog->findChild<QLabel *>("acpStatus")->text() + ' ' +
                dialog->findChild<QLabel *>("acpStatusDetail")->text();
@@ -287,12 +298,11 @@ class AcpSessionTest : public QObject {
         const auto before = fingerprint(root);
         startReadOnly();
         ask("call nova.assets.list {}", "RESULT ok");
-        // The window is a conversation: the user, the agent's reply and its reasoning; no tool activity.
         const auto shown = transcript();
         QVERIFY2(shown.contains("You\ncall nova.assets.list {}") && shown.contains("Agent\nRESULT ok") &&
-                 shown.contains("Agent · thinking\nThinking about: call nova.assets.list"), qPrintable(shown.left(600)));
-        for (const auto hidden : {"[agent tool]", "in_progress", "completed", "[Nova]", "tool_call", "Session started"})
-            QVERIFY2(!shown.contains(hidden), hidden);
+                 shown.contains("Agent reasoning\nThinking about: call nova.assets.list"), qPrintable(shown.left(600)));
+        auto card = dialog->findChild<QToolButton *>("acpToolDetails");
+        QVERIFY(card && card->text().startsWith("Nova tool"));
         ask("call nova.drafts.save_all {}", "RESULT error");
         QVERIFY2(transcript().contains("permission_denied"), qPrintable(transcript().right(800)));
         ask("call nova.asset.create {\"namespace\":\"nova\",\"path\":\"block/x\",\"conflictPolicy\":\"reject\",\"parameters\":{\"command\":\"texture\",\"width\":16,\"height\":16,\"layerName\":\"Base\",\"fill\":\"transparent\",\"pixelFormat\":\"rgba8888\"}}",
@@ -308,7 +318,7 @@ class AcpSessionTest : public QObject {
         startReadOnly();
         ask("Please check which textures in this pack still need a 16×16 version.", "Nothing needs changing.");
         const auto shown = transcript();
-        QVERIFY2(shown.contains("You\nPlease check") && shown.contains("Agent · thinking") &&
+        QVERIFY2(shown.contains("You\nPlease check") && shown.contains("Agent reasoning") &&
                  shown.contains("Agent\nI checked the textures in Synthetic Pack"), qPrintable(shown));
         QVERIFY(!shown.contains("**")); // Markdown is rendered, not shown raw
         // With no permission request pending, no permission controls are shown.
@@ -327,6 +337,54 @@ class AcpSessionTest : public QObject {
         const auto pixels = screen->grabWindow(0, origin.x(), origin.y(), frame.width(), frame.height());
         QVERIFY(!pixels.isNull());
         QVERIFY(pixels.save(evidence + "/acp-conversation-window.png"));
+    }
+
+    void planToolDetailsAndTurnError() {
+        open();
+        startReadOnly();
+        ask("activity", "Review finished.");
+        auto plan = dialog->findChild<QWidget *>("acpPlan");
+        QVERIFY(plan);
+        const auto planLabels = plan->findChildren<QLabel *>();
+        QVERIFY(std::any_of(planLabels.cbegin(), planLabels.cend(), [](const QLabel *label) {
+            return label->text() == "Review texture sizes";
+        }));
+        const auto details = dialog->findChildren<QToolButton *>("acpToolDetails");
+        QCOMPARE(details.size(), 2);
+        QVERIFY(details.at(0)->text().startsWith("Nova tool"));
+        QVERIFY(details.at(1)->text().startsWith("Agent tool"));
+        QVERIFY(!details.at(1)->isChecked());
+        const auto content = details.at(1)->parentWidget()->findChild<QLabel *>("acpToolContent");
+        QVERIFY(content);
+        QVERIFY2(content->text().contains("Changes to notes.txt"), qPrintable(content->text()));
+        details.at(1)->click();
+        QVERIFY(details.at(1)->isChecked());
+        QTRY_VERIFY(content->isVisible());
+        const auto area = messages().last();
+        const auto code = area->document()->findBlockByNumber(1);
+        QVERIFY(code.text().contains("plain.png"));
+        QCOMPARE(code.blockFormat().background().color(), nova::ui::current().raised);
+        window->findChild<QAction *>("darkThemeCommand")->setChecked(false);
+        QCOMPARE(code.blockFormat().background().color(), nova::ui::current().raised);
+        composer()->setPlainText("turn-error");
+        button("acpSend")->click();
+        QTRY_COMPARE(notice(), "Agent error: Scripted upstream failure.");
+    }
+
+    void streamingPreservesSelection() {
+        open();
+        startReadOnly();
+        composer()->setPlainText("stream");
+        button("acpSend")->click();
+        QTRY_VERIFY(transcript().contains("Agent\nFirst chunk"));
+        auto reply = messages().last();
+        QTextCursor selection(reply->document());
+        selection.setPosition(0);
+        selection.setPosition(5, QTextCursor::KeepAnchor);
+        reply->setTextCursor(selection);
+        QTRY_VERIFY(transcript().contains("First chunk and the next chunk."));
+        QTRY_VERIFY(status().startsWith("Connected"));
+        QCOMPARE(reply->textCursor().selectedText(), "First");
     }
 
     // The grant accepts only a bridge started by the Nova-launched agent; others do not consume it.

@@ -115,7 +115,7 @@ add_library(nova-workspace STATIC
   ui/display_editor.cpp
   ui/modelauthor.h ui/modelauthor.cpp
   ui/resourcetools.h ui/resourcetools.cpp ui/resourceworkspace.cpp
-  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h ui/agent_session.cpp
+  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h ui/agent_session.cpp ui/agent_conversation.cpp ui/agent_conversation.h
   ui/search.cpp ui/search.h
   ui/workflow_review.cpp
   ui/model_materials.cpp

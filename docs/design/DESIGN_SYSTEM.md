@@ -107,6 +107,7 @@ document at 1280×900.
 | Empty state | `ui::emptyState(text, parent, icon)`: centred text with an optional large muted Material glyph above it |
 | Inline notice | `QLabel[role="notice"]`, or `QFrame[role="notice"]`. A label may set `severity` to `info`, `warning`, or `error` for a padded notice. |
 | Card | `QFrame[role="card"]`, or a titled `QGroupBox` |
+| Conversation | A `QScrollArea[role="transcript"]` with a `transcriptContent` widget and borderless `QTextEdit[role="transcriptBody"]` messages. Tool and plan cards sit inline with the messages. |
 | Status colour | `ui::current().danger` / `.warning` / `.success`, always beside text. Re-read the tokens on `QEvent::PaletteChange` so a theme switch re-tones existing rows. |
 | Icon toggle | `QCheckBox[role="toggle"]` with an icon and no text: a raised square that fills `accentMuted` with an `accent` edge when checked |
 | Secondary settings | `ui::settingsMenu(button, content)`: a native menu hosting a form with `PanelPadding`, `SpaceXL` between columns and `SpaceL` between rows. Keep routine controls on the working row; label the settings button by its task. |

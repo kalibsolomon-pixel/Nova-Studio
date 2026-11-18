@@ -218,6 +218,26 @@ int main(int argc, char **argv) {
                         break;
                     }
                 }
+            } else if (text == "activity") {
+                update(session, {{"sessionUpdate", "plan"}, {"entries", QJsonArray{
+                    QJsonObject{{"content", "Inspect pack assets"}, {"priority", "high"}, {"status", "completed"}},
+                    QJsonObject{{"content", "Review texture sizes"}, {"priority", "medium"}, {"status", "in_progress"}}}}});
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "activity-1"},
+                                 {"title", "nova.assets.list"}, {"status", "in_progress"}});
+                update(session, {{"sessionUpdate", "tool_call_update"}, {"toolCallId", "activity-1"},
+                                 {"status", "completed"}, {"rawOutput", QJsonObject{{"textures", 1}}}});
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "activity-2"},
+                                 {"title", "Review notes"}, {"status", "failed"}, {"content", QJsonArray{
+                    QJsonObject{{"type", "diff"}, {"path", "notes.txt"}, {"oldText", "Before text"}, {"newText", "After text"}}}}});
+                say(session, "Review finished.\n\n```text\nplain.png: 16x16\n```\n");
+            } else if (text == "turn-error") {
+                send({{"jsonrpc", "2.0"}, {"id", message["id"]},
+                      {"error", QJsonObject{{"code", -32001}, {"message", "Scripted upstream failure."}}}});
+                continue;
+            } else if (text == "stream") {
+                say(session, "First chunk");
+                QThread::msleep(450);
+                say(session, " and the next chunk.");
             } else if (text == "wait") {
                 for (;;) {
                     const auto next = readMessage(&eof);

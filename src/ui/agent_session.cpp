@@ -7,6 +7,7 @@
 #include "clients.h"
 #include "service.h"
 #include "agent_client.h"
+#include "agent_conversation.h"
 #include "theme.h"
 #include <QApplication>
 #include <QClipboard>
@@ -26,13 +27,10 @@
 #include <QPointer>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QRegularExpression>
-#include <QScrollBar>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QTextBlock>
 #include <QTextCursor>
-#include <QTextEdit>
 #include <QTextLayout>
 #include <QTimer>
 #include <QUuid>
@@ -53,12 +51,6 @@ const QList<AgentChoice> agentChoices{
     {"gemini", "Gemini CLI", "gemini", {"--experimental-acp"}, "npm install -g @google/gemini-cli", "gemini"},
     {"custom", "Custom", {}, {}, {}, {}},
 };
-// Agent text is untrusted: no control characters (terminal escapes) and a bounded length.
-QString displayable(QString text, int limit = 4000) {
-    static const QRegularExpression control(R"([\x00-\x08\x0b-\x1f\x7f\x{200b}-\x{200f}\x{202a}-\x{202e}])");
-    text.remove(control);
-    return text.size() > limit ? text.left(limit) + " …" : text;
-}
 QString bridgePath() {
     const auto configured = qApp->property("mcpBridgePath").toString(); // tests supply the build's bridge
     return configured.isEmpty() ? clients::locateBridge(QCoreApplication::applicationDirPath()).path : configured;
@@ -140,70 +132,6 @@ void appearance(QWidget *widget, const char *property, const QString &value) {
     widget->style()->polish(widget);
 }
 
-// The conversation: the user's messages, the agent's replies and its reasoning. Tool activity and
-// protocol details are not shown; session state, access and decisions live in the labels around it.
-class Conversation : public QTextEdit {
-  public:
-    enum class Speaker { You, Agent, Thinking };
-    explicit Conversation(QWidget *parent) : QTextEdit(parent) {
-        setReadOnly(true);
-        setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-        setAccessibleName("Conversation with the agent");
-        redraw.setSingleShot(true);
-        redraw.setInterval(60); // streamed replies arrive in many small pieces
-        connect(&redraw, &QTimer::timeout, this, &Conversation::render);
-    }
-    // Streamed pieces of the same reply (or reasoning) join the current paragraph.
-    void add(Speaker speaker, const QString &text) {
-        if (text.isEmpty())
-            return;
-        if (entries.isEmpty() || entries.last().first != speaker || speaker == Speaker::You)
-            entries.append({speaker, QString{}});
-        auto &body = entries.last().second;
-        if (body.size() < 200000)
-            body += displayable(text, 200000 - int(body.size()));
-        if (entries.size() > 500)
-            entries.removeFirst();
-        redraw.start();
-    }
-
-  private:
-    QList<QPair<Speaker, QString>> entries;
-    QTimer redraw;
-    void render() {
-        auto *bar = verticalScrollBar();
-        const bool following = bar->value() >= bar->maximum() - 4;
-        clear();
-        QTextCursor cursor(document());
-        QTextCharFormat name, plain, quiet;
-        name.setFontWeight(QFont::DemiBold);
-        quiet.setFontItalic(true);
-        quiet.setForeground(palette().color(QPalette::PlaceholderText));
-        QTextBlockFormat block;
-        block.setTopMargin(10);
-        bool first = true;
-        for (const auto &[speaker, text] : entries) {
-            if (!first)
-                cursor.insertBlock(block);
-            first = false;
-            cursor.insertText(speaker == Speaker::You ? "You" : speaker == Speaker::Agent ? "Agent" : "Agent · thinking",
-                              speaker == Speaker::Thinking ? quiet : name);
-            cursor.insertBlock(QTextBlockFormat{});
-            if (speaker == Speaker::Agent) {
-                // Replies are Markdown. The agent is untrusted: no raw HTML, and images become their text.
-                static const QRegularExpression image(R"(!\[([^\]]*)\]\([^)]*\))");
-                cursor.setCharFormat(plain);
-                cursor.insertMarkdown(QString(text).replace(image, "\\1"), QTextDocument::MarkdownFeatures::fromInt(
-                                          QTextDocument::MarkdownDialectGitHub | QTextDocument::MarkdownNoHTML));
-            } else {
-                cursor.insertText(text, speaker == Speaker::Thinking ? quiet : plain);
-            }
-        }
-        if (following)
-            bar->setValue(bar->maximum());
-    }
-};
-
 class AgentSessionDialog : public QDialog {
   public:
     QPointer<acp::Session> session;
@@ -216,7 +144,7 @@ class AgentSessionDialog : public QDialog {
     QComboBox *agentPicker, *authMethod;
     QWidget *authRow;
     acp::AgentProgram activeProgram;
-    Conversation *conversation;
+    AgentConversation *conversation;
     QPushButton *start, *edit, *revoke, *send, *cancel, *stop, *allow, *reject;
     QJsonValue permissionId = QJsonValue::Undefined; // undefined: no request pending (null is a valid id)
     QString allowOption, rejectOption;
@@ -224,7 +152,7 @@ class AgentSessionDialog : public QDialog {
     // One line for things the user should know that are not part of the conversation.
     void tell(const QString &message, const QString &severity = "info") {
         appearance(notice, "severity", severity);
-        notice->setText(displayable(message, 1000));
+        notice->setText(agentDisplayText(message, 1000));
         notice->setVisible(!message.isEmpty());
     }
 };
@@ -381,7 +309,7 @@ void Window::showAgentSession() {
     auto transcript = new QStackedWidget(dialog);
     transcript->setMinimumHeight(140);
     auto empty = ui::emptyState("Messages will appear here once you send a prompt.", transcript);
-    dialog->conversation = new Conversation(dialog);
+    dialog->conversation = new AgentConversation(dialog);
     dialog->conversation->setObjectName("acpConversation");
     transcript->addWidget(empty);
     transcript->addWidget(dialog->conversation);
@@ -453,9 +381,9 @@ void Window::showAgentSession() {
                    state == acp::Session::State::Starting || state == acp::Session::State::Prompting ? "info" : "neutral");
         QString detail;
         if (dialog->session && !dialog->session->agentName().isEmpty())
-            detail = displayable(dialog->session->agentName(), 120);
+            detail = agentDisplayText(dialog->session->agentName(), 120);
         if (state == acp::Session::State::Ended && dialog->session)
-            detail = displayable(dialog->session->endReason(), 600);
+            detail = agentDisplayText(dialog->session->endReason(), 600);
         dialog->statusDetail->setText(detail);
         dialog->statusDetail->setVisible(!detail.isEmpty());
         if (ours()) {
@@ -495,7 +423,7 @@ void Window::showAgentSession() {
         if (!dialog->workFolder.isEmpty())
             QDir().rmdir(dialog->workFolder); // only if the agent left it empty
     };
-    auto begin = [this, dialog, refresh, release, choice](bool editing, const acp::AgentProgram &program) {
+    auto begin = [this, dialog, refresh, release, choice, transcript](bool editing, const acp::AgentProgram &program) {
         QString problem;
         if (!acp::acceptableExecutable(program.executable, &problem))
             return dialog->tell(problem, "error");
@@ -527,6 +455,7 @@ void Window::showAgentSession() {
         connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release] {
             if (session->state() == acp::Session::State::Ended) {
                 dialog->permissionId = QJsonValue::Undefined;
+                dialog->conversation->finishTurn();
                 dialog->authRow->hide();
                 release();
             } else if (session->state() == acp::Session::State::Ready && dialog->authMethod->count()) {
@@ -541,9 +470,9 @@ void Window::showAgentSession() {
             for (const auto &value : methods) {
                 const auto method = value.toObject();
                 const auto id = method["id"].toString();
-                dialog->authMethod->addItem(displayable(method["name"].toString(id), 120), id);
+                dialog->authMethod->addItem(agentDisplayText(method["name"].toString(id), 120), id);
                 dialog->authMethod->setItemData(dialog->authMethod->count() - 1,
-                                               displayable(method["description"].toString(), 300), Qt::ToolTipRole);
+                                               agentDisplayText(method["description"].toString(), 300), Qt::ToolTipRole);
             }
             dialog->authRow->setVisible(!methods.isEmpty());
             const auto login = choice().signIn;
@@ -552,17 +481,35 @@ void Window::showAgentSession() {
                 : "Run " + login + " in a terminal to sign in, then start a new session.");
         });
         connect(session, &acp::Session::agentText, dialog,
-                [dialog](const QString &text) { dialog->conversation->add(Conversation::Speaker::Agent, text); });
+                [dialog, transcript](const QString &text) {
+                    transcript->setCurrentWidget(dialog->conversation);
+                    dialog->conversation->add(AgentConversation::Speaker::Agent, text);
+                });
         connect(session, &acp::Session::agentThought, dialog,
-                [dialog](const QString &text) { dialog->conversation->add(Conversation::Speaker::Thinking, text); });
+                [dialog, transcript](const QString &text) {
+                    transcript->setCurrentWidget(dialog->conversation);
+                    dialog->conversation->add(AgentConversation::Speaker::Thinking, text);
+                });
+        connect(session, &acp::Session::toolCall, dialog, [dialog, transcript](const QJsonObject &update) {
+            transcript->setCurrentWidget(dialog->conversation);
+            dialog->conversation->showTool(update);
+        });
+        connect(session, &acp::Session::planChanged, dialog, [dialog, transcript](const QJsonArray &entries) {
+            transcript->setCurrentWidget(dialog->conversation);
+            dialog->conversation->showPlan(entries);
+        });
         // Only how a turn ended unusually is worth a line; a normal reply speaks for itself.
         connect(session, &acp::Session::turnEnded, dialog, [dialog](const QString &reason) {
+            dialog->conversation->finishTurn();
             static const QMap<QString, QString> told{
                 {"end_turn", ""}, {"cancelled", "You cancelled the agent's turn."},
                 {"max_tokens", "The agent stopped: it reached its output limit."},
                 {"max_turn_requests", "The agent stopped: it reached its limit of steps for one message."},
                 {"refusal", "The agent declined to continue."}};
-            dialog->tell(told.contains(reason) ? told.value(reason) : "The agent's turn ended with a problem.");
+            if (reason.startsWith("error: "))
+                dialog->tell("Agent error: " + reason.mid(7), "error");
+            else
+                dialog->tell(told.value(reason, "The agent ended the turn: " + reason), "info");
         });
         connect(session, &acp::Session::problem, dialog, [dialog](const QString &message) { dialog->tell(message, "warning"); });
         connect(session, &acp::Session::permissionRequested, dialog,
@@ -581,8 +528,8 @@ void Window::showAgentSession() {
             }
             const auto call = params["toolCall"].toObject();
             dialog->permissionText->setText("The agent asks to use its own tool (not a Nova tool): " +
-                displayable(call["title"].toString(), 200) + "\n" +
-                displayable(QString::fromUtf8(QJsonDocument(call["rawInput"].toObject()).toJson(QJsonDocument::Compact)), 400));
+                agentDisplayText(call["title"].toString(), 200) + "\n" +
+                agentDisplayText(QString::fromUtf8(QJsonDocument(call["rawInput"].toObject()).toJson(QJsonDocument::Compact)), 400));
             refresh();
         });
         dialog->tell({});
@@ -664,7 +611,7 @@ void Window::showAgentSession() {
         const auto text = dialog->prompt->toPlainText().trimmed();
         if (dialog->session && dialog->session->prompt(text)) {
             transcript->setCurrentWidget(dialog->conversation);
-            dialog->conversation->add(Conversation::Speaker::You, text);
+            dialog->conversation->add(AgentConversation::Speaker::You, text);
             dialog->tell({});
             dialog->prompt->remember(text);
         }

@@ -356,6 +356,7 @@ QString styleSheet(const Tokens &t) {
         "QToolButton[role=\"disclosure\"]{border:0;padding:4px 2px;font-weight:600;color:@muted}"
         "QToolButton[role=\"disclosure\"]:hover{color:@text;background:transparent}"
         "QToolButton[role=\"disclosure\"]:checked{background:transparent;color:@text}"
+        "QToolButton[role=\"disclosure\"]:focus{border:1px solid @accent}"
         // Line edits, spin boxes and combo boxes are drawn by NovaStyle (one field shape
         // with token borders); only their popup list is styled here.
         "QComboBox QAbstractItemView{background:@raised;border:1px solid @borderStrong;padding:4px;outline:0;"
@@ -364,6 +365,9 @@ QString styleSheet(const Tokens &t) {
         "QPlainTextEdit,QTextEdit{background:@base;border:1px solid @border;border-radius:@rS;"
         "selection-background-color:@selection;selection-color:@selectionText}"
         "QPlainTextEdit[role=\"path\"]{background:@surface}"
+        "QScrollArea[role=\"transcript\"]{background:@base;border:1px solid @border;border-radius:@rS}"
+        "QWidget[role=\"transcriptContent\"]{background:@base}"
+        "QTextEdit[role=\"transcriptBody\"]{background:transparent;border:0;border-radius:0}"
         "QCheckBox,QRadioButton{spacing:8px}"
         "QCheckBox[role=\"toggle\"]{spacing:0;padding:4px;border:1px solid transparent;border-radius:@rS}"
         "QCheckBox[role=\"toggle\"]::indicator{width:0;height:0}"
@@ -578,6 +582,8 @@ QChar materialGlyph(const QString &name) {
         {"search", QChar(0xef7a)},
         {"command", QChar(0xef7a)},
         {"close", QChar(0xe5cd)},
+        {"check", QChar(0xe5ca)},
+        {"pending", QChar(0xe835)}, // check_box_outline_blank
         {"add", QChar(0xe145)},
         {"duplicate", QChar(0xe14d)},
         {"delete", QChar(0xe92e)},
