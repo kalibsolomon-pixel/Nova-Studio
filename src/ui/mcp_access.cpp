@@ -757,7 +757,8 @@ void Window::ensureMcpService() {
                 tool == "nova.pack.validate" || tool == "nova.workflow.validate_changes")
                 snapshot.models = modelPanel->documentSources();
             if (related || tool == "nova.pack.validate" || tool.startsWith("nova.vanilla.") ||
-                snapshot.textureReadTarget.startsWith("vanilla:"))
+                tool == "nova.texture.analyze" || (!snapshot.textureTargets.isEmpty() &&
+                    snapshot.textureTargets.cbegin()->startsWith("vanilla:")))
                 describeSources(snapshot);
             if (revisions)
                 for (const auto &path : modelPanel->openModelAssets())
@@ -765,18 +766,18 @@ void Window::ensureMcpService() {
                         snapshot.revisions.insert(path, revisionToken(snapshot, *doc));
             const bool rasterMetadata = tool == "nova.texture.inspect" || tool == "nova.animation.inspect" ||
                 tool == "nova.asset.inspect" || batch || context;
-            if (!snapshot.textureReadTarget.isEmpty() && !snapshot.textureReadTarget.startsWith("vanilla:")) {
+            if (!snapshot.textureTargets.isEmpty()) {
                 for (const auto &doc : session.all()) {
                     const auto relative = QDir(project).relativeFilePath(doc->path);
                     if (baselineDocs.contains(doc->id()) || !snapshot.index.records.contains(relative) ||
-                        mcp::assetIdentifier(snapshot, relative) != snapshot.textureReadTarget)
+                        !snapshot.textureTargets.contains(mcp::assetIdentifier(snapshot, relative)))
                         continue;
-                    snapshot.textureReadBusy = doc->strokeOpen();
-                    if (!snapshot.textureReadBusy) {
-                        snapshot.textureReadDocument = doc->recoverySnapshot();
+                    if (doc->strokeOpen()) {
+                        snapshot.busyTextures.insert(relative);
+                    } else {
+                        snapshot.textureDocuments.insert(relative, doc->recoverySnapshot());
                         snapshot.revisions.insert(relative, revisionToken(snapshot, *doc));
                     }
-                    break;
                 }
             }
             if (rasterMetadata || revisions) {

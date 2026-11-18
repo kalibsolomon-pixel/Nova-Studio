@@ -1029,10 +1029,49 @@ class RelationshipsTest : public QObject {
         QVERIFY(!QFileInfo::exists(base + "/no-cache"));
     }
 
+    void textureAnalysis() {
+        populate(cacheRoot, "1.21.11", cacheFiles());
+        const QString stone = QString(T) + "block/stone.png";
+        const QString water = QString(T) + "block/water_still.png";
+        const QString copy = "assets/nova/textures/block/near_stone.png";
+        write(root + '/' + stone, png(8, 8, qRgb(100, 100, 100)));
+        write(root + '/' + copy, png(8, 8, qRgb(50, 80, 220)));
+        write(root + '/' + water, png(16, 32, qRgb(104, 104, 104)));
+        write(root + '/' + water + ".mcmeta", "{\"animation\":{\"frametime\":2}}");
+        QImage gradient(root + '/' + water);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 8; ++x)
+                gradient.setPixelColor(x, y, QColor(96, 96, 96));
+        QVERIFY(gradient.save(root + '/' + water));
+        QImage tile(root + '/' + stone);
+        for (int y = 0; y < tile.height(); ++y)
+            tile.setPixelColor(tile.width() - 1, y, Qt::white);
+        QVERIFY(tile.save(root + '/' + stone));
+        auto s = snapshotOf(root, "1.21.11", cacheRoot);
+        s.textureDocuments.insert(copy, std::make_shared<nova::Document>(root + '/' + copy, tile));
+        s.revisions.insert(copy, randomToken());
+        const auto actual = run(s, "nova.texture.analyze", {{"assetIds", QJsonArray{
+            assetIdentifier(s, stone), assetIdentifier(s, copy), assetIdentifier(s, water), randomToken()}}});
+        QVERIFY(!actual.contains("error"));
+        const auto assets = actual["assets"].toArray();
+        QCOMPARE(assets.size(), 4);
+        QCOMPARE(assets.at(0).toObject()["colorCount"].toInt(), 2);
+        QCOMPARE(assets.at(1).toObject()["source"].toString(), "open_draft");
+        QCOMPARE(assets.at(1).toObject()["revision"].toString(), s.revisions.value(copy));
+        QCOMPARE(assets.at(2).toObject()["layout"].toObject()["sourceFrames"].toInt(), 2);
+        QCOMPARE(assets.at(2).toObject()["vanillaLayout"].toObject()["sourceFrames"].toInt(), 4);
+        QCOMPARE(code(assets.at(3).toObject()), "asset_not_found");
+        QCOMPARE(actual["comparedPairs"].toInt(), 1);
+        QCOMPARE(findings(actual, "vanilla_layout_mismatch").size(), 2);
+        QCOMPARE(findings(actual, "visible_tile_seam").size(), 2);
+        QCOMPARE(findings(actual, "narrow_luminance_ramp").size(), 1);
+        QCOMPARE(findings(actual, "near_duplicate_texture").size(), 1);
+    }
+
     // Tool definitions, schema compliance of errors and the documentation's exact definitions.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 43);
+        QCOMPARE(definitions.size(), 44);
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), value.toObject());
@@ -1261,7 +1300,7 @@ class RelationshipsTest : public QObject {
             qInfo().noquote() << "SDK phase3" << output;
             QVERIFY2(sdk.exitCode() == 0, sdk.readAllStandardError().constData());
             const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
-            QCOMPARE(summary["tools"].toInt(), 43);
+            QCOMPARE(summary["tools"].toInt(), 44);
         } else {
             qInfo() << "NOVA_MCP_SDK_PYTHON is not set: official SDK part skipped";
         }

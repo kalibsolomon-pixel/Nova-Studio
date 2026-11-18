@@ -1099,7 +1099,8 @@ async def phase3(client: ClientSession) -> dict:
     import hashlib
     import jsonschema
     tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-    names = ["nova.vanilla.list", "nova.vanilla.texture", "nova.asset.relationships", "nova.pack.validate"]
+    names = ["nova.vanilla.list", "nova.vanilla.texture", "nova.asset.relationships", "nova.pack.validate",
+             "nova.texture.analyze"]
     for name in names:
         tool = tools[name]
         assert tool.outputSchema and tool.annotations.readOnlyHint is True, name
@@ -1155,6 +1156,11 @@ async def phase3(client: ClientSession) -> dict:
     if "NOVA_PHASE3_TEXTURE" in os.environ:
         assets = await client.call_tool("nova.assets.list", {"generation": scope["generation"], "search": target})
         asset = next(row["assetId"] for row in assets.structuredContent["assets"] if row["path"] == target)
+        analysis = await client.call_tool("nova.texture.analyze", {**scope, "assetId": asset})
+        assert not analysis.isError, analysis
+        sampled = analysis.structuredContent["assets"][0]
+        assert sampled["source"] == "disk" and sampled["layout"]["animated"], sampled
+        assert sampled["colorCount"] >= 1, sampled
         disk = await client.call_tool("nova.texture.read", {**scope, "assetId": asset, "frame": 1})
         assert not disk.isError and disk.structuredContent["source"] == "disk", disk
         assert disk.structuredContent["frame"] == 1 and disk.structuredContent["pixels"]["height"] == 16, disk
@@ -1198,7 +1204,7 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 43
+            assert len(tools.tools) == 44
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")

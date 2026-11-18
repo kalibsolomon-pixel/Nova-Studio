@@ -41,9 +41,9 @@ struct Snapshot {
     std::shared_ptr<RelationshipCache> relationships;
     QMap<QString, QString> revisions, openAssetPaths;
     QMap<QString, std::shared_ptr<const Document>> animationDocuments;
-    QString textureReadTarget;
-    std::shared_ptr<const Document> textureReadDocument;
-    bool textureReadBusy = false;
+    QSet<QString> textureTargets;
+    QMap<QString, std::shared_ptr<const Document>> textureDocuments;
+    QSet<QString> busyTextures;
     QMap<QString, QJsonObject> textures, animations, models;
     QJsonObject styleNotes;                 // nova.project.info, nova://project/style-notes
     int unsavedCount = 0;                   // open documents of this project not fully saved

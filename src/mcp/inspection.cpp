@@ -17,6 +17,7 @@
 #include <QMessageAuthenticationCode>
 #include <QRegularExpression>
 #include <algorithm>
+#include <array>
 
 namespace nova::mcp {
 QString assetIdentifier(const Snapshot &s, const QString &path) {
@@ -83,7 +84,7 @@ QJsonObject texturePixels(const Snapshot &s, Scope &scope, const QString &path, 
                          const std::atomic_bool &cancel) {
     const auto id = args["assetId"].toString();
     const bool vanilla = id.startsWith("vanilla:");
-    const auto *doc = s.textureReadDocument.get();
+    const auto doc = s.textureDocuments.value(path);
     const auto layerId = args["layer"].toString();
     const int requestedFrame = args["frame"].toInt(-1);
     int frame = requestedFrame;
@@ -92,7 +93,7 @@ QJsonObject texturePixels(const Snapshot &s, Scope &scope, const QString &path, 
     auto file = vanilla || s.provisional.contains(path) ? nullptr : scope.open(path);
     if (!vanilla && !file && !provisionalAvailable(s, scope, path))
         return unsafe();
-    if (s.textureReadBusy)
+    if (s.busyTextures.contains(path))
         return toolError("document_busy", "Finish the current stroke before reading the texture.");
     QImage image;
     QJsonObject meta;
@@ -234,6 +235,270 @@ QJsonObject texturePixels(const Snapshot &s, Scope &scope, const QString &path, 
             {"colorCount", qint64(counts.size())}, {"paletteSummary", summary},
             {"paletteSummaryTruncated", !indexed}, {"pixels", pixels}};
 }
+struct FrameLayout {
+    QSize sheet, frame;
+    int columns = 1, rows = 1;
+    bool animated = false;
+    QJsonObject json() const {
+        return {{"width", sheet.width()}, {"height", sheet.height()}, {"animated", animated},
+                {"frameWidth", frame.width()}, {"frameHeight", frame.height()},
+                {"columns", columns}, {"rows", rows}, {"sourceFrames", columns * rows}};
+    }
+    bool operator==(const FrameLayout &) const = default;
+};
+FrameLayout frameLayout(QSize sheet, const QJsonObject &metadata) {
+    if (!metadata.contains("animation"))
+        return {sheet, sheet};
+    if (!metadata["animation"].isObject())
+        return {};
+    const auto frame = minecraftFrameSize(sheet, metadata["animation"].toObject());
+    return frame.isEmpty() ? FrameLayout{} :
+        FrameLayout{sheet, frame, sheet.width() / frame.width(), sheet.height() / frame.height(), true};
+}
+FrameLayout verifiedLayout(const vanilla::BaselineEntry &entry, const QString &path) {
+    auto read = [&](const QString &resource, qint64 limit, QByteArray &bytes) {
+        const auto file = entry.files.constFind(resource);
+        return file != entry.files.cend() && file->size <= limit &&
+            vanilla::BaselineCache(entry.root).readVerified(entry, resource, &bytes);
+    };
+    QByteArray png;
+    if (!read(path, 16 * 1024 * 1024, png))
+        return {};
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::ReadOnly);
+    const auto size = QImageReader(&buffer, "PNG").size();
+    const auto companion = path + ".mcmeta";
+    if (!entry.contains(companion))
+        return frameLayout(size, {});
+    QByteArray bytes;
+    if (!read(companion, VanillaMetadataLimit, bytes))
+        return {};
+    const auto metadata = QJsonDocument::fromJson(bytes);
+    return metadata.isObject() ? frameLayout(size, metadata.object()) : FrameLayout{};
+}
+
+// The inputs are premultiplied. Transparent RGB cannot create a seam or a false difference.
+int visibleDifference(QRgb a, QRgb b) {
+    return std::abs(qRed(a) - qRed(b)) + std::abs(qGreen(a) - qGreen(b)) +
+           std::abs(qBlue(a) - qBlue(b)) + std::abs(qAlpha(a) - qAlpha(b));
+}
+QJsonObject tileEdgeCheck(const QImage &image, bool horizontal, bool &warn) {
+    const int span = horizontal ? image.width() : image.height();
+    const int count = horizontal ? image.height() : image.width();
+    int mismatched = 0, wrapped = 0, interior = 0;
+    for (int i = 0; i < count; ++i) {
+        auto pixel = [&](int d) { return horizontal ? image.pixel(d, i) : image.pixel(i, d); };
+        const int seam = visibleDifference(pixel(0), pixel(span - 1));
+        mismatched += seam != 0;
+        wrapped += seam;
+        for (int j = 1; j < span; ++j)
+            interior += visibleDifference(pixel(j - 1), pixel(j));
+    }
+    const auto mean = wrapped / (4.0 * count);
+    const auto typical = interior / (4.0 * count * std::max(1, span - 1));
+    warn |= mean >= 24 && mean >= 1.5 * typical;
+    return {{"mismatchedPairs", mismatched}, {"pairs", count},
+            {"meanDifference", mean}, {"interiorMeanDifference", typical}};
+}
+QJsonObject luminanceRamp(const std::array<int, 256> &histogram, int visible) {
+    int sum = 0, low = -1, high = -1, last = -1, distinct = 0, largestGap = 0;
+    for (int value = 0; value < 256; ++value) {
+        if (!histogram[value])
+            continue;
+        if (last >= 0)
+            largestGap = std::max(largestGap, value - last);
+        last = value;
+        ++distinct;
+        sum += histogram[value];
+        if (low < 0 && sum * 10 >= visible)
+            low = value;
+        if (high < 0 && sum * 10 >= visible * 9)
+            high = value;
+    }
+    return {{"p10", low < 0 ? QJsonValue{} : QJsonValue(low)}, {"p90", high < 0 ? QJsonValue{} : QJsonValue(high)},
+            {"distinctValues", distinct}, {"largestGap", largestGap}};
+}
+
+QJsonObject analyzeTextures(const Snapshot &s, Scope &scope, const QJsonArray &ids, const QStringList &paths,
+                            const std::atomic_bool &cancel) {
+    struct Sample {
+        QString asset, path, source;
+        QImage image;
+    };
+    QList<Sample> samples;
+    QJsonArray results, diagnostics;
+    std::optional<CacheSelection> baseline;
+    int comparedPairs = 0;
+    for (qsizetype i = 0; i < ids.size(); ++i) {
+        if (cancel.load())
+            return canceled();
+        const auto asset = ids[i].toString();
+        const auto &path = paths[i];
+        const auto doc = s.textureDocuments.value(path);
+        const auto source = doc ? "open_draft" : "disk";
+        QJsonObject row{{"assetId", asset}, {"path", path}, {"source", source}};
+        auto finding = [&](const char *rule, const char *message, const QJsonObject &evidence, const char *next) {
+            diagnostics.append(QJsonObject{{"assetId", asset}, {"path", path}, {"source", source}, {"severity", "Warning"},
+                {"rule", rule}, {"code", rule}, {"message", message}, {"evidence", QJsonArray{evidence}}, {"nextStep", next}});
+        };
+        auto reject = [&](const QJsonObject &error) {
+            row["error"] = error["error"];
+            results.append(row);
+        };
+        if (path.isEmpty()) {
+            reject(toolError("asset_not_found", "The texture identifier is unknown or stale."));
+            continue;
+        }
+        if (kind(path) != "texture") {
+            reject(toolError("invalid_asset_type", "Analysis requires a pack texture."));
+            continue;
+        }
+        auto file = s.provisional.contains(path) ? nullptr : scope.open(path);
+        if (!file && !provisionalAvailable(s, scope, path)) {
+            reject(unsafe());
+            continue;
+        }
+        if (s.busyTextures.contains(path)) {
+            reject(toolError("document_busy", "Finish the current stroke before analyzing this texture."));
+            continue;
+        }
+        QImage image;
+        FrameLayout layout;
+        int frame = 0;
+        if (doc) {
+            image = doc->image;
+            layout = frameLayout(image.size(), {});
+            if (doc->animated()) {
+                const auto animation = doc->animationState();
+                const int count = int(animation.frames.size());
+                layout = {{image.width(), image.height() * count}, image.size(), 1, count, true};
+                const auto active = std::find_if(animation.frames.cbegin(), animation.frames.cend(),
+                    [&](const auto &candidate) { return candidate.id == doc->activeFrame(); });
+                frame = int(active - animation.frames.cbegin());
+            }
+            row["revision"] = s.revisions.value(path);
+        } else if (file) {
+            if (const auto error = decodeTexture(file.get(), image); !error.isEmpty()) {
+                reject(error);
+                continue;
+            }
+            const auto companion = path + ".mcmeta";
+            auto metadata = path == "pack.png" ? nullptr : scope.open(companion);
+            if (!metadata && s.index.records.contains(companion)) {
+                reject(unsafe());
+                continue;
+            }
+            QJsonObject object;
+            if (metadata) {
+                const auto parsed = QJsonDocument::fromJson(metadata->read(JsonLimit + 1));
+                if (metadata->size() > JsonLimit || !parsed.isObject()) {
+                    reject(toolError("texture_unavailable", "The texture metadata is invalid or exceeds the analysis limit."));
+                    continue;
+                }
+                object = parsed.object();
+            }
+            layout = frameLayout(image.size(), object);
+        }
+        if (layout.frame.isEmpty()) {
+            reject(toolError("texture_unavailable", "The texture has no readable image or frame layout."));
+            continue;
+        }
+        row["layout"] = layout.json();
+        row["frame"] = frame;
+        if (vanilla::validBaselinePath(path)) {
+            if (!baseline)
+                baseline = selectTextureCache(s.vanillaCacheRoot, s.version, {}, s.baselineVersion, s.baselineIdentity);
+            if (!baseline->entry) {
+                row["vanillaStatus"] = baseline->status;
+            } else if (!baseline->entry->contains(path)) {
+                row["vanillaStatus"] = "texture_not_in_cache";
+            } else {
+                const auto reference = verifiedLayout(*baseline->entry, path);
+                row["vanillaStatus"] = reference.frame.isEmpty() ? "unavailable" : "compared";
+                if (!reference.frame.isEmpty()) {
+                    row["vanillaLayout"] = reference.json();
+                    if (reference != layout)
+                        finding("vanilla_layout_mismatch", "Texture dimensions or animation grid differ from the verified vanilla texture.",
+                            {{"actual", layout.json()}, {"vanilla", reference.json()}},
+                            "Check the model UVs and animation metadata before keeping this layout.");
+                }
+            }
+        }
+        if (layout.frame.width() > texture::MaxSide || layout.frame.height() > texture::MaxSide) {
+            reject(toolError("analysis_limit", "Pixel analysis supports frames up to 256 by 256."));
+            continue;
+        }
+        if (image.size() != layout.frame)
+            image = image.copy(QRect(QPoint(), layout.frame));
+        image = image.convertToFormat(QImage::Format_ARGB32);
+        if (image.isNull()) {
+            reject(toolError("texture_unavailable", "The texture frame could not be decoded."));
+            continue;
+        }
+        QSet<QRgb> colors;
+        std::array<int, 256> histogram{};
+        int visible = 0;
+        for (int y = 0; y < image.height(); ++y) {
+            if (cancel.load())
+                return canceled();
+            const auto pixels = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+            for (int x = 0; x < image.width(); ++x) {
+                if (!qAlpha(pixels[x]))
+                    continue;
+                ++visible;
+                colors.insert(pixels[x]);
+                ++histogram[ops::luma(pixels[x])];
+            }
+        }
+        const auto ramp = luminanceRamp(histogram, visible);
+        row["colorCount"] = colors.size();
+        row["visiblePixels"] = visible;
+        row["luminance"] = ramp;
+        if (colors.size() > 1 && ramp["p90"].toInt() - ramp["p10"].toInt() < 32)
+            finding("narrow_luminance_ramp", "Most visible pixels cluster within a narrow luminance range.", ramp,
+                    "Preview at native size and separate the main shadows and highlights if detail is hard to read.");
+        if (ramp["distinctValues"].toInt() >= 3 && ramp["largestGap"].toInt() >= 64)
+            finding("abrupt_luminance_jump", "The luminance ramp has a large jump between adjacent values.", ramp,
+                    "Check whether the high-contrast step helps the silhouette or needs an intermediate shade.");
+        image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        if (path.section('/', 2).startsWith("textures/block/")) {
+            bool seam = false;
+            const QJsonObject edges{{"x", tileEdgeCheck(image, true, seam)}, {"y", tileEdgeCheck(image, false, seam)}};
+            row["tileEdges"] = edges;
+            if (seam)
+                finding("visible_tile_seam", "Opposite edges differ more than adjacent pixels inside the tile.", edges,
+                        "Review a 2 by 2 repeat and continue any cut-off clusters across the tile edge.");
+        }
+        for (const auto &other : samples) {
+            if (cancel.load())
+                return canceled();
+            if (other.image.size() != image.size())
+                continue;
+            ++comparedPairs;
+            int difference = 0, unionPixels = 0, coverageChanges = 0;
+            for (int y = 0; y < image.height(); ++y) {
+                const auto a = reinterpret_cast<const QRgb *>(image.constScanLine(y));
+                const auto b = reinterpret_cast<const QRgb *>(other.image.constScanLine(y));
+                for (int x = 0; x < image.width(); ++x) {
+                    unionPixels += qAlpha(a[x]) || qAlpha(b[x]);
+                    coverageChanges += bool(qAlpha(a[x])) != bool(qAlpha(b[x]));
+                    difference += visibleDifference(a[x], b[x]);
+                }
+            }
+            if (visible && unionPixels && difference <= 32 * unionPixels && 20 * coverageChanges <= unionPixels)
+                finding("near_duplicate_texture", "Two sampled frames use nearly identical shapes and colours.",
+                    {{"otherAssetId", other.asset}, {"otherPath", other.path}, {"otherSource", other.source},
+                     {"meanDifference", difference / (4.0 * unionPixels)}},
+                    "Compare the two textures at native size and distinguish their palettes or silhouettes if needed.");
+        }
+        if (visible)
+            samples.append({asset, path, source, image});
+        results.append(row);
+    }
+    return {{"assets", results}, {"diagnostics", diagnostics}, {"comparedPairs", comparedPairs},
+            {"counts", QJsonObject{{"Warning", diagnostics.size()}}}};
+}
+
 QString diagnosticText(const QString &text) {
     static const QRegularExpression absolute(R"(([A-Za-z]:[\\/]|\\\\|(?:^|[\s"'(])/[^\s/]))");
     return text.contains(absolute) ? QString("Diagnostic contains a local path.") : text.left(400);
@@ -680,6 +945,19 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
         return texturePixels(s, scope, {}, args, *cancel);
     if (tool == "nova.asset.relationships")
         return relationships(s, scope, args, cancel);
+    if (tool == "nova.texture.analyze") {
+        if (args.contains("assetId") == args.contains("assetIds"))
+            return toolError("invalid_arguments", "Supply exactly one of assetId or assetIds.");
+        const auto ids = args.contains("assetId") ? QJsonArray{args["assetId"]} : args["assetIds"].toArray();
+        QSet<QString> unique;
+        for (const auto &id : ids) {
+            if (unique.contains(id.toString()))
+                return toolError("invalid_arguments", "Use distinct asset IDs for texture analysis.");
+            unique.insert(id.toString());
+        }
+        const auto paths = targets(s, ids, *cancel);
+        return analyzeTextures(s, scope, ids, paths, *cancel);
+    }
     const auto ids = args["assetIds"].toArray();
     const auto paths = targets(s, ids, *cancel);
     if (cancel->load())

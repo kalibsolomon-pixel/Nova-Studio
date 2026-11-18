@@ -12,6 +12,7 @@ call needs the `generation` and `projectId` from `nova.project.info`.
 | `nova.vanilla.texture` | Give me one cached vanilla texture (PNG), with its hash, size and provenance. |
 | `nova.asset.relationships` | How is this pack asset selected and used: definitions, models, variables, faces, companions? |
 | `nova.pack.validate` | What is wrong in the saved files *and* the open unsaved drafts, and how do I know? |
+| `nova.texture.analyze` | How do the palette, luminance, tile edges and frame layout read, and which assets look alike? |
 
 ## Preparing assets for edits
 
@@ -329,6 +330,25 @@ vanilla resource source is configured; `limitations` gives their count instead.
 ```
 
 `nova.workflow.validate_changes` is unchanged: it validates selected project assets without the resource stack.
+
+## `nova.texture.analyze`
+
+Pass `generation`, `projectId`, and either one pack `assetId` or `assetIds` with up to 16 distinct
+pack texture IDs. The result preserves input order and includes an `error` on any unavailable asset.
+Nova analyzes the visible composite of an open draft's active frame or the first source frame of a
+saved PNG. Pixel metrics cover frames up to 256 × 256. Visible colour counts include distinct RGBA
+values with nonzero alpha. The luminance range uses the 10th and 90th percentiles of encoded Rec.
+709 luma, and reports gaps between occupied levels.
+
+For textures under `textures/block/`, Nova compares opposite edges to ordinary adjacent pairs inside
+the tile and flags unusually strong seams. For a matching Minecraft texture in the locally verified
+baseline, it compares sheet dimensions and frame grid. A draft's animated layout uses Nova's
+one-column export. A missing baseline leaves the comparison unavailable.
+
+When two sampled frames have the same dimensions, Nova checks colour distance and transparency over
+the pixels occupied by either frame. Near-duplicate, luminance and seam findings are advisory. Each
+finding includes a rule, evidence and a next step. Use `nova.pack.validate` for pack references and
+metadata errors.
 
 ## Version-specific rules
 

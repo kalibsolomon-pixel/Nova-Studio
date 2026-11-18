@@ -10,6 +10,7 @@ struct AnimationExport {
     bool ok() const { return !png.isEmpty() && !mcmeta.isEmpty(); }
 };
 bool supportedAnimationTarget(const QString &target);
+QSize minecraftFrameSize(QSize sheet, const QJsonObject &animation, QString *error = nullptr);
 bool parseAnimation(const QImage &sheet, const QJsonObject &metadata, const QString &target,
                     AnimationState *state, QString *error, const AnimationLimits &limits = {});
 AnimationExport planAnimationExport(const Document &document, int columns = 1,

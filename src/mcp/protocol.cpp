@@ -168,6 +168,11 @@ QJsonObject outputSchema(const QString &name) {
         add("paletteSummary", "array");
         add("paletteSummaryTruncated", "boolean");
         add("pixels", "object");
+    } else if (name == "nova.texture.analyze") {
+        add("assets", "array");
+        add("diagnostics", "array");
+        add("counts", "object");
+        add("comparedPairs", "integer");
     } else if (name == "nova.asset.relationships") {
         for (auto key : {"generation", "projectId", "path", "kind", "minecraftVersion", "versionSource"})
             add(key, "string");
@@ -769,6 +774,12 @@ const QJsonArray &tools() {
             "standard Minecraft texture folders if metadata is absent. Requires editing permission.",
             {{"generation", current}, {"projectId", project}, {"indexRevision", generation}, {"description", stringField(128)}},
             {"generation", "projectId", "indexRevision"}, false);
+        add("nova.texture.analyze",
+            "Check visible colours, luminance ramps, block tile edges and the frame layout against locally cached "
+            "vanilla. Compare up to 16 pack textures for near duplicates. Uses the active draft frame or first "
+            "saved source frame. Findings are advisory.",
+            {{"generation", current}, {"projectId", project}, {"assetId", asset}, {"assetIds", arrayField(asset, 1, 16)}},
+            {"generation", "projectId"});
         for (qsizetype i = 0; i < list.size(); ++i) {
             auto tool = list.at(i).toObject();
             const auto name = tool["name"].toString();
@@ -961,7 +972,7 @@ QJsonObject humanSummaryFields(const QJsonObject &payload) {
 }
 QJsonObject humanSummary(const QJsonObject &payload) {
     auto summary = humanSummaryFields(payload);
-    for (const auto key : {"pixels", "colorCount", "text", "counts", "saved", "failed", "stageOutcomes"})
+    for (const auto key : {"pixels", "colorCount", "visiblePixels", "text", "counts", "saved", "failed", "stageOutcomes"})
         if (payload.contains(key))
             summary[key] = payload[key];
     for (const auto key : {"assets", "drafts", "results", "stages", "textures", "topics"}) {
@@ -971,7 +982,7 @@ QJsonObject humanSummary(const QJsonObject &payload) {
         QJsonArray items;
         for (const QJsonValue &value : rows) {
             auto row = humanSummaryFields(value.toObject());
-            for (const auto field : {"topic", "title", "uri", "documentOpen", "animated"})
+            for (const auto field : {"topic", "title", "uri", "documentOpen", "animated", "colorCount"})
                 if (value.toObject().contains(field))
                     row[field] = value[field];
             if (!row.isEmpty())

@@ -644,8 +644,12 @@ void Service::dispatch(const Request &request) {
     data.projectId = projectId;
     data.generation = generation;
     data.relationships = relationships;
-    if (request.tool == "nova.texture.read")
-        data.textureReadTarget = request.arguments["assetId"].toString();
+    if (request.tool == "nova.texture.read" || request.tool == "nova.texture.analyze") {
+        if (request.arguments.contains("assetId"))
+            data.textureTargets.insert(request.arguments["assetId"].toString());
+        for (const QJsonValue &asset : request.arguments["assetIds"].toArray())
+            data.textureTargets.insert(asset.toString());
+    }
     if (!mutation && !preview && !snapshot(data, request.tool))
         return reject("validation_unavailable", "The project index is updating (for example after a save or a file change). Retry shortly.");
     if (mutation || capability || preview) {
@@ -910,8 +914,9 @@ void Service::dispatch(const Request &request) {
         active->deleteLater();
     });
     // Relationship and cache requests may resolve a full vanilla resource stack (thousands of JSON files).
-    const bool sourced = request.tool == "nova.asset.relationships" || request.tool.startsWith("nova.vanilla.") ||
-        (request.tool == "nova.texture.read" && data.textureReadTarget.startsWith("vanilla:"));
+    const bool sourced = request.tool == "nova.asset.relationships" || request.tool == "nova.texture.analyze" ||
+        request.tool.startsWith("nova.vanilla.") || (request.tool == "nova.texture.read" &&
+            request.arguments["assetId"].toString().startsWith("vanilla:"));
     deadline.start(validate || request.tool == "nova.pack.validate" ? 60000 : sourced ? 30000 : 10000);
     worker->setFuture(QtConcurrent::run(
         [data = std::move(data), tool = request.tool, args = request.arguments, cancellation = cancel] {

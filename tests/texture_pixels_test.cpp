@@ -699,7 +699,7 @@ class TexturePixelsTest : public QObject {
     // Phase 1 tool definitions stay compatible outside the intentional validation and preview changes.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 43);
+        QCOMPARE(definitions.size(), 44);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
         const QSet<QString> previewEdits{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
@@ -1300,7 +1300,7 @@ class TexturePixelsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["tools"].toInt(), 43);
+        QCOMPARE(summary["tools"].toInt(), 44);
         QCOMPARE(summary["opened"].toString(), second);
         QCOMPARE(window.documents().all().size(), size_t(12));
         QCOMPARE(nova::EditorTestAccess::active(window), doc);
