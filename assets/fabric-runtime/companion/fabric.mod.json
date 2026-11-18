@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "nova_companion",
+  "version": "1",
+  "name": "Nova Studio companion",
+  "description": "Lets Nova Studio reload resources in its own test client.",
+  "license": "GPL-3.0-or-later",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["studio.nova.companion.NovaCompanion"]
+  },
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "1.21.11"
+  }
+}

@@ -323,7 +323,8 @@ RunLine classifyRunOutput(const QString &raw, bool inModList) {
 }
 
 FabricRuntime::FabricRuntime(Options opts, QObject *parent)
-    : QObject(parent), options(std::move(opts)), poll(new QTimer(this)), grace(new QTimer(this)) {
+    : QObject(parent), options(std::move(opts)), poll(new QTimer(this)), grace(new QTimer(this)),
+      link(new CompanionLink(this)) {
     if (options.profile)
         pins = *options.profile;
     else if (auto known = fabricProfile(options.minecraftVersion))
@@ -898,7 +899,10 @@ bool FabricRuntime::launch(const QString &quickPlayWorld, QString *error) {
         QFile::remove(paths.logs + "/gradle-run.1" + suffix);
         QFile::rename(path, paths.logs + "/gradle-run.1" + suffix);
     }
-    QStringList tasks{"--offline", "runClient"};
+    // A fresh id per launch: the companion mod answers only requests that name it.
+    const auto launchId = newLaunchId();
+    CompanionLink::reset(paths.game);
+    QStringList tasks{"--offline", "runClient", QString("-P%1=%2").arg(launchProperty, launchId)};
     if (!quickPlayWorld.isEmpty())
         tasks << QString("-P%1=%2").arg(quickPlayProperty, quickPlayWorld);
     QString program;
@@ -917,8 +921,10 @@ bool FabricRuntime::launch(const QString &quickPlayWorld, QString *error) {
     meta.insert("session",
                 QJsonObject{{"pid", pid},
                             {"created", QString::number(identity.created)},
-                            {"started", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)}});
+                            {"started", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+                            {"launch", launchId}});
     saveMetadata();
+    link->attach(paths.game, launchId);
     parts.loadedMods.clear();
     failure.clear();
     phase = Game::Starting;
@@ -939,6 +945,7 @@ bool FabricRuntime::attachExisting() {
     if (!processAlive(identity))
         return false;
     phase = Game::MinecraftRunning;
+    link->attach(paths.game, session.value("launch").toString());
     setState(State::Running, "Reconnected to Minecraft started by an earlier Nova session");
     watch(identity);
     return true;
@@ -1091,6 +1098,7 @@ void FabricRuntime::processExited() {
                 terminateTree(child);
     unwatch();
     root = {};
+    link->attach({}, {});
     meta.remove("session");
     saveMetadata();
     const bool cancelled = phase == Game::CancellationRequested;

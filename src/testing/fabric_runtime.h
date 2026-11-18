@@ -5,6 +5,7 @@
 // launches and supervises `runClient` (Minecraft in Loom's development
 // environment). This client is not an authenticated launcher: it proves
 // nothing about Minecraft ownership and is meant for local pack testing.
+#include "companion.h"
 #include "discovery.h"
 #include "fabric_profile.h"
 #include "fabric_workspace.h"
@@ -97,6 +98,8 @@ class FabricRuntime : public QObject {
     QJsonObject metadata() const;
     void recordMetadata(const QString &key, const QJsonValue &value);
     qint64 lastPrepareMs() const { return preparedMs; }
+    // The companion mod of the running game (see companion.h).
+    CompanionLink *companion() const { return link; }
 
     void prepare(bool repair = false);
     bool launch(const QString &quickPlayWorld, QString *error = nullptr);
@@ -160,6 +163,7 @@ class FabricRuntime : public QObject {
     void *processHandle = nullptr;
     QWinEventNotifier *exitNotifier = nullptr;
     QTimer *poll = nullptr, *grace = nullptr;
+    CompanionLink *link = nullptr;
     qint64 runOffset = 0, errOffset = 0;
     QByteArray runPartial, errPartial;
     bool modList = false, failureSeen = false, gameReady = false, graceExpired = false;

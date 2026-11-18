@@ -189,6 +189,7 @@ class Window : public QMainWindow {
     class MinecraftTestDialog *minecraftTest = nullptr; // dormant launcher hand-off (Phase 3-D)
     class FabricTestDialog *fabricTest = nullptr;       // default backend (Phase 3-D.1)
     void minecraftTesting(bool syncOnly);
+    void reloadMinecraft();
     void launcherHandoffTesting(bool syncOnly);
     static bool launcherHandoffEnabled();
     QStringList unsavedMinecraftOutputs();

@@ -27,6 +27,10 @@
   heads, and other special renderers remain incomplete. See the [model preview guide](MODEL_PREVIEW.md).
 - Test in Minecraft targets Minecraft Java Edition 1.21.11 with Fabric and needs a one-time
   download. The production Minecraft launcher hand-off is not part of this preview.
+- Reloading from Nova uses a small Nova companion mod that the test runtime compiles when it is
+  prepared, so a runtime prepared by an older Nova prepares again once. A game started before that
+  shows the F3+T hint instead. The companion was compiled against Minecraft 1.21.11 and tested
+  with a simulated game; a reload in the real game has not been tested yet.
 
 ## AI agents (MCP)
 

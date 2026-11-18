@@ -77,5 +77,7 @@ QString checkGradleHome(const RuntimeLayout &layout);
 inline constexpr auto workspaceManifest = ".nova-workspace.json";
 inline constexpr auto prepareTask = "novaPrepareRuntime";
 inline constexpr auto quickPlayProperty = "novaQuickPlay";
+// Per-launch id for the companion mod (passed to the game as -Dnova.launch, see companion.h).
+inline constexpr auto launchProperty = "novaLaunch";
 
 } // namespace nova::testing

@@ -36,7 +36,8 @@ add_library(nova-testing STATIC
   testing/java_locator.cpp testing/java_locator.h
   testing/fabric_workspace.cpp testing/fabric_workspace.h
   testing/process_tree.cpp testing/process_tree.h
-  testing/fabric_runtime.cpp testing/fabric_runtime.h)
+  testing/fabric_runtime.cpp testing/fabric_runtime.h
+  testing/companion.cpp testing/companion.h)
 target_include_directories(nova-testing PUBLIC testing)
 target_link_libraries(nova-testing PUBLIC nova-application Qt6::Network Qt6::Concurrent)
 # QZipReader (private, pinned Qt 6.12.0) reads mod jars and the JDK archive.
@@ -44,7 +45,9 @@ target_link_libraries(nova-testing PRIVATE Qt6::CorePrivate)
 qt_add_resources(nova-testing "nova_fabric_runtime"
   PREFIX "/fabric-runtime"
   BASE "${PROJECT_SOURCE_DIR}/assets/fabric-runtime"
-  FILES "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/gradle-wrapper-9.8.2.jar")
+  FILES "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/gradle-wrapper-9.8.2.jar"
+        "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/companion/NovaCompanion.java"
+        "${PROJECT_SOURCE_DIR}/assets/fabric-runtime/companion/fabric.mod.json")
 if(WIN32)
   target_link_libraries(nova-testing PRIVATE wintrust crypt32 userenv)
 endif()

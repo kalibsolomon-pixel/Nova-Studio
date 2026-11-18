@@ -24,6 +24,7 @@ const QHash<QString, QStringList> &aliases() {
         {"exportAnimation", {"export animation", "mcmeta", "frames", "animated"}},
         {"testInMinecraft", {"minecraft", "test", "game", "launch", "play", "fabric", "run"}},
         {"syncTestPack", {"minecraft", "test", "sync", "refresh", "reload"}},
+        {"reloadMinecraft", {"minecraft", "reload", "f3+t", "resources", "refresh", "test"}},
         {"validateResources", {"problems", "errors", "warnings", "validate", "check", "lint"}},
         {"mcpAccess", {"mcp", "ai", "agent", "claude", "codex", "integration", "permissions", "access",
                        "model context protocol", "assistant"}},

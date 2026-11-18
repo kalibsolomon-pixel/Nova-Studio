@@ -58,6 +58,17 @@ bool safeJarName(const QString &name) {
     static const QRegularExpression rule("^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}\\.jar$");
     return rule.match(name).hasMatch() && !name.contains("..");
 }
+// Nova's companion mod (assets/fabric-runtime/companion): workspace path -> bundled source.
+const QList<std::pair<QString, QString>> &companionSources() {
+    static const QList<std::pair<QString, QString>> sources = {
+        {"src/main/java/studio/nova/companion/NovaCompanion.java", ":/fabric-runtime/companion/NovaCompanion.java"},
+        {"src/main/resources/fabric.mod.json", ":/fabric-runtime/companion/fabric.mod.json"}};
+    return sources;
+}
+QByteArray resourceBytes(const QString &resource) {
+    QFile file(resource);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
 } // namespace
 
 bool safeRuntimePath(const QString &path) {
@@ -476,6 +487,9 @@ loom {
 			if (project.hasProperty('%5')) {
 				programArgs '--quickPlaySingleplayer', project.property('%5').toString()
 			}
+			if (project.hasProperty('%8')) {
+				vmArg '-Dnova.launch=' + project.property('%8').toString()
+			}
 		}
 	}
 }
@@ -488,7 +502,7 @@ dependencies {
             .arg(profile.loomPluginId, profile.loomVersion)
             .arg(profile.gameJavaMajor)
             .arg(runDirRelative, quickPlayProperty, profile.minecraftVersion,
-                 profile.loaderVersion);
+                 profile.loaderVersion, launchProperty);
     if (!mods.isEmpty())
         text += "\tmodLocalRuntime files(\n" + list(mods) + ")\n";
     if (!libraries.isEmpty())
@@ -547,8 +561,17 @@ WorkspaceResult writeWorkspace(const FabricProfile &profile, const RuntimeLayout
         {"gradle/wrapper/gradle-wrapper.properties", wrapperProperties(profile)},
         {"gradle/wrapper/gradle-wrapper.jar", wrapperBytes},
     };
+    QList<std::pair<QString, QByteArray>> companion;
+    for (const auto &[relative, resource] : companionSources()) {
+        const auto bytes = resourceBytes(resource);
+        if (bytes.isEmpty())
+            return fail("Nova's companion mod is missing from this build");
+        companion.append({relative, bytes});
+        if (!QDir().mkpath(QFileInfo(layout.workspace + '/' + relative).path()))
+            return fail("Could not create the companion mod folder");
+    }
     QJsonObject hashes;
-    for (const auto &[relative, bytes] : files) {
+    for (const auto &[relative, bytes] : files + companion) {
         const auto path = layout.workspace + '/' + relative;
         QString error;
         if (!safeRuntimePath(path) ||
@@ -593,11 +616,16 @@ WorkspaceResult verifyWorkspace(const FabricProfile &profile, const RuntimeLayou
         manifest.value("profile").toString() != profile.key)
         return fail("The runtime workspace belongs to a different configuration");
     const auto hashes = manifest.value("files").toObject();
-    const QHash<QString, QString> fixed = {
+    QHash<QString, QString> fixed = {
         {"settings.gradle", sha256(settingsGradle())},
         {"gradle/wrapper/gradle-wrapper.properties", sha256(wrapperProperties(profile))},
         {"gradle/wrapper/gradle-wrapper.jar", profile.gradleWrapperJarSha256}
     };
+    for (const auto &[relative, resource] : companionSources()) {
+        fixed.insert(relative, sha256(resourceBytes(resource)));
+        if (!hashes.contains(relative))
+            return fail("Missing trusted workspace file: " + relative);
+    }
     for (const auto &required : {"settings.gradle", "build.gradle", "gradle.properties",
                                 "gradle/wrapper/gradle-wrapper.properties",
                                 "gradle/wrapper/gradle-wrapper.jar"})
@@ -649,6 +677,9 @@ WorkspaceResult verifyWorkspace(const FabricProfile &profile, const RuntimeLayou
         if (!safeRuntimePath(info.absoluteFilePath()))
             return fail("Unsafe path in the runtime workspace: " + relative);
         const auto suffix = info.suffix().toLower();
+        if (!hashes.contains(relative) && info.isFile() &&
+            relative.startsWith("src/", Qt::CaseInsensitive))
+            return fail("Unexpected source file in the runtime workspace: " + relative);
         if (!hashes.contains(relative) &&
             (relative.startsWith("libs/", Qt::CaseInsensitive) ||
              (info.isFile() && (suffix == "gradle" || suffix == "kts"))))

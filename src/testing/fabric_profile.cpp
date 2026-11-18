@@ -10,7 +10,8 @@ const QList<FabricProfile> &fabricProfiles() {
     // services.gradle.org checksums; Modrinth API version metadata; Adoptium API.
     static const QList<FabricProfile> profiles = [] {
         FabricProfile p;
-        p.key = "mc1.21.11-loader0.20.1-loom1.19.3-gradle9.8.2-rrls5.1.15";
+        // "-nova1": the workspace includes companion mod protocol 1, so older workspaces re-prepare.
+        p.key = "mc1.21.11-loader0.20.1-loom1.19.3-gradle9.8.2-rrls5.1.15-nova1";
         p.minecraftVersion = "1.21.11";
         p.gameJavaMajor = 21;
         p.gradleJavaMinimum = 25; // Loom 1.19.3 refuses older Gradle JVMs
