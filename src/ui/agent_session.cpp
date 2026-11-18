@@ -366,7 +366,7 @@ void Window::showAgentSession() {
     auto pickerRow = new QHBoxLayout;
     pickerRow->setSpacing(ui::SpaceL);
     pickerRow->addWidget(dialog->agentPicker, 1);
-    pickerRow->addWidget(experimental);
+    pickerRow->addWidget(experimental, 0, Qt::AlignVCenter); // a pill, not a combo-height block
     form->addRow("Agent type", pickerRow);
     dialog->program = ui::pathField({}, dialog);
     dialog->program->setObjectName("acpAgentPath");
