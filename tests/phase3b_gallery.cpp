@@ -201,6 +201,80 @@ class Phase3BGallery : public QObject {
         setTheme(window, true);
         QVERIFY(window.close());
     }
+    void agentSession() {
+        Preferences initial;
+        initial.reopenLast = false;
+        const auto settings = Settings(qApp->property("settingsFile").toString());
+        QVERIFY(settings.save(initial));
+        qApp->setProperty("mcpBridgePath", QString::fromUtf8(NOVA_MCP_TEST_BRIDGE));
+        QElapsedTimer timer;
+        timer.start();
+        Window window(pack, {}, timer);
+        window.resize(1000, 840);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTRY_VERIFY_WITH_TIMEOUT(!EditorTestAccess::busy(window), 10000);
+        auto command = window.findChild<QAction *>("acpSession");
+        QVERIFY(command);
+        const auto path = qgetenv("PATH");
+        qputenv("PATH", QDir::toNativeSeparators(temporary.path()).toLocal8Bit());
+        command->trigger();
+        qputenv("PATH", path);
+        QPointer<QDialog> dialog = window.findChild<QDialog *>("acpSessionDialog");
+        QVERIFY(dialog);
+        auto picker = dialog->findChild<QComboBox *>("acpAgentPicker");
+        auto program = dialog->findChild<QLineEdit *>("acpAgentPath");
+        auto start = dialog->findChild<QPushButton *>("acpStart");
+        auto prompt = dialog->findChild<QPlainTextEdit *>("acpPrompt");
+        auto send = dialog->findChild<QPushButton *>("acpSend");
+        auto status = dialog->findChild<QLabel *>("acpStatus");
+        auto privileges = dialog->findChild<QLabel *>("acpAccess");
+        QVERIFY(picker && program && start && prompt && send && status && privileges);
+        setTheme(window, true);
+        capture(*dialog, "21-agent-session-setup-dark");
+        setTheme(window, false);
+        capture(*dialog, "21-agent-session-setup-light");
+        setTheme(window, true);
+
+        picker->setCurrentIndex(picker->findData("custom"));
+        program->setText(QDir::toNativeSeparators(QString::fromUtf8(NOVA_FAKE_ACP_AGENT)));
+        QTimer consent;
+        consent.setInterval(25);
+        connect(&consent, &QTimer::timeout, &consent, [&consent] {
+            if (auto box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+                box && box->windowTitle() == "Start agent session?") {
+                consent.stop();
+                box->button(QMessageBox::Yes)->click();
+            }
+        });
+        consent.start();
+        start->click();
+        QTRY_COMPARE_WITH_TIMEOUT(status->text(), "Connected", 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(privileges->text().contains("Nova bridge is connected"), 15000);
+        prompt->setPlainText("Show your plan and texture checks.");
+        send->click();
+        QTRY_COMPARE_WITH_TIMEOUT(status->text(), "Connected", 10000);
+        QCOMPARE(dialog->findChildren<QFrame *>("acpToolCard").size(), 2);
+        prompt->setPlainText("Review local notes before updating the draft.");
+        send->click();
+        auto permission = dialog->findChild<QFrame *>("acpPermissionCard");
+        auto pending = dialog->findChild<QLabel *>("acpPermissionCount");
+        QVERIFY(permission && pending);
+        QTRY_VERIFY(permission->isVisible());
+        QTRY_COMPARE(pending->text(), "2 pending");
+        auto transcript = dialog->findChild<QScrollArea *>("acpConversation");
+        auto plan = dialog->findChild<QFrame *>("acpPlan");
+        QVERIFY(transcript && plan);
+        QApplication::processEvents();
+        transcript->verticalScrollBar()->setValue(plan->y());
+        capture(*dialog, "21-agent-session-active-dark");
+        setTheme(window, false);
+        capture(*dialog, "21-agent-session-active-light");
+        dialog->close();
+        QTRY_VERIFY(dialog.isNull());
+        QVERIFY(window.close());
+        qApp->setProperty("mcpBridgePath", {});
+    }
     void workspaces() {
         AutoAnswer answers;
         QElapsedTimer timer;

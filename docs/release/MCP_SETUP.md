@@ -75,25 +75,32 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 
 ## Agent Session (ACP, experimental)
 
-Agent Session is experimental and off by default. Turn it on in **Edit › Preferences ›
-Experimental**; see KNOWN_LIMITATIONS.md for what has and has not been tested.
+Open **Resources › Agent Session (Experimental)…**, search for **Agent Session**, or choose
+**Open Agent Session…** from **MCP Integration**. Open a resource pack before starting a session.
 
-**Resources › Agent Session (ACP, Experimental)…** starts an agent that speaks the Agent Client Protocol, such as
-OpenCode's `opencode acp`, and attaches this `nova-mcp.exe` to that one session. Choose the agent's
-`.exe` (not a `.cmd` shim), then **Start read-only session…**; the question names the program, the
-project and the access, and nothing starts until you agree.
+The agent picker detects OpenCode (`opencode acp`), the Claude Code and Codex ACP adapters,
+and Gemini CLI (`gemini --experimental-acp`). If an agent is missing, copy its install command
+from the picker and run it in your terminal. Restart Nova Studio if the install changed your
+PATH. Sign in with the agent’s advertised method or follow the login command shown by Nova.
 
-- Only a bridge started by that agent can use the access; Nova refuses any other program.
-- **Allow editing…** becomes available once the read-only session has connected. It asks again and
-  restarts the agent with editing access, which includes saving into the pack.
-- **Revoke Nova access** ends Nova access but leaves the agent running; **Stop session**, closing the
-  window, switching projects or the agent exiting ends the agent, everything it started, and the access.
-- The agent works in an empty temporary folder, not in the project. Its own tools (files, shell, web)
-  follow its own settings; Nova shows its permission requests and never answers them for you.
-- The window shows the conversation: your messages, the agent's replies and, in lighter text, its
-  reasoning. Tool activity is not listed there; edits made through Nova appear in **MCP Integration ›
-  Review changes**, and the session and access lines show what the agent may do.
-- Nova keeps the conversation in the window only and passes no connection code to the agent.
+**Custom** accepts an absolute path to an `.exe` or a standard npm `.cmd` launcher. Put arguments
+containing spaces in double quotes. Nova resolves npm launchers to `node.exe` and their package
+script. Nova saves the agent choice, custom path, and arguments in its settings.
+
+- **Start read-only…** asks you to approve the program, project, and access. Only a bridge
+  from that agent’s process tree can use the grant. **Allow editing…** asks separately and
+  restarts the agent with access to edit and save in the pack.
+- **Revoke access** leaves the agent running. **Stop session**, closing the window, switching
+  projects, or the agent exiting ends the agent session and its Nova access.
+- The agent starts in an empty temporary folder. Its file, shell, and web tools follow its
+  settings. When the agent requests permission, Nova presents its choices in order, including
+  any always-allow or always-reject options the agent supplies.
+- The conversation shows plans, collapsible reasoning and tool cards, and formatted replies.
+  Enter sends, Shift+Enter inserts a line break, and Up recalls previous prompts.
+  **Cancel turn** asks the agent to stop its current response. Edits through Nova appear in
+  **MCP Integration › Review changes**.
+- **Show agent output** displays the last 16 KB of the agent’s standard error. Nova keeps that
+  output and the conversation in memory and passes no connection code to the agent.
 
 ## Diagnostics
 

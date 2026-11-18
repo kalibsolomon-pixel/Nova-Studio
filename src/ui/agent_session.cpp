@@ -7,25 +7,33 @@
 #include "clients.h"
 #include "service.h"
 #include "agent_client.h"
+#include "agent_conversation.h"
+#include "theme.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDialog>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFrame>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonDocument>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPointer>
+#include <QPlainTextEdit>
 #include <QPushButton>
-#include <QRegularExpression>
-#include <QScrollBar>
+#include <QStackedWidget>
+#include <QStyle>
 #include <QTextBlock>
 #include <QTextCursor>
-#include <QTextEdit>
+#include <QTextLayout>
+#include <QToolButton>
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -33,78 +41,269 @@
 namespace nova {
 namespace clients = mcp::clients;
 namespace {
-// Agent text is untrusted: no control characters (terminal escapes) and a bounded length.
-QString displayable(QString text, int limit = 4000) {
-    static const QRegularExpression control(R"([\x00-\x08\x0b-\x1f\x7f\x{200b}-\x{200f}\x{202a}-\x{202e}])");
-    text.remove(control);
-    return text.size() > limit ? text.left(limit) + " …" : text;
-}
+struct AgentChoice {
+    QString id, name, command;
+    QStringList arguments;
+    QString install, signIn;
+};
+const QList<AgentChoice> agentChoices{
+    {"opencode", "OpenCode", "opencode", {"acp"}, "npm install -g opencode-ai", "opencode auth login"},
+    {"claude", "Claude Code", "claude-code-acp", {}, "npm install -g @zed-industries/claude-code-acp", "claude, then /login"},
+    {"codex", "Codex", "codex-acp", {}, "npm install -g @zed-industries/codex-acp", "codex login"},
+    {"gemini", "Gemini CLI", "gemini", {"--experimental-acp"}, "npm install -g @google/gemini-cli", "gemini"},
+    {"custom", "Custom", {}, {}, {}, {}},
+};
 QString bridgePath() {
     const auto configured = qApp->property("mcpBridgePath").toString(); // tests supply the build's bridge
     return configured.isEmpty() ? clients::locateBridge(QCoreApplication::applicationDirPath()).path : configured;
 }
 
-// The conversation: the user's messages, the agent's replies and its reasoning. Tool activity and
-// protocol details are not shown; session state, access and decisions live in the labels around it.
-class Conversation : public QTextEdit {
+class Composer final : public QPlainTextEdit {
   public:
-    enum class Speaker { You, Agent, Thinking };
-    explicit Conversation(QWidget *parent) : QTextEdit(parent) {
-        setReadOnly(true);
-        setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-        setAccessibleName("Conversation with the agent");
-        redraw.setSingleShot(true);
-        redraw.setInterval(60); // streamed replies arrive in many small pieces
-        connect(&redraw, &QTimer::timeout, this, &Conversation::render);
+    explicit Composer(QWidget *parent) : QPlainTextEdit(parent) {
+        setTabChangesFocus(true);
+        setAccessibleName("Message to the agent");
+        setAccessibleDescription("Enter sends. Shift+Enter inserts a line break. Up recalls earlier messages.");
+        setFixedHeight(3 * fontMetrics().lineSpacing() + 2 * ui::SpaceL);
     }
-    // Streamed pieces of the same reply (or reasoning) join the current paragraph.
-    void add(Speaker speaker, const QString &text) {
-        if (text.isEmpty())
+    std::function<void()> submit;
+    void remember(const QString &text) {
+        if (history.isEmpty() || history.last() != text)
+            history.append(text);
+        if (history.size() > 30)
+            history.removeFirst();
+        position = -1;
+        draft.clear();
+        clear();
+    }
+
+  protected:
+    void keyPressEvent(QKeyEvent *event) override {
+        const auto key = event->key();
+        if ((key == Qt::Key_Return || key == Qt::Key_Enter) &&
+            !(event->modifiers() & ~Qt::KeypadModifier)) {
+            if (submit)
+                submit();
             return;
-        if (entries.isEmpty() || entries.last().first != speaker || speaker == Speaker::You)
-            entries.append({speaker, QString{}});
-        auto &body = entries.last().second;
-        if (body.size() < 200000)
-            body += displayable(text, 200000 - int(body.size()));
-        if (entries.size() > 500)
-            entries.removeFirst();
-        redraw.start();
+        }
+        const auto cursor = textCursor();
+        const auto block = cursor.block();
+        const auto line = block.layout()->lineForTextPosition(cursor.positionInBlock());
+        const bool firstLine = block.blockNumber() == 0 && (!line.isValid() || line.lineNumber() == 0);
+        if (event->modifiers() == Qt::NoModifier && !cursor.hasSelection() && !history.isEmpty() &&
+            ((key == Qt::Key_Up && firstLine) || (key == Qt::Key_Down && position >= 0))) {
+            if (position < 0) {
+                draft = toPlainText();
+                position = int(history.size());
+            }
+            position = qBound(0, position + (key == Qt::Key_Up ? -1 : 1), int(history.size()));
+            if (position == history.size()) {
+                setPlainText(draft);
+                position = -1;
+                moveCursor(QTextCursor::End);
+            } else {
+                setPlainText(history.at(position));
+                moveCursor(QTextCursor::Start);
+            }
+            return;
+        }
+        QPlainTextEdit::keyPressEvent(event);
     }
 
   private:
-    QList<QPair<Speaker, QString>> entries;
-    QTimer redraw;
-    void render() {
-        auto *bar = verticalScrollBar();
-        const bool following = bar->value() >= bar->maximum() - 4;
-        clear();
-        QTextCursor cursor(document());
-        QTextCharFormat name, plain, quiet;
-        name.setFontWeight(QFont::DemiBold);
-        quiet.setFontItalic(true);
-        quiet.setForeground(palette().color(QPalette::PlaceholderText));
-        QTextBlockFormat block;
-        block.setTopMargin(10);
-        bool first = true;
-        for (const auto &[speaker, text] : entries) {
-            if (!first)
-                cursor.insertBlock(block);
-            first = false;
-            cursor.insertText(speaker == Speaker::You ? "You" : speaker == Speaker::Agent ? "Agent" : "Agent · thinking",
-                              speaker == Speaker::Thinking ? quiet : name);
-            cursor.insertBlock(QTextBlockFormat{});
-            if (speaker == Speaker::Agent) {
-                // Replies are Markdown. The agent is untrusted: no raw HTML, and images become their text.
-                static const QRegularExpression image(R"(!\[([^\]]*)\]\([^)]*\))");
-                cursor.setCharFormat(plain);
-                cursor.insertMarkdown(QString(text).replace(image, "\\1"), QTextDocument::MarkdownFeatures::fromInt(
-                                          QTextDocument::MarkdownDialectGitHub | QTextDocument::MarkdownNoHTML));
-            } else {
-                cursor.insertText(text, speaker == Speaker::Thinking ? quiet : plain);
+    QStringList history;
+    QString draft;
+    int position = -1;
+};
+
+QVBoxLayout *section(QVBoxLayout *parent, const QString &title, int stretch = 0) {
+    auto box = new QGroupBox(title);
+    box->setProperty("role", "section");
+    auto layout = new QVBoxLayout(box);
+    layout->setContentsMargins(0, 0, 0, 0); // the section role supplies the panel padding
+    layout->setSpacing(ui::SpaceL);
+    parent->addWidget(box, stretch);
+    return layout;
+}
+
+void appearance(QWidget *widget, const char *property, const QString &value) {
+    if (widget->property(property).toString() == value)
+        return;
+    widget->setProperty(property, value);
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+}
+
+class PermissionCard final : public QFrame {
+  public:
+    explicit PermissionCard(QWidget *parent) : QFrame(parent) {
+        setObjectName("acpPermissionCard");
+        setProperty("role", "notice");
+        auto layout = new QVBoxLayout(this);
+        layout->setContentsMargins(ui::PanelPadding, ui::SpaceL, ui::PanelPadding, ui::SpaceL);
+        layout->setSpacing(ui::SpaceM);
+        auto heading = new QHBoxLayout;
+        heading->setSpacing(ui::SpaceL);
+        auto title = new QLabel("Tool permission", this);
+        title->setProperty("role", "strong");
+        heading->addWidget(title);
+        heading->addStretch();
+        count = ui::hint({}, this);
+        count->setObjectName("acpPermissionCount");
+        heading->addWidget(count);
+        layout->addLayout(heading);
+        summary = new QLabel(this);
+        summary->setObjectName("acpPermission");
+        summary->setWordWrap(true);
+        summary->setTextFormat(Qt::PlainText);
+        summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(summary);
+        layout->addWidget(ui::hint("Your decision goes to the agent. Nova tool access is managed in Session.", this));
+        actions = new QHBoxLayout;
+        actions->setSpacing(ui::SpaceM);
+        layout->addLayout(actions);
+        hide();
+    }
+
+    std::function<void(const QJsonValue &, const QString &)> answer;
+
+    void enqueue(const QJsonValue &id, const QJsonObject &params) {
+        auto tool = params["toolCall"].toObject();
+        Request next{id, describe(tool), {}};
+        for (const auto &entry : params["options"].toArray()) {
+            const auto option = entry.toObject();
+            const auto optionId = option["optionId"].toString();
+            if (!optionId.isEmpty())
+                next.options.append({optionId, option["kind"].toString(), agentDisplayText(option["name"].toString(), 80)});
+        }
+        queue.append(std::move(next));
+        if (queue.size() == 1)
+            showFirst();
+        else
+            updateCount();
+    }
+
+    void clear() {
+        queue.clear();
+        refreshActions();
+        hide();
+    }
+
+  private:
+    struct Option { QString id, kind, name; };
+    struct Request { QJsonValue id; QString description; QList<Option> options; };
+    QLabel *summary, *count;
+    QHBoxLayout *actions;
+    QList<Request> queue;
+
+    static QString describe(const QJsonObject &tool) {
+        const auto title = agentDisplayText(tool["title"].toString("Tool call"), 160).simplified();
+        const auto args = tool["rawInput"].toObject();
+        QStringList lines{title};
+        const QStringList keys{"path", "file", "command", "arguments", "query", "url"};
+        const auto add = [&lines](const QString &key, const QJsonValue &data) {
+            if (data.isUndefined() || data.isNull())
+                return;
+            const auto text = data.isString() ? data.toString() :
+                QString::fromUtf8(QJsonDocument(QJsonArray{data}).toJson(QJsonDocument::Compact)).sliced(1).chopped(1);
+            lines << agentDisplayText(key, 32) + "  " + agentDisplayText(text, 200).simplified();
+        };
+        for (const auto &key : keys) {
+            if (lines.size() == 4)
+                break;
+            add(key, args.value(key));
+        }
+        for (auto it = args.constBegin(); lines.size() < 4 && it != args.constEnd(); ++it)
+            if (!keys.contains(it.key()))
+                add(it.key(), it.value());
+        if (lines.size() == 1) {
+            const auto locations = tool["locations"].toArray();
+            if (!locations.isEmpty()) {
+                const auto path = agentDisplayText(locations.first().toObject()["path"].toString(), 200).simplified();
+                if (!path.isEmpty())
+                    lines << "Path  " + path;
             }
         }
-        if (following)
-            bar->setValue(bar->maximum());
+        return lines.join('\n');
+    }
+
+    static QString label(const Option &option, bool distinct) {
+        static const QMap<QString, QString> names{
+            {"allow_once", "Allow once"}, {"allow_always", "Always allow"},
+            {"reject_once", "Reject once"}, {"reject_always", "Always reject"}};
+        const auto standard = names.value(option.kind);
+        if (standard.isEmpty())
+            return option.name.isEmpty() ? "Select" : option.name;
+        return distinct && !option.name.isEmpty() ? standard + " · " + option.name : standard;
+    }
+
+    void updateCount() { count->setText(queue.size() > 1 ? QString("%1 pending").arg(queue.size()) : QString{}); }
+
+    void choose(const QJsonValue &requestId, const QString &optionId) {
+        if (queue.isEmpty() || queue.first().id != requestId)
+            return;
+        const auto id = queue.takeFirst().id;
+        if (answer)
+            answer(id, optionId);
+        showFirst();
+    }
+
+    void refreshActions() {
+        while (auto item = actions->takeAt(0)) {
+            if (auto button = item->widget()) {
+                button->hide();
+                button->deleteLater(); // the clicked button may be on the stack
+            }
+            delete item;
+        }
+    }
+
+    void showFirst() {
+        refreshActions();
+        setVisible(!queue.isEmpty());
+        if (queue.isEmpty())
+            return;
+        const auto &request = queue.first();
+        summary->setText(request.description);
+        updateCount();
+        QMap<QString, int> kinds;
+        for (const auto &option : request.options)
+            ++kinds[option.kind];
+        const auto addButton = [this, requestId = request.id](const QString &text, const QString &name, const QString &id) {
+            auto button = new QPushButton(text, this);
+            button->setObjectName(name);
+            button->setAutoDefault(false);
+            actions->addWidget(button);
+            connect(button, &QPushButton::clicked, this, [this, requestId, id] { choose(requestId, id); });
+        };
+        if (request.options.isEmpty()) {
+            addButton("Dismiss request", "acpPermissionDismiss", {});
+        } else if (request.options.size() > 4 || kinds.size() != request.options.size() ||
+                   kinds.contains(QString{})) {
+            auto picker = new QComboBox(this);
+            picker->setAccessibleName("Tool permission options");
+            for (const auto &option : request.options)
+                picker->addItem(label(option, true), option.id);
+            picker->setPlaceholderText("Choose a decision");
+            picker->setCurrentIndex(-1);
+            actions->addWidget(picker, 1);
+            auto apply = new QPushButton("Apply decision", this);
+            apply->setAutoDefault(false);
+            apply->setEnabled(false);
+            actions->addWidget(apply);
+            connect(picker, &QComboBox::currentIndexChanged, apply, [apply](int index) { apply->setEnabled(index >= 0); });
+            connect(apply, &QPushButton::clicked, this, [this, picker, requestId = request.id] {
+                choose(requestId, picker->currentData().toString());
+            });
+            return;
+        } else {
+            static const QMap<QString, QString> buttonNames{
+                {"allow_once", "acpPermissionAllow"}, {"allow_always", "acpPermissionAllowAlways"},
+                {"reject_once", "acpPermissionReject"}, {"reject_always", "acpPermissionRejectAlways"}};
+            for (const auto &option : request.options)
+                addButton(label(option, false), buttonNames.value(option.kind), option.id);
+        }
+        actions->addStretch();
     }
 };
 
@@ -114,28 +313,26 @@ class AgentSessionDialog : public QDialog {
     QString sessionProject, workFolder;
     quint64 grant = 0;
     bool editing = false;
-    QLabel *status, *access, *notice, *permissionText;
-    QLineEdit *program, *prompt;
-    Conversation *conversation;
-    QPushButton *start, *edit, *revoke, *send, *cancel, *stop, *allow, *reject;
-    QJsonValue permissionId = QJsonValue::Undefined; // undefined: no request pending (null is a valid id)
-    QString allowOption, rejectOption;
+    QLabel *status, *statusDetail, *access, *notice;
+    QLineEdit *program, *arguments;
+    Composer *prompt;
+    QComboBox *agentPicker, *authMethod;
+    QWidget *authRow;
+    acp::AgentProgram activeProgram;
+    AgentConversation *conversation;
+    QPushButton *start, *edit, *revoke, *send, *cancel, *stop;
+    PermissionCard *permission;
     explicit AgentSessionDialog(QWidget *parent) : QDialog(parent) {}
     // One line for things the user should know that are not part of the conversation.
-    void tell(const QString &message) { notice->setText(message); notice->setVisible(!message.isEmpty()); }
+    void tell(const QString &message, const QString &severity = "info") {
+        appearance(notice, "severity", severity);
+        notice->setText(agentDisplayText(message, 1000));
+        notice->setVisible(!message.isEmpty());
+    }
 };
 } // namespace
 
-void Window::updateExperimentalActions() {
-    if (auto a = findChild<QAction *>("acpSession")) {
-        a->setVisible(preferences.experimentalAgentSession);
-        a->setEnabled(preferences.experimentalAgentSession);
-    }
-}
-
 void Window::showAgentSession() {
-    if (!preferences.experimentalAgentSession)
-        return;
     if (auto existing = findChild<QDialog *>("acpSessionDialog")) {
         existing->raise();
         existing->activateWindow();
@@ -144,68 +341,206 @@ void Window::showAgentSession() {
     ensureMcpService();
     auto dialog = new AgentSessionDialog(this);
     dialog->setObjectName("acpSessionDialog");
-    dialog->setWindowTitle("Agent Session (ACP, Experimental)");
+    dialog->setWindowTitle("Agent Session");
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     auto layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
+    layout->setSpacing(ui::PanelPadding);
+    auto agentSection = section(layout, "Agent");
+    auto experimental = new QLabel("Experimental", dialog);
+    experimental->setObjectName("acpExperimental");
+    experimental->setProperty("role", "badge");
     auto form = new QFormLayout;
-    dialog->program = new QLineEdit(acp::findAgentExecutable("opencode"), dialog);
+    form->setHorizontalSpacing(ui::SpaceL);
+    form->setVerticalSpacing(ui::SpaceM);
+    dialog->agentPicker = new QComboBox(dialog);
+    dialog->agentPicker->setObjectName("acpAgentPicker");
+    QStringList detected;
+    for (const auto &choice : agentChoices) {
+        const auto path = choice.command.isEmpty() ? QString{} : acp::findAgentExecutable(choice.command);
+        detected << path;
+        dialog->agentPicker->addItem(choice.name + (choice.command.isEmpty() ? QString{} :
+                                      path.isEmpty() ? " · Not found" : " · Detected"), choice.id);
+    }
+    dialog->agentPicker->setCurrentIndex(qMax(0, dialog->agentPicker->findData(preferences.acpAgent)));
+    auto pickerRow = new QHBoxLayout;
+    pickerRow->setSpacing(ui::SpaceL);
+    pickerRow->addWidget(dialog->agentPicker, 1);
+    pickerRow->addWidget(experimental);
+    form->addRow("Agent type", pickerRow);
+    dialog->program = ui::pathField({}, dialog);
     dialog->program->setObjectName("acpAgentPath");
-    dialog->program->setPlaceholderText("Full path of the agent's .exe (for OpenCode: opencode.exe)");
+    dialog->program->setPlaceholderText("Full path to a program or npm launcher");
     auto choose = new QPushButton("Choose…", dialog);
     choose->setObjectName("acpChooseAgent");
     auto programRow = new QHBoxLayout;
+    programRow->setSpacing(ui::SpaceM);
     programRow->addWidget(dialog->program, 1);
     programRow->addWidget(choose);
     form->addRow("Agent program", programRow);
+    dialog->arguments = new QLineEdit(preferences.acpArguments, dialog);
+    dialog->arguments->setObjectName("acpAgentArguments");
+    dialog->arguments->setPlaceholderText("Optional arguments, e.g. acp --profile \"My profile\"");
+    form->addRow("Arguments", dialog->arguments);
+    auto setupHint = ui::hint({}, dialog);
+    setupHint->setTextFormat(Qt::PlainText);
+    setupHint->setWordWrap(true);
+    setupHint->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto copyInstall = new QPushButton("Copy install command", dialog);
+    copyInstall->setObjectName("acpCopyInstall");
+    auto setupRow = new QHBoxLayout;
+    setupRow->setSpacing(ui::SpaceM);
+    setupRow->addWidget(setupHint, 1);
+    setupRow->addWidget(copyInstall, 0, Qt::AlignTop);
+    form->addRow(setupRow);
+    const auto choice = [dialog]() -> const AgentChoice & { return agentChoices.at(dialog->agentPicker->currentIndex()); };
+    const auto configure = [this, dialog, form, choice, detected, programRow, setupRow, choose, setupHint] {
+        const auto &selected = choice();
+        const auto path = detected.at(dialog->agentPicker->currentIndex());
+        const bool custom = selected.command.isEmpty();
+        dialog->program->setText(custom ? preferences.acpProgram : path);
+        dialog->program->setReadOnly(!custom);
+        form->setRowVisible(programRow, custom || !path.isEmpty());
+        choose->setVisible(custom);
+        form->setRowVisible(dialog->arguments, custom);
+        form->setRowVisible(setupRow, path.isEmpty() && !custom);
+        setupHint->setText(QString("Install with %1 (requires Node.js and npm).\nSign in with %2.")
+                               .arg(selected.install, selected.signIn));
+    };
+    connect(dialog->agentPicker, &QComboBox::currentIndexChanged, dialog, [this, choice, configure] {
+        preferences.acpAgent = choice().id;
+        configure();
+    });
+    connect(dialog->program, &QLineEdit::textChanged, dialog, [this, choice](const QString &path) {
+        if (choice().command.isEmpty())
+            preferences.acpProgram = path;
+    });
+    connect(dialog->arguments, &QLineEdit::textChanged, dialog, [this](const QString &args) {
+        preferences.acpArguments = args;
+    });
+    connect(copyInstall, &QPushButton::clicked, dialog, [choice] { QApplication::clipboard()->setText(choice().install); });
+    configure();
+    agentSection->addLayout(form);
+    auto sessionSection = section(layout, "Session");
+    auto statusRow = new QHBoxLayout;
+    statusRow->setSpacing(ui::SpaceL);
     dialog->status = new QLabel("Not running", dialog);
     dialog->status->setObjectName("acpStatus");
-    dialog->status->setWordWrap(true);
-    form->addRow("Session", dialog->status);
-    dialog->access = new QLabel(dialog);
+    dialog->status->setProperty("role", "statusPill");
+    statusRow->addWidget(dialog->status, 0, Qt::AlignLeft | Qt::AlignTop);
+    dialog->statusDetail = ui::hint({}, dialog);
+    dialog->statusDetail->setObjectName("acpStatusDetail");
+    dialog->statusDetail->setWordWrap(true);
+    dialog->statusDetail->setTextFormat(Qt::PlainText);
+    statusRow->addWidget(dialog->statusDetail, 1, Qt::AlignVCenter);
+    sessionSection->addLayout(statusRow);
+    dialog->access = ui::hint({}, dialog);
     dialog->access->setObjectName("acpAccess");
     dialog->access->setWordWrap(true);
-    form->addRow("Nova tools", dialog->access);
-    layout->addLayout(form);
-
+    dialog->access->setTextFormat(Qt::PlainText);
+    sessionSection->addWidget(dialog->access);
+    dialog->authRow = new QWidget(dialog);
+    auto authLayout = new QHBoxLayout(dialog->authRow);
+    authLayout->setContentsMargins(0, 0, 0, 0);
+    authLayout->setSpacing(ui::SpaceM);
+    dialog->authMethod = new QComboBox(dialog->authRow);
+    dialog->authMethod->setObjectName("acpAuthMethod");
+    dialog->authMethod->setAccessibleName("Agent sign-in method");
+    auto signIn = new QPushButton("Sign in", dialog->authRow);
+    signIn->setObjectName("acpSignIn");
+    authLayout->addWidget(dialog->authMethod, 1);
+    authLayout->addWidget(signIn);
+    sessionSection->addWidget(dialog->authRow);
+    dialog->authRow->hide();
+    connect(signIn, &QPushButton::clicked, dialog, [dialog] {
+        if (dialog->session && dialog->session->authenticate(dialog->authMethod->currentData().toString())) {
+            dialog->authRow->hide();
+            dialog->tell("Waiting for the agent to finish signing in…");
+        }
+    });
     auto controls = new QHBoxLayout;
-    dialog->start = new QPushButton("Start read-only session…", dialog);
+    controls->setSpacing(ui::SpaceM);
+    dialog->start = new QPushButton("Start read-only…", dialog);
     dialog->start->setObjectName("acpStart");
+    ui::setPrimary(dialog->start);
     dialog->edit = new QPushButton("Allow editing…", dialog);
     dialog->edit->setObjectName("acpEditing");
-    dialog->revoke = new QPushButton("Revoke Nova access", dialog);
+    dialog->revoke = new QPushButton("Revoke access", dialog);
     dialog->revoke->setObjectName("acpRevoke");
     dialog->stop = new QPushButton("Stop session", dialog);
     dialog->stop->setObjectName("acpStop");
-    for (auto button : {dialog->start, dialog->edit, dialog->revoke, dialog->stop})
+    for (auto button : {dialog->start, dialog->stop, dialog->edit, dialog->revoke}) {
+        button->setAutoDefault(false);
         controls->addWidget(button);
-    layout->addLayout(controls);
+    }
+    controls->addStretch();
+    sessionSection->addLayout(controls);
+    auto projectHint = ui::hint("Open a resource pack to start a session.", dialog);
+    projectHint->setObjectName("acpProjectHint");
+    sessionSection->addWidget(projectHint);
 
-    dialog->conversation = new Conversation(dialog);
+    auto conversationSection = section(layout, "Conversation", 1);
+    auto transcript = new QStackedWidget(dialog);
+    transcript->setMinimumHeight(8 * ui::ControlHeight);
+    auto empty = ui::emptyState("Messages will appear here once you send a prompt.", transcript, "chat");
+    dialog->conversation = new AgentConversation(dialog);
     dialog->conversation->setObjectName("acpConversation");
-    layout->addWidget(dialog->conversation, 1);
+    transcript->addWidget(empty);
+    transcript->addWidget(dialog->conversation);
+    conversationSection->addWidget(transcript, 1);
     dialog->notice = new QLabel(dialog);
     dialog->notice->setObjectName("acpNotice");
     dialog->notice->setWordWrap(true);
     dialog->notice->setTextFormat(Qt::PlainText);
+    dialog->notice->setProperty("role", "notice");
     dialog->notice->hide();
-    layout->addWidget(dialog->notice);
+    sessionSection->addWidget(dialog->notice);
+    auto outputToggle = new QToolButton(dialog);
+    outputToggle->setObjectName("acpOutputToggle");
+    outputToggle->setProperty("role", "disclosure");
+    outputToggle->setCheckable(true);
+    outputToggle->setFocusPolicy(Qt::StrongFocus);
+    outputToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    outputToggle->setArrowType(Qt::RightArrow);
+    outputToggle->setText("Show agent output");
+    sessionSection->addWidget(outputToggle, 0, Qt::AlignLeft);
+    auto output = new QPlainTextEdit(dialog);
+    output->setObjectName("acpAgentOutput");
+    output->setAccessibleName("Agent standard error");
+    output->setPlaceholderText("The agent has not written any output.");
+    output->setReadOnly(true);
+    output->setFixedHeight(5 * output->fontMetrics().lineSpacing() + 2 * ui::SpaceL);
+    output->hide();
+    sessionSection->addWidget(output);
+    const auto refreshOutput = [dialog, output, outputToggle] {
+        if (!outputToggle->isChecked() || output->textCursor().hasSelection())
+            return;
+        const auto text = dialog->session ? agentDisplayText(dialog->session->agentOutput(), acp::Session::OutputLimit)
+                                          : QString{};
+        if (output->toPlainText() != text) {
+            output->setPlainText(text);
+            output->moveCursor(QTextCursor::End);
+        }
+    };
+    connect(outputToggle, &QToolButton::toggled, output, [outputToggle, output, refreshOutput](bool show) {
+        outputToggle->setText(show ? "Hide agent output" : "Show agent output");
+        outputToggle->setArrowType(show ? Qt::DownArrow : Qt::RightArrow);
+        output->setVisible(show);
+        if (show)
+            refreshOutput();
+    });
+    connect(output, &QPlainTextEdit::selectionChanged, output, refreshOutput);
 
-    dialog->permissionText = new QLabel(dialog);
-    dialog->permissionText->setObjectName("acpPermission");
-    dialog->permissionText->setWordWrap(true);
-    dialog->permissionText->setTextFormat(Qt::PlainText);
-    dialog->allow = new QPushButton("Allow once", dialog);
-    dialog->allow->setObjectName("acpPermissionAllow");
-    dialog->reject = new QPushButton("Reject", dialog);
-    dialog->reject->setObjectName("acpPermissionReject");
-    auto permissionRow = new QHBoxLayout;
-    permissionRow->addWidget(dialog->permissionText, 1);
-    permissionRow->addWidget(dialog->allow);
-    permissionRow->addWidget(dialog->reject);
-    layout->addLayout(permissionRow);
+    dialog->permission = new PermissionCard(dialog);
+    conversationSection->addWidget(dialog->permission);
+    dialog->permission->answer = [dialog](const QJsonValue &id, const QString &option) {
+        if (dialog->session)
+            dialog->session->answerPermission(id, option);
+    };
 
     auto promptRow = new QHBoxLayout;
-    dialog->prompt = new QLineEdit(dialog);
+    promptRow->setSpacing(ui::SpaceL);
+    dialog->prompt = new Composer(dialog);
     dialog->prompt->setObjectName("acpPrompt");
     dialog->prompt->setPlaceholderText("Message to the agent");
     dialog->send = new QPushButton("Send", dialog);
@@ -213,21 +548,27 @@ void Window::showAgentSession() {
     dialog->cancel = new QPushButton("Cancel turn", dialog);
     dialog->cancel->setObjectName("acpCancel");
     promptRow->addWidget(dialog->prompt, 1);
-    promptRow->addWidget(dialog->send);
-    promptRow->addWidget(dialog->cancel);
-    layout->addLayout(promptRow);
-    auto note = new QLabel("Nova controls only its own tools. The agent runs with your Windows account and its own "
-                           "settings; its built-in file and shell tools, if any, follow the agent's configuration. "
-                           "It works in an empty folder outside the project.", dialog);
+    auto turnControls = new QVBoxLayout;
+    turnControls->setSpacing(ui::SpaceM);
+    for (auto button : {dialog->send, dialog->cancel}) {
+        button->setAutoDefault(false);
+        turnControls->addWidget(button);
+    }
+    turnControls->addStretch();
+    promptRow->addLayout(turnControls);
+    conversationSection->addLayout(promptRow);
+    conversationSection->addWidget(ui::hint("Enter to send · Shift+Enter for a new line · Up for history", dialog));
+    auto note = ui::hint("The agent runs under your Windows account, in an empty folder outside the pack. "
+                         "Its own file and shell tools follow its configuration. Nova manages only Nova tools.", dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
-    dialog->resize(720, 560);
+    dialog->resize(760, 800);
 
     auto ours = [this, dialog] {
         return mcpService && dialog->grant && mcpService->grantSerial() == dialog->grant &&
                !mcpService->authorizedProject().isEmpty();
     };
-    auto refresh = [this, dialog, ours] {
+    auto refresh = [this, dialog, ours, choose, projectHint, outputToggle, form, choice] {
         const auto state = dialog->session ? dialog->session->state() : acp::Session::State::Idle;
         const bool live = state == acp::Session::State::Starting || state == acp::Session::State::Ready ||
                           state == acp::Session::State::Prompting;
@@ -235,14 +576,17 @@ void Window::showAgentSession() {
             {acp::Session::State::Idle, "Not running"}, {acp::Session::State::Starting, "Starting…"},
             {acp::Session::State::Ready, "Connected"}, {acp::Session::State::Prompting, "Working…"},
             {acp::Session::State::Stopping, "Stopping…"}, {acp::Session::State::Ended, "Ended"}};
-        auto text = names.value(state);
+        dialog->status->setText(names.value(state));
+        appearance(dialog->status, "severity",
+                   state == acp::Session::State::Ready ? "success" :
+                   state == acp::Session::State::Starting || state == acp::Session::State::Prompting ? "info" : "neutral");
+        QString detail;
         if (dialog->session && !dialog->session->agentName().isEmpty())
-            text += " · " + displayable(dialog->session->agentName(), 120);
+            detail = agentDisplayText(dialog->session->agentName(), 120);
         if (state == acp::Session::State::Ended && dialog->session)
-            text += " · " + dialog->session->endReason();
-        if (live)
-            text += " · project " + QFileInfo(dialog->sessionProject).fileName();
-        dialog->status->setText(text);
+            detail = agentDisplayText(dialog->session->endReason(), 600);
+        dialog->statusDetail->setText(detail);
+        dialog->statusDetail->setVisible(!detail.isEmpty());
         if (ours()) {
             const auto connected = mcpService->clientConnected();
             dialog->access->setText(QString("%1 for project “%2” · %3")
@@ -252,17 +596,23 @@ void Window::showAgentSession() {
             dialog->access->setText(live && dialog->grant ? "Revoked · the agent can no longer use Nova's tools"
                                                           : "No access");
         }
-        dialog->start->setEnabled(!live && !project.isEmpty());
+        const bool canStart = (state == acp::Session::State::Idle || state == acp::Session::State::Ended) &&
+                              !project.isEmpty() && !dialog->program->text().trimmed().isEmpty();
+        dialog->start->setEnabled(canStart);
+        projectHint->setVisible(project.isEmpty());
+        const bool configuring = state == acp::Session::State::Idle || state == acp::Session::State::Ended;
+        dialog->agentPicker->setEnabled(configuring);
+        dialog->program->setEnabled(configuring);
+        dialog->arguments->setEnabled(configuring);
+        form->setRowVisible(dialog->arguments, configuring && choice().command.isEmpty());
+        choose->setEnabled(configuring);
         dialog->edit->setEnabled(live && ours() && !dialog->editing && mcpService->clientConnected());
         dialog->revoke->setEnabled(ours());
         dialog->stop->setEnabled(live);
-        dialog->send->setEnabled(state == acp::Session::State::Ready);
-        dialog->prompt->setEnabled(state == acp::Session::State::Ready);
+        dialog->send->setEnabled(state == acp::Session::State::Ready && !dialog->prompt->toPlainText().trimmed().isEmpty());
+        dialog->prompt->setEnabled(state == acp::Session::State::Ready || state == acp::Session::State::Prompting);
         dialog->cancel->setEnabled(state == acp::Session::State::Prompting);
-        const bool asking = !dialog->permissionId.isUndefined();
-        dialog->permissionText->setVisible(asking);
-        dialog->allow->setVisible(asking && !dialog->allowOption.isEmpty());
-        dialog->reject->setVisible(asking);
+        outputToggle->setVisible(bool(dialog->session));
     };
     // Ends Nova's grant when the session that owned it ends; never touches another grant.
     auto release = [this, dialog, ours] {
@@ -272,101 +622,141 @@ void Window::showAgentSession() {
         if (!dialog->workFolder.isEmpty())
             QDir().rmdir(dialog->workFolder); // only if the agent left it empty
     };
-    auto begin = [this, dialog, refresh, release](bool editing) {
+    auto begin = [this, dialog, refresh, release, choice, transcript, output, refreshOutput](
+                     bool editing, const acp::AgentProgram &program) {
         QString problem;
-        if (!acp::acceptableExecutable(dialog->program->text().trimmed(), &problem))
-            return (void)QMessageBox::warning(dialog, "Agent Session", problem);
+        if (!acp::acceptableExecutable(program.executable, &problem))
+            return dialog->tell(problem, "error");
         const auto bridge = bridgePath();
         if (!QFileInfo(bridge).isFile())
-            return (void)QMessageBox::warning(dialog, "Agent Session", "nova-mcp.exe is not next to Nova Studio.");
+            return dialog->tell("nova-mcp.exe is missing. Repair or reinstall Nova Studio.", "error");
         if (mcpService->status() != "Disabled")
-            return (void)QMessageBox::warning(dialog, "Agent Session",
-                "Another MCP connection is offered or active. End it in MCP Integration first.");
+            return dialog->tell("Another MCP connection is offered or active. Revoke it in MCP Integration first.", "warning");
         if (dialog->session)
             dialog->session->deleteLater();
         const auto selected = project;
         dialog->sessionProject = selected;
         dialog->editing = editing;
+        dialog->activeProgram = program;
         dialog->workFolder = QDir::tempPath() + "/nova-agent-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
         if (!QDir().mkpath(dialog->workFolder))
-            return (void)QMessageBox::warning(dialog, "Agent Session", "The agent's working folder could not be created.");
-        if (!mcpService->authorize(selected, editing))
-            return (void)QMessageBox::warning(dialog, "Agent Session", mcpService->error());
+            return dialog->tell("The agent’s working folder could not be created.", "error");
+        if (!mcpService->authorize(selected, editing)) {
+            release();
+            return dialog->tell(mcpService->error(), "error");
+        }
         dialog->grant = mcpService->grantSerial();
         auto session = new acp::Session(dialog);
         dialog->session = session;
+        output->clear();
+        connect(session, &acp::Session::agentOutputChanged, output, refreshOutput);
         // Only a bridge started by this agent (or its children) may take the grant.
         mcpService->setClientFilter([session = QPointer<acp::Session>(session)](qint64 pid) {
             return session && session->ownsProcess(pid);
         });
-        connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release] {
+        connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release, connected = false]() mutable {
+            if (session->state() == acp::Session::State::Stopping)
+                dialog->permission->clear();
             if (session->state() == acp::Session::State::Ended) {
-                dialog->permissionId = QJsonValue::Undefined;
+                dialog->permission->clear();
+                dialog->conversation->finishTurn();
+                dialog->authRow->hide();
                 release();
+            } else if (session->state() == acp::Session::State::Ready && dialog->authMethod->count()) {
+                dialog->authMethod->clear();
+                dialog->authRow->hide();
+                dialog->tell({});
             }
             refresh();
+            if (session->state() == acp::Session::State::Ready && !connected) {
+                connected = true;
+                dialog->prompt->setFocus(Qt::OtherFocusReason);
+            }
+        });
+        connect(session, &acp::Session::authenticationRequired, dialog, [dialog, choice](const QJsonArray &methods) {
+            dialog->authMethod->clear();
+            for (const auto &value : methods) {
+                const auto method = value.toObject();
+                const auto id = method["id"].toString();
+                dialog->authMethod->addItem(agentDisplayText(method["name"].toString(id), 120), id);
+                dialog->authMethod->setItemData(dialog->authMethod->count() - 1,
+                                               agentDisplayText(method["description"].toString(), 300), Qt::ToolTipRole);
+            }
+            dialog->authRow->setVisible(!methods.isEmpty());
+            const auto login = choice().signIn;
+            dialog->tell(!methods.isEmpty() ? "Choose a sign-in method to continue." : login.isEmpty()
+                ? "Sign in using your agent’s own tool, then start a new session."
+                : "Run " + login + " in a terminal to sign in, then start a new session.");
         });
         connect(session, &acp::Session::agentText, dialog,
-                [dialog](const QString &text) { dialog->conversation->add(Conversation::Speaker::Agent, text); });
+                [dialog, transcript](const QString &text) {
+                    transcript->setCurrentWidget(dialog->conversation);
+                    dialog->conversation->add(AgentConversation::Speaker::Agent, text);
+                });
         connect(session, &acp::Session::agentThought, dialog,
-                [dialog](const QString &text) { dialog->conversation->add(Conversation::Speaker::Thinking, text); });
+                [dialog, transcript](const QString &text) {
+                    transcript->setCurrentWidget(dialog->conversation);
+                    dialog->conversation->add(AgentConversation::Speaker::Thinking, text);
+                });
+        connect(session, &acp::Session::toolCall, dialog, [dialog, transcript](const QJsonObject &update) {
+            transcript->setCurrentWidget(dialog->conversation);
+            dialog->conversation->showTool(update);
+        });
+        connect(session, &acp::Session::planChanged, dialog, [dialog, transcript](const QJsonArray &entries) {
+            transcript->setCurrentWidget(dialog->conversation);
+            dialog->conversation->showPlan(entries);
+        });
         // Only how a turn ended unusually is worth a line; a normal reply speaks for itself.
         connect(session, &acp::Session::turnEnded, dialog, [dialog](const QString &reason) {
+            dialog->permission->clear();
+            dialog->conversation->finishTurn();
             static const QMap<QString, QString> told{
                 {"end_turn", ""}, {"cancelled", "You cancelled the agent's turn."},
                 {"max_tokens", "The agent stopped: it reached its output limit."},
                 {"max_turn_requests", "The agent stopped: it reached its limit of steps for one message."},
                 {"refusal", "The agent declined to continue."}};
-            dialog->tell(told.contains(reason) ? told.value(reason) : "The agent's turn ended with a problem.");
+            if (reason.startsWith("error: "))
+                dialog->tell("Agent error: " + reason.mid(7), "error");
+            else
+                dialog->tell(told.value(reason, "The agent ended the turn: " + reason), "info");
         });
-        connect(session, &acp::Session::problem, dialog, [dialog](const QString &message) { dialog->tell(message); });
-        connect(session, &acp::Session::permissionRequested, dialog,
-                [dialog, refresh](const QJsonValue &id, const QJsonObject &params) {
-            if (!dialog->permissionId.isUndefined())
-                dialog->session->answerPermission(dialog->permissionId, dialog->rejectOption);
-            dialog->permissionId = id;
-            dialog->allowOption.clear();
-            dialog->rejectOption.clear();
-            for (const auto &value : params["options"].toArray()) {
-                const auto option = value.toObject();
-                if (option["kind"] == "allow_once" && dialog->allowOption.isEmpty())
-                    dialog->allowOption = option["optionId"].toString();
-                if (option["kind"] == "reject_once" && dialog->rejectOption.isEmpty())
-                    dialog->rejectOption = option["optionId"].toString();
-            }
-            const auto call = params["toolCall"].toObject();
-            dialog->permissionText->setText("The agent asks to use its own tool (not a Nova tool): " +
-                displayable(call["title"].toString(), 200) + "\n" +
-                displayable(QString::fromUtf8(QJsonDocument(call["rawInput"].toObject()).toJson(QJsonDocument::Compact)), 400));
-            refresh();
-        });
+        connect(session, &acp::Session::problem, dialog, [dialog](const QString &message) { dialog->tell(message, "warning"); });
+        connect(session, &acp::Session::permissionRequested, dialog->permission, &PermissionCard::enqueue);
         dialog->tell({});
-        const auto executable = dialog->program->text().trimmed();
-        const QStringList arguments = QFileInfo(executable).baseName().compare("opencode", Qt::CaseInsensitive) == 0
-                                          ? QStringList{"acp"} : QStringList{};
-        if (!session->start({executable, arguments}, dialog->workFolder,
+        dialog->authMethod->clear();
+        if (!session->start(program, dialog->workFolder,
                             QJsonArray{acp::stdioServer("nova", bridge)}, acp::agentEnvironment(), &problem)) {
-            dialog->tell("The session could not start: " + problem);
+            dialog->tell("The session could not start: " + problem, "error");
             release();
         }
         refresh();
     };
+    connect(dialog->program, &QLineEdit::textChanged, dialog, refresh);
+    connect(dialog->agentPicker, &QComboBox::currentIndexChanged, dialog, refresh);
     connect(choose, &QPushButton::clicked, dialog, [dialog] {
-        const auto file = QFileDialog::getOpenFileName(dialog, "Choose the agent program", {}, "Programs (*.exe)");
+        const auto file = QFileDialog::getOpenFileName(dialog, "Choose the agent program", {}, "Programs (*.exe *.cmd)");
         if (!file.isEmpty())
             dialog->program->setText(QDir::toNativeSeparators(file));
     });
-    connect(dialog->start, &QPushButton::clicked, dialog, [this, dialog, begin] {
+    connect(dialog->start, &QPushButton::clicked, dialog, [this, dialog, begin, choice] {
         const auto executable = QDir::toNativeSeparators(dialog->program->text().trimmed());
+        const auto &selected = choice();
+        const auto args = selected.command.isEmpty() ? QProcess::splitCommand(dialog->arguments->text()) : selected.arguments;
+        QString problem;
+        const auto program = acp::resolveAgentProgram(executable, args, &problem);
+        if (program.executable.isEmpty())
+            return dialog->tell(problem, "error");
+        const auto launcher = executable == program.executable ? executable :
+            executable + "\n" + program.executable + " → " + program.arguments.value(0);
         // Consent names the project, the program and the access, and defaults to Cancel.
         if (QMessageBox::question(dialog, "Start agent session?",
-                "Nova Studio will start this agent program:\n" + executable +
+                "Nova Studio will start this agent program:\n" + launcher +
                 "\n\nIt gets read-only access to Nova's tools for project “" + QFileInfo(project).fileName() +
                 "”: it can list, inspect and validate assets, read guides and preview changes. It cannot create, "
                 "edit or save anything through Nova.\n\nAccess ends when you stop the session, revoke access, "
                 "switch projects, or the agent exits.",
                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Yes)
-            begin(false);
+            begin(false, program);
     });
     connect(dialog->edit, &QPushButton::clicked, dialog, [this, dialog, begin] {
         if (QMessageBox::question(dialog, "Allow agent editing?",
@@ -377,15 +767,19 @@ void Window::showAgentSession() {
             project != dialog->sessionProject || !dialog->session)
             return;
         auto old = dialog->session;
+        const auto authorizedProject = dialog->sessionProject;
+        const auto restart = [this, dialog, old, begin, authorizedProject, program = dialog->activeProgram] {
+            if (old && dialog->session == old && old->state() == acp::Session::State::Ended &&
+                project == authorizedProject)
+                begin(true, program);
+        };
         old->stop("Restarted with editing access.");
         // The old agent's tree is ended before the editing grant is offered.
-        QTimer::singleShot(0, dialog, [dialog, old, begin] {
+        QTimer::singleShot(0, dialog, [dialog, old, restart] {
             if (old && old->state() != acp::Session::State::Ended)
-                return void(QObject::connect(old, &acp::Session::stateChanged, dialog, [old, begin] {
-                    if (old->state() == acp::Session::State::Ended)
-                        begin(true);
-                }, Qt::SingleShotConnection));
-            begin(true);
+                return void(QObject::connect(old, &acp::Session::stateChanged, dialog, restart,
+                                             Qt::SingleShotConnection));
+            restart();
         });
     });
     connect(dialog->revoke, &QPushButton::clicked, dialog, [this, dialog, ours, refresh] {
@@ -397,36 +791,31 @@ void Window::showAgentSession() {
         if (dialog->session)
             dialog->session->stop("Stopped by you.");
     });
-    connect(dialog->cancel, &QPushButton::clicked, dialog, [dialog, refresh] {
+    connect(dialog->cancel, &QPushButton::clicked, dialog, [dialog] {
         if (dialog->session)
             dialog->session->cancel();
-        dialog->permissionId = QJsonValue::Undefined;
-        refresh();
+        dialog->permission->clear();
     });
-    auto submit = [dialog] {
-        const auto text = dialog->prompt->text().trimmed();
+    auto submit = [dialog, transcript] {
+        const auto text = dialog->prompt->toPlainText().trimmed();
         if (dialog->session && dialog->session->prompt(text)) {
-            dialog->conversation->add(Conversation::Speaker::You, text);
+            transcript->setCurrentWidget(dialog->conversation);
+            dialog->conversation->add(AgentConversation::Speaker::You, text);
             dialog->tell({});
-            dialog->prompt->clear();
+            dialog->prompt->remember(text);
         }
     };
     connect(dialog->send, &QPushButton::clicked, dialog, submit);
-    connect(dialog->prompt, &QLineEdit::returnPressed, dialog, submit);
-    auto answer = [dialog, refresh](bool allowed) {
-        if (dialog->session && !dialog->permissionId.isUndefined())
-            dialog->session->answerPermission(dialog->permissionId, allowed ? dialog->allowOption : dialog->rejectOption);
-        dialog->permissionId = QJsonValue::Undefined;
-        refresh();
-    };
-    connect(dialog->allow, &QPushButton::clicked, dialog, [answer] { answer(true); });
-    connect(dialog->reject, &QPushButton::clicked, dialog, [answer] { answer(false); });
+    connect(dialog->prompt, &QPlainTextEdit::textChanged, dialog, refresh);
+    dialog->prompt->submit = submit;
     connect(mcpService, &mcp::Service::changed, dialog, refresh);
+    connect(this, &QWidget::windowTitleChanged, dialog, refresh);
     // Closing the window ends the agent and the grant it held.
-    connect(dialog, &QDialog::finished, dialog, [dialog, release] {
+    connect(dialog, &QDialog::finished, dialog, [this, dialog, release] {
         if (dialog->session)
             dialog->session->stop("The session window was closed.");
         release();
+        settings.saveAgentSetup(preferences);
     });
     refresh();
     dialog->show();

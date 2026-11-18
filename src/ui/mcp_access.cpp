@@ -1226,7 +1226,15 @@ void Window::createMcpAccessDialog(int page) {
     overview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     overview->setProperty("role", "value");
     overview->setProperty("role", "strong");
-    outer->addWidget(overview);
+    auto overviewRow = new QHBoxLayout;
+    overviewRow->setSpacing(ui::SpaceL);
+    overviewRow->addWidget(overview, 1);
+    auto agentSessionLink = new QPushButton("Open Agent Session…", dialog);
+    agentSessionLink->setObjectName("mcpOpenAgentSession");
+    agentSessionLink->setProperty("role", "link");
+    overviewRow->addWidget(agentSessionLink);
+    outer->addLayout(overviewRow);
+    connect(agentSessionLink, &QPushButton::clicked, this, [this] { showAgentSession(); });
     auto mcpTabs = new QTabWidget(dialog);
     mcpTabs->setObjectName("mcpTabs");
     outer->addWidget(mcpTabs);

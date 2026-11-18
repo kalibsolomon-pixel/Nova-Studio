@@ -527,7 +527,6 @@ SearchIndex Window::searchIndex() {
         return QString("Command");
     };
     const auto add = [&](QAction *action, const QStringList &path, const QList<QMenu *> &chain) {
-        // Hidden commands (an experimental feature that is turned off) are not offered.
         if (!action || action->isSeparator() || !action->isVisible() || seen.contains(action) ||
             cleanText(action->text()).isEmpty())
             return;
@@ -615,7 +614,6 @@ SearchIndex Window::searchIndex() {
     setting("Reset workspace layout", "Workspace", "preferenceResetWorkspace", {"workspace", "panels", "layout", "reset"});
     setting("Vanilla texture cache location", "Vanilla textures", "preferenceBaselineLocation", {"vanilla", "baseline", "cache", "folder", "location"});
     setting("Manage cached vanilla textures", "Vanilla textures", "preferenceBaselineManage", {"vanilla", "baseline", "cache", "disk space", "remove", "verify"});
-    setting("Experimental Agent Session (ACP)", "Experimental", "preferenceExperimentalAgentSession", {"experimental", "acp", "agent session", "opencode"});
     // Controls that live in panels rather than Preferences.
     const auto control = [&](const QString &title, const QString &location, QDockWidget *dock, QWidget *bar,
                              const QString &name, const QStringList &keywords) {
