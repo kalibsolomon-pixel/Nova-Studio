@@ -139,6 +139,34 @@ QJsonArray describeOperations(const QJsonArray &operations) {
     return description;
 }
 
+QJsonObject nativeOperation(QJsonObject command) {
+    const auto name = command["command"].toString();
+    const auto &info = *ops::find(name);
+    auto params = command["params"].toObject();
+    // MCP uses CSS RGBA. The image operation registry uses QColor's ARGB strings.
+    const auto argb = [](const QString &color) {
+        return color.size() == 9 ? '#' + color.right(2) + color.mid(1, 6) : color;
+    };
+    for (const auto &param : info.params) {
+        if (!params.contains(param.key))
+            continue;
+        if (param.type == ops::ParamType::Color)
+            params[param.key] = argb(params[param.key].toString());
+        if (param.type == ops::ParamType::Palette) {
+            QStringList colors;
+            for (const auto &color : params[param.key].toArray())
+                colors.append(argb(color.toString()));
+            params[param.key] = colors.join(',');
+        }
+    }
+    command["command"] = "operation";
+    command["operation"] = name;
+    command["params"] = params;
+    if (info.generator)
+        command["fitCanvas"] = true;
+    return command;
+}
+
 QJsonObject encodePreview(const QImage &image, const QString &asset = {}, const QString &revision = {}) {
     if (image.isNull())
         return mcp::toolError("preview_unavailable", "No image is available for this revision.");
@@ -1459,6 +1487,7 @@ void Window::ensureMcpService() {
                 if (doc->image.width() > MaxEditDimension || doc->image.height() > MaxEditDimension ||
                     doc->pixelBytes() > MaxEditPixelBytes)
                     return toolError("edit_limit", "The document exceeds the editing budget.");
+                QJsonArray nativeCommands;
                 for (const auto &value : operations) {
                     if (modelOperation(value))
                         return toolError("invalid_asset_type", "This command requires a model document.");
@@ -1486,11 +1515,19 @@ void Window::ensureMcpService() {
                         if (const auto failure = texture::validate(name, op, doc->image.size()); !failure.ok())
                             return toolError("invalid_arguments", failure.message, {{"pointer", failure.pointer}});
                     }
+                    if (name == "directional_shading") {
+                        const auto source = op["params"].toObject()["height_source"].toString();
+                        const bool needsMap = source == "Heightmap layer" || source == "Normal map layer";
+                        if (needsMap != op.contains("mapLayer"))
+                            return toolError("invalid_arguments",
+                                "Supply mapLayer exactly when height_source is Heightmap layer or Normal map layer.");
+                    }
+                    nativeCommands.append(mcp::nativeTextureCommand(name) ? nativeOperation(op) : op);
                 }
                 QString error;
                 QElapsedTimer staging;
                 staging.start();
-                prepared = session.prepareBatch(doc, operations, &error, snapshot.generation, MaxEditPixelBytes,
+                prepared = session.prepareBatch(doc, nativeCommands, &error, snapshot.generation, MaxEditPixelBytes,
                                                 request.continuePreparation);
                 metrics.record(doc->animated() ? "mcp_animation_prepare" : "mcp_texture_prepare", staging);
                 if (!prepared)

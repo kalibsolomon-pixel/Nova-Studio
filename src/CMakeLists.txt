@@ -65,7 +65,7 @@ target_link_libraries(nova-vanilla PRIVATE Qt6::CorePrivate)
 add_library(nova-mcp-protocol STATIC mcp/protocol.cpp mcp/protocol.h mcp/guides.cpp mcp/guides.h
   mcp/handoff.cpp mcp/handoff.h)
 target_include_directories(nova-mcp-protocol PUBLIC mcp "${PROJECT_BINARY_DIR}/generated")
-target_link_libraries(nova-mcp-protocol PUBLIC Qt6::Core)
+target_link_libraries(nova-mcp-protocol PUBLIC Qt6::Core PRIVATE nova-core)
 if(WIN32)
   target_link_libraries(nova-mcp-protocol PRIVATE advapi32 shell32 ole32)
 endif()

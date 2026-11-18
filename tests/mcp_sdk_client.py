@@ -976,6 +976,29 @@ async def phase2(client: ClientSession, wire) -> dict:
     redone = await client.call_tool("nova.edit.redo", {**target, "expectedRevision": undone.structuredContent["revision"]})
     assert not redone.isError and redone.structuredContent["revision"] != undone.structuredContent["revision"], redone
     cycle, revision = await texture_cycle(client, wire, target, redone.structuredContent["revision"])
+    native = tools["nova.texture.edit"]
+    native_validator = jsonschema.Draft202012Validator(native.inputSchema)
+    region = {"x": 0, "y": 0, "width": 2, "height": 2}
+    before_native = await client.call_tool("nova.texture.read", target)
+    native_request = {**target, "expectedRevision": revision, "operation": {
+        "command": "gen_gui_panel", "region": region,
+        "params": {"base": "#12345680", "style": "Flat", "outline": False, "corner_radius": 0},
+    }}
+    native_validator.validate(native_request)
+    generated = await client.call_tool(native.name, native_request)
+    assert not generated.isError and generated.structuredContent["changed"], generated
+    after_native = await client.call_tool("nova.texture.read", {**target, "region": region})
+    assert "#12345680" in after_native.structuredContent["pixels"]["palette"], after_native
+    assert after_native.structuredContent["revision"] == generated.structuredContent["revision"]
+    restored_native = await client.call_tool("nova.edit.undo", {
+        **target, "expectedRevision": generated.structuredContent["revision"]})
+    assert not restored_native.isError, restored_native
+    after_undo = await client.call_tool("nova.texture.read", target)
+    assert after_undo.structuredContent["pixels"] == before_native.structuredContent["pixels"]
+    revision = restored_native.structuredContent["revision"]
+    bad = await client.call_tool(native.name, {**target, "expectedRevision": revision, "operation": {
+        "command": "resize_image", "params": {"width": 257, "height": 16}}})
+    assert tool_error(bad)["code"] == "invalid_arguments", bad
     saved = await client.call_tool("nova.drafts.save", {**scope, "documentId": row["documentId"],
                                                         "expectedRevision": revision})
     assert not saved.isError and saved.structuredContent["status"] == "saved", saved

@@ -235,6 +235,30 @@ full canvas.
  "region": {"x": 0, "y": 12, "width": 16, "height": 4}, "strength": 255}
 ```
 
+## Native adjustments and generators
+
+Use `nova.texture.edit` with an `operation` such as
+`{"command":"hue_saturation","params":{"hue":-25,"saturation":10}}`. The same
+commands work in `nova.edit.batch`, `nova.edit.preview`, and workflow stages. Each
+operation accepts only the parameters in `tools/list`. Optional parameters use
+Nova's editor defaults. Colours use the same CSS order as the compact tools.
+
+- Colour and tone: `hue_saturation`, `levels`, `colorize`, `quantize`, `palette_map`.
+  `levels` requires `input_white` to exceed `input_black`. `palette_map` requires
+  an explicit `palette` of 1–256 colours.
+- Effects: `outline`, `directional_shading`, `seamless`. For a heightmap or normal
+  map source, set `mapLayer` to a layer in the active frame. Set `output` to
+  `Modify pixels` to shade the target in place. The default adds a shading layer.
+- Generators: `gen_stone`, `gen_bricks`, `gen_tiles`, `gen_wood`, `gen_ore`,
+  `gen_metal`, `gen_gui_panel`, `gen_item`, `gen_noise`. They render at the current
+  canvas size and replace pixels on the target layer.
+- `resize_image` requires `params.width` and `params.height` (1–256). It resizes
+  every layer and frame together and uses nearest-neighbour resampling by default.
+
+Except for `resize_image`, choose an optional visible `layer` in the active frame
+and an optional `region` inside the canvas. Nova computes the effect at canvas
+size and clips the result to the region and the active selection.
+
 ## Errors
 
 Errors are tool results with `isError: true` and a text block `{"error": {"code", "message",

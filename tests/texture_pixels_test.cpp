@@ -691,6 +691,41 @@ class TexturePixelsTest : public QObject {
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
         for (auto it = phase1.begin(); it != phase1.end(); ++it) {
             auto now = runtime.value(it.key()), then = canonical(it.value().toObject());
+            auto oldCommands = [](QJsonObject variants) {
+                QJsonArray commands;
+                for (const QJsonValue &variant : variants["oneOf"].toArray()) {
+                    const auto name = variant["properties"]["command"]["enum"].toArray().at(0).toString();
+                    if (!nativeTextureCommand(name))
+                        commands.append(variant);
+                }
+                variants["oneOf"] = commands;
+                return variants;
+            };
+            if (it.key() == "nova.texture.edit" || it.key() == "nova.edit.preview" || it.key() == "nova.edit.batch" ||
+                it.key() == "nova.workflow.plan" || it.key() == "nova.workflow.execute") {
+                auto input = now["inputSchema"].toObject();
+                auto fields = input["properties"].toObject();
+                auto stripBatch = [&](QJsonObject &properties) {
+                    auto operations = properties["operations"].toObject();
+                    operations["items"] = oldCommands(operations["items"].toObject());
+                    properties["operations"] = operations;
+                };
+                if (fields.contains("operation")) {
+                    fields["operation"] = oldCommands(fields["operation"].toObject());
+                } else if (fields.contains("stages")) {
+                    auto stages = fields["stages"].toObject();
+                    auto stage = stages["items"].toObject();
+                    auto stageFields = stage["properties"].toObject();
+                    stripBatch(stageFields);
+                    stage["properties"] = stageFields;
+                    stages["items"] = stage;
+                    fields["stages"] = stages;
+                } else {
+                    stripBatch(fields);
+                }
+                input["properties"] = fields;
+                now["inputSchema"] = input;
+            }
             if (it.key() == "nova.pack.validate") {
                 QCOMPARE(now["inputSchema"], then["inputSchema"]);
                 QCOMPARE(now["annotations"], then["annotations"]);

@@ -257,6 +257,17 @@ std::function<bool(QString *)> DocumentSession::prepareBatch(const std::shared_p
     for (const auto &value : commands) {
         const auto command = value.toObject();
         const auto name = command["command"].toString();
+        if (name == "operation" && command["operation"] == "resize_image") {
+            const auto params = command["params"].toObject();
+            qint64 layers = 1; // include the active composite
+            for (const auto &frame : draft->animationState().frames)
+                layers += frame.layers.size();
+            if (layers * params["width"].toInt() * params["height"].toInt() * 4 > maxPixelBytes) {
+                if (error)
+                    *error = "The resulting document exceeds the transaction pixel budget";
+                return {};
+            }
+        }
         if (name == "undo" || name == "redo" || !staging.execute(draft, command, error))
             return {};
         if (draft->pixelBytes() > maxPixelBytes) {
@@ -327,8 +338,37 @@ bool DocumentSession::execute(const std::shared_ptr<Document> &doc, const QJsonO
         auto rgb = ops::parseColor(c.value(key).toString(), &ok);
         return ok ? rgb : qRgba(0, 0, 0, 255);
     };
-    if (command == "operation")
-        return apply(doc, layer, {c.value("operation").toString(), c.value("params").toObject()}, error);
+    if (command == "operation") {
+        ops::Spec spec{c["operation"].toString(), c["params"].toObject()};
+        ops::Context context;
+        QImage regionMask;
+        if (c.contains("region")) {
+            const auto region = c["region"].toObject();
+            const QRect bounds(region["x"].toInt(), region["y"].toInt(),
+                               region["width"].toInt(), region["height"].toInt());
+            if (bounds.isEmpty() || !doc->image.rect().contains(bounds)) {
+                if (error)
+                    *error = "The operation region lies outside the canvas";
+                return false;
+            }
+            regionMask = ops::rectMask(doc->image.size(), bounds);
+            context.mask = &regionMask;
+        }
+        if (c.contains("mapLayer")) {
+            const auto map = doc->layer(QUuid(c["mapLayer"].toString()));
+            if (!map) {
+                if (error)
+                    *error = "The map layer is not in the active frame";
+                return false;
+            }
+            context.heightmap = &map->pixels;
+        }
+        if (c["fitCanvas"].toBool()) {
+            spec.params["width"] = doc->image.width();
+            spec.params["height"] = doc->image.height();
+        }
+        return apply(doc, layer, spec, error, &context);
+    }
     if (command == "operation_layers") {
         QVector<QUuid> ids;
         if(c["scope"].toString()=="all")for(const auto &l:doc->layers())ids<<l.id;

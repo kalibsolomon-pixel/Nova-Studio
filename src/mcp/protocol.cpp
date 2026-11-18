@@ -2,6 +2,7 @@
 #include "protocol.h"
 #include "build_identity.h"
 #include "guides.h"
+#include "imageops.h"
 #include <QJsonDocument>
 #include <QRandomGenerator>
 #include <QRegularExpression>
@@ -192,6 +193,62 @@ QJsonObject commandSchema(const QString &name, QJsonObject fields) {
     fields["command"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{name}}};
     return objectSchema(fields, QJsonArray::fromStringList(fields.keys()));
 }
+const QStringList &nativeTextureCommands() {
+    static const QStringList commands{"hue_saturation", "levels", "colorize", "quantize", "palette_map",
+        "outline", "directional_shading", "resize_image", "seamless", "gen_stone", "gen_bricks",
+        "gen_tiles", "gen_wood", "gen_ore", "gen_metal", "gen_gui_panel", "gen_item", "gen_noise"};
+    return commands;
+}
+QJsonObject nativeTextureSchema(const QString &command, const QJsonObject &uuid) {
+    const auto &info = *ops::find(command);
+    const auto color = stringField(9, "^#[A-Fa-f0-9]{6}([A-Fa-f0-9]{2})?$");
+    QJsonObject params;
+    QJsonArray requiredParams;
+    for (const auto &param : info.params) {
+        const auto &key = param.key;
+        if (info.generator && (key == "width" || key == "height"))
+            continue;
+        switch (param.type) {
+        case ops::ParamType::Int:
+            params[key] = integerField(int(param.minimum), info.changesSize ? 256 : int(param.maximum));
+            if (info.changesSize)
+                requiredParams.append(key);
+            break;
+        case ops::ParamType::Double:
+            params[key] = QJsonObject{{"type", "number"}, {"minimum", param.minimum}, {"maximum", param.maximum}};
+            break;
+        case ops::ParamType::Bool:
+            params[key] = QJsonObject{{"type", "boolean"}};
+            break;
+        case ops::ParamType::Color:
+            params[key] = color;
+            break;
+        case ops::ParamType::Choice: {
+            auto choices = param.choices;
+            if (command == "directional_shading" && key == "palette_mode")
+                choices.removeAll("Active palette");
+            params[key] = QJsonObject{{"type", "string"}, {"enum", QJsonArray::fromStringList(choices)}};
+            break;
+        }
+        case ops::ParamType::Palette:
+            params[key] = arrayField(color, 1, 256);
+            requiredParams.append(key);
+            break;
+        }
+    }
+    QJsonObject fields{{"command", QJsonObject{{"enum", QJsonArray{command}}}},
+                       {"params", objectSchema(params, requiredParams)}};
+    if (!info.changesSize) {
+        fields["layer"] = uuid;
+        fields["region"] = objectSchema({{"x", integerField(0, 255)}, {"y", integerField(0, 255)},
+            {"width", integerField(1, 256)}, {"height", integerField(1, 256)}}, {"x", "y", "width", "height"});
+    }
+    if (command == "directional_shading")
+        fields["mapLayer"] = uuid;
+    auto schema = objectSchema(fields, requiredParams.isEmpty() ? QJsonArray{"command"} : QJsonArray{"command", "params"});
+    schema["description"] = info.description;
+    return schema;
+}
 QJsonObject editOutputSchema(bool capabilities) {
     QJsonObject fields;
     auto add = [&](const QString &name, const char *type) { fields[name] = QJsonObject{{"type", type}}; };
@@ -237,7 +294,7 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
     const auto name = stringField(128, "^.*\\S.*$");
     const auto coord = integerField(0, 255);
     const auto boolean = QJsonObject{{"type", "boolean"}};
-    const QJsonArray texture{
+    QJsonArray texture{
         commandSchema("fill_rect", {{"layer", uuid}, {"x", coord}, {"y", coord},
             {"width", integerField(1, 256)}, {"height", integerField(1, 256)},
             {"color", color}, {"opacity", integerField(1, 255)}}),
@@ -246,6 +303,8 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token) {
         commandSchema("fill", {{"layer", uuid}, {"x", coord}, {"y", coord}, {"color", color},
                                {"tolerance", integerField(0, 255)}, {"contiguous", boolean},
                                {"opacity", integerField(1, 255)}})};
+    for (const auto &command : nativeTextureCommands())
+        texture.append(nativeTextureSchema(command, uuid));
     const QJsonArray layers{
         commandSchema("layer_add", {{"layer", uuid}, {"name", name}}),
         commandSchema("layer_duplicate", {{"layer", uuid}}),
@@ -764,6 +823,7 @@ QJsonObject resourceReply(const QJsonValue &id, const QString &uri, const QStrin
 }
 SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema) { return check(value, schema, {}); }
 const QJsonArray &toolDefinitions() { return tools(); }
+bool nativeTextureCommand(const QString &command) { return nativeTextureCommands().contains(command); }
 QString compactTextureCommand(const QString &tool) {
     for (const auto name : {"put_pixels", "palette_remap", "gradient_map", "erase"})
         if (tool == QString("nova.texture.") + name)

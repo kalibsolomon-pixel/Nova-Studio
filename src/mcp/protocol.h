@@ -41,6 +41,7 @@ const QJsonArray &toolDefinitions();
 // The native command behind a compact texture tool (nova.texture.put_pixels -> put_pixels); empty
 // for every other tool. These tools are mutations and need editing permission.
 QString compactTextureCommand(const QString &tool);
+bool nativeTextureCommand(const QString &command);
 QStringList categories();
 QString randomToken();
 }
