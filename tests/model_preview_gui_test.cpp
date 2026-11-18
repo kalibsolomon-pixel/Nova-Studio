@@ -508,6 +508,33 @@ class ModelPreviewGuiTests : public QObject {
             for (int x = 0; x < icon.width(); ++x)
                 QCOMPARE(icon.pixelColor(x, y), pixels.contains(x, y) ? solid : QColor(Qt::transparent));
     }
+    void inventoryAtlasTexel() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        const QString texture = "assets/nova/textures/block/atlas.png";
+        model.display["gui"] = QJsonObject{{"rotation", QJsonArray{30, 225, 0}},
+                                           {"scale", QJsonArray{.625, .625, .625}}};
+        const QJsonObject up{{"texture", "nova:block/atlas"}};
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", QJsonObject{{"up", up}}}}};
+        QImage sprite(16, 16, QImage::Format_RGBA8888);
+        sprite.fill(Qt::white);
+        sprite.setPixelColor(11, 4, Qt::red);
+        sprite.setPixelColor(12, 4, Qt::green);
+        const QMap<QString, QImage> materials{{texture, sprite}};
+        const auto geometry = mc::displayMesh(model, {}, "gui", materials);
+        cube->setDocument({});
+        cube->setContextTransform({});
+        cube->setPreviewContext("gui", false, "minecraft:stone");
+        cube->setModel(std::make_shared<mc::Mesh>(geometry), {}, materials);
+        const auto actual = cube->captureInventoryIcon(4);
+        QCOMPARE(actual.size(), QSize(64, 64));
+        // GuiRenderer's 64 px projection places this centre at about (11.99968, 4.283)
+        // in the tile. The block-atlas interpolant selects the texel in column 12.
+        QCOMPARE(actual.pixelColor(31, 21), QColor(Qt::green));
+    }
     void inventoryPixels_data() {
         QTest::addColumn<QString>("kind");
         QTest::addColumn<int>("scale");
