@@ -145,6 +145,22 @@ void ModelTest::blockstatesAndItems() {
     QVERIFY(d.diagnostics.join(' ').contains("select fallback"));
     d = library.dispatch("assets/demo/items/s.json", {{"minecraft:trim_material", "minecraft:iron"}});
     QCOMPARE(d.instances[0].model, QString("demo:b"));
+    // Vanilla items in a slot are default stacks: conditions are false, numbers 0, bundles hold nothing.
+    write(r, "assets/minecraft/items/rod.json",
+          R"({"model":{"type":"minecraft:condition","property":"minecraft:fishing_rod/cast","on_true":{"type":"minecraft:model","model":"demo:b"},"on_false":{"type":"minecraft:model","model":"demo:a"}}})");
+    write(r, "assets/minecraft/items/brush.json",
+          R"({"model":{"type":"minecraft:range_dispatch","property":"minecraft:use_cycle","entries":[{"threshold":0.25,"model":{"type":"minecraft:model","model":"demo:b"}}],"fallback":{"type":"minecraft:model","model":"demo:a"}}})");
+    write(r, "assets/minecraft/items/bundle.json",
+          R"({"model":{"type":"minecraft:composite","models":[{"type":"minecraft:model","model":"demo:a"},{"type":"minecraft:bundle/selected_item"}]}})");
+    library.update(r, Index::scan(r));
+    for (const auto *item : {"rod", "brush", "bundle"}) {
+        d = library.dispatch(QString("assets/minecraft/items/%1.json").arg(item));
+        QCOMPARE(d.instances.size(), 1);
+        QCOMPARE(d.instances[0].model, QString("demo:a"));
+        QVERIFY2(!d.diagnostics.join(' ').contains("Unsupported"), item);
+    }
+    d = library.dispatch("assets/minecraft/items/rod.json", {{"minecraft:fishing_rod/cast", true}});
+    QCOMPARE(d.instances[0].model, QString("demo:b"));
 }
 void ModelTest::rescaleUvlockAndModernShading() {
     QTemporaryDir dir;

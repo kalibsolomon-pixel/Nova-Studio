@@ -229,15 +229,20 @@ Dispatch Library::dispatch(const QString &asset, const QJsonObject &inputs, int 
                 for (const auto &child : o["models"].toArray())
                     visit(child.toObject(), depth + 1, label + " / composite");
             } else if (type == "minecraft:empty") { /* Intentionally invisible. */
+            } else if (type == "minecraft:bundle/selected_item") {
+                // The item picked inside a bundle; a default (empty) bundle shows none.
             } else if (type == "minecraft:condition" || type == "minecraft:select" ||
                        type == "minecraft:range_dispatch") {
                 const auto property = o["property"].toString();
                 auto value = inputs[property];
                 if (value.isUndefined() && vanillaItem) {
-                    if (property == "minecraft:using_item")
-                        value = false;
-                    else if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
+                    // A default stack in a slot: no components, not held, used, cast or broken.
+                    if (property == "minecraft:local_time" && o["pattern"].toString() == "MM-dd")
                         value = QDate::currentDate().toString("MM-dd");
+                    else if (type == "minecraft:condition")
+                        value = false;
+                    else if (type == "minecraft:range_dispatch")
+                        value = 0.0;
                 }
                 if (value.isUndefined() && type == "minecraft:select" && o.contains("fallback")) {
                     // A default stack has no value for the property, so the game uses the fallback

@@ -62,6 +62,10 @@ class Library {
     QMap<QString, AssetIdentity> records;
     QMap<QString, QSet<QString>> forward, reverse;
     QHash<QString, Model> cache;
+    // Assets touched since the library began tracking again: "" alone means everything
+    // (project switch, version change, resource-stack change); otherwise the specific
+    // paths passed to update()/previewed since, which icon caches key invalidation on.
+    QStringList lastChanged;
     Index editableSnapshot;
     QVector<ResourceSource> fallbacks;
     ResourceStack stack;
@@ -99,6 +103,10 @@ class Library {
     QStringList modelsForTexture(const QString &asset);
     QStringList dependencies(const QString &asset) const;
     QStringList dependents(const QString &asset, bool transitive = true) const;
+    // Scope of the change carried by this library since the previous snapshot a caller
+    // consumed: {""} for a whole-library change, otherwise the changed assets
+    // (definitions, textures and previewed sources) accumulated since.
+    QStringList lastUpdateChanged() const { return lastChanged; }
     QStringList modelIds() const;
     QStringList definitionPaths() const;
     QStringList texturePaths() const {
