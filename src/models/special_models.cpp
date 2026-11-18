@@ -125,6 +125,7 @@ void shulker(EntityMesh &out, const QJsonObject &renderer) {
 }
 
 void bed(EntityMesh &out, const QJsonObject &renderer) {
+    out.layer = EntityLayer::Solid;
     out.texture = material(renderer, "bed/", "red");
     const float legAngles[2][2] = {{90, 180}, {0, 270}};
     for (int half = 0; half < 2; ++half) {

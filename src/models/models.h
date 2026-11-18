@@ -40,6 +40,7 @@ struct Model {
     QMap<QString, QPair<QString, QString>> displayOrigin;
     GuiLight guiLight = GuiLight::Side;
     bool generated = false, valid = false;
+    QString faceTexture(const QString &reference) const;
 };
 struct Instance {
     QString model, label;

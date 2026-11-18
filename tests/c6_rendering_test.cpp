@@ -204,6 +204,8 @@ class RenderingTest : public QObject {
         const auto bed = mc::specialMesh(base, {{"type", "bed"}, {"texture", "red"}});
         QCOMPARE(bed.faces.size(), 36);
         QCOMPARE((bed.maximum - bed.minimum).z(), 4.f);
+        for (const auto &face : bed.faces)
+            QCOMPARE(face.entityLayer, mc::EntityLayer::Solid);
         QCOMPARE(mc::specialMesh(base, {{"type", "head"}, {"kind", "skeleton"}}).faces.size(), 6);
         QCOMPARE(mc::specialMesh(base, {{"type", "player_head"}}).faces.size(), 12);
         QCOMPARE(mc::specialMesh(base, {{"type", "shield"}}).faces.size(), 12);
@@ -254,6 +256,57 @@ class RenderingTest : public QObject {
         QCOMPARE(copper.faces.front().entityLayer, mc::EntityLayer::CutoutNoCull);
         QCOMPARE(copper.maximum.y(), 2.f);
         QVERIFY(qAbs(copper.minimum.y() - (-1.f + .015f / 8)) < 1e-6f);
+    }
+    void lightStackBlockState() {
+        QTemporaryDir pack;
+        QVERIFY(QDir().mkpath(pack.filePath("assets/minecraft/items")));
+        const QString asset = "assets/minecraft/items/light.json";
+        auto leaf = [](const QString &id) { return QJsonObject{{"type", "model"}, {"model", id}}; };
+        QFile file(pack.filePath(asset));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QJsonArray cases{
+            QJsonObject{{"when", "15"}, {"model", leaf("item/light_15")}},
+            QJsonObject{{"when", "4"}, {"model", leaf("item/light_04")}}};
+        const QJsonObject select{{"type", "select"}, {"property", "minecraft:block_state"},
+                                 {"block_state_property", "level"}, {"cases", cases},
+                                 {"fallback", leaf("item/light")}};
+        QVERIFY(file.write(QJsonDocument(QJsonObject{{"model", select}}).toJson()) > 0);
+        file.close();
+        mc::Library library("1.21.11");
+        library.update(pack.path(), Index::scan(pack.path()));
+        const auto model = [&](const QJsonObject &input) {
+            const auto result = library.dispatch(asset, input);
+            return result.instances.isEmpty() ? QString() : result.instances.front().model;
+        };
+        QCOMPARE(model({}), QString("minecraft:item/light_15"));
+        QCOMPARE(model({{"minecraft:block_state", QJsonObject{{"level", "4"}}}}),
+                 QString("minecraft:item/light_04"));
+        QCOMPARE(model({{"minecraft:block_state", "4"}}), QString("minecraft:item/light_04"));
+        QCOMPARE(model({{"minecraft:block_state", QJsonObject{}}}), QString("minecraft:item/light"));
+    }
+    void crossedPlantNormals() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        const auto stem = [](QJsonArray from, QJsonArray to, QJsonArray origin, int angle,
+                             const char *front, const char *back) {
+            const QJsonObject rotation{{"axis", "y"}, {"angle", angle}, {"rescale", true},
+                                       {"origin", origin}};
+            return QJsonObject{{"from", from}, {"to", to}, {"rotation", rotation},
+                               {"faces", QJsonObject{{front, QJsonObject{}}, {back, QJsonObject{}}}}};
+        };
+        model.resolved["elements"] = QJsonArray{
+            stem({5, 0, 12}, {11, 15, 12}, {8, 8, 12}, 45, "north", "south"),
+            stem({5, 0, 12}, {11, 15, 12}, {8, 8, 12}, -45, "north", "south"),
+            stem({.1, 0, 8}, {15.9, 15.9, 8}, {8, 8, 8}, 45, "north", "south"),
+            stem({8, 0, .1}, {8, 15.9, 15.9}, {8, 8, 8}, 45, "west", "east")};
+        const auto plant = mc::mesh(model);
+        QCOMPARE(plant.faces.size(), 8);
+        const QVector3D north(0, 0, -1), south(0, 0, 1);
+        QCOMPARE(plant.faces[0].points[0], QVector3D(.375f, .875f, .125f));
+        // Direction.values() visits north and south before either X direction, breaking the tie.
+        for (const auto &face : plant.faces)
+            QCOMPARE(face.lightNormal, face.name == "north" || face.name == "east" ? north : south);
     }
     void contours() {
         mc::Model model;

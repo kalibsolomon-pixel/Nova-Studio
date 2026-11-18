@@ -47,11 +47,13 @@ bool validFace(const QJsonObject &f) {
 QString faceReference(QJsonObject &source, const QString &resource, QString *error) {
     if (resource.startsWith('#'))
         return resource;
+    auto textures = source["textures"].toObject();
+    if (textures.contains(resource))
+        return '#' + resource;
     if (!Location::parse(resource).valid()) {
         fail(error, "Invalid face texture resource");
         return {};
     }
-    auto textures = source["textures"].toObject();
     for (auto it = textures.begin(); it != textures.end(); ++it)
         if ((it.value().isString() ? it.value().toString()
                                    : it.value().toObject()["sprite"].toString()) == resource)

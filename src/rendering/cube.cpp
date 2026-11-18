@@ -454,13 +454,13 @@ void Cube::initializeGL() {
          program->addShaderFromSourceCode(
              QOpenGLShader::Fragment,
              "uniform sampler2D tex; uniform float solid; uniform vec4 solidColor; uniform vec3 "
-             "tintColor; uniform float alphaCutoff; uniform bool blended; uniform bool twoSided;"
+             "tintColor; uniform float alphaCutoff; uniform bool textureAlpha; uniform bool twoSided;"
              "varying vec2 uv; varying float light; varying float backLight;"
              "void main(){if(solid>0.5){gl_FragColor=solidColor;return;}vec4 "
              "c=texture2D(tex,uv);"
              "if(c.a<alphaCutoff) discard;"
              "float shade=twoSided&&!gl_FrontFacing?backLight:light;"
-             "gl_FragColor=vec4(c.rgb*tintColor*shade,blended?c.a:1.0);}");
+             "gl_FragColor=vec4(c.rgb*tintColor*shade,textureAlpha?c.a:1.0);}");
     if (!ok || !program->link() || !buffer.create() || !lineBuffer.create() ||
         !guideBuffer.create()) {
         setToolTip(program->log());
@@ -621,6 +621,7 @@ void Cube::paintGL() {
     QVector<mc::RenderLayer> layers;
     layers.reserve(order.size());
     for (const auto &face : scene().faces) {
+        const auto sprite = mc::Location::fromAsset(face.texture, "textures").section(':', 1);
         if (face.forceTranslucent || face.entityLayer == mc::EntityLayer::Overlay)
             layers << mc::RenderLayer::Translucent;
         else if (face.entityLayer == mc::EntityLayer::Solid)
@@ -629,9 +630,8 @@ void Cube::paintGL() {
             layers << mc::RenderLayer::Cutout;
         else if (placedBlock)
             layers << blockLayer;
-        else if (face.generatedLayer >= 0 ||
-                 (modelMesh && mc::Location::fromAsset(face.texture, "textures").section(':', 1)
-                                   .startsWith("item/")))
+        else if ((face.generatedLayer >= 0 && !sprite.startsWith("block/")) ||
+                 (modelMesh && sprite.startsWith("item/")))
             layers << mc::RenderLayer::Translucent;
         else
             layers << blockItemLayer;
@@ -675,7 +675,9 @@ void Cube::paintGL() {
         program->setUniformValue("twoSided", int(twoSided && !placedBlock && !studioLighting));
         program->setUniformValue("alphaCutoff", overlay || f.entityLayer == mc::EntityLayer::Solid
                                                    ? 0.f : mc::alphaCutoff(layers[i], placedBlock));
-        program->setUniformValue("blended", int(blend));
+        // The item atlas keeps the shader's alpha even for passes without blending.
+        // Its GUI blit adds the stored RGB to the background weighted by (1 - alpha).
+        program->setUniformValue("textureAlpha", int(blend || inventoryCapture));
         program->setUniformValue(
             "tintColor",
             QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
