@@ -31,13 +31,14 @@
 - Automatic setup was verified with Claude Code 2.1.317 and Codex CLI 0.166.0-alpha.6 using test
   configuration folders, and with Claude Desktop's configuration format on a copy of its file.
   A live Claude Desktop session was not tested.
-- Each authorization serves one agent session. Reconnecting an agent needs a new Allow.
+- One agent is connected at a time. An authorization stays on until you revoke it, switch
+  projects or close Nova Studio; a disconnected agent reconnects with a freshly offered code.
 - Uninstalling Nova Studio does not remove agents' `nova-studio` entries.
 - **Agent Session (ACP) is experimental.** Automated tests use a scripted agent. A previous
   smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
   Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
   tool details, and permission options depend on what the agent reports. Its built-in file,
-  shell, and web tools follow that agent’s configuration. Changing from read-only to editing
+  shell, and web tools follow that agentâ€™s configuration. Changing from read-only to editing
   restarts the agent session.
 - With editing permission, `nova.pack.bootstrap` can initialize a folder with Java 1.21.11 metadata and standard
   Minecraft texture folders. Other asset creation requires the destination folder to exist.

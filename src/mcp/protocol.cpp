@@ -506,8 +506,8 @@ const QJsonArray &tools() {
             add("nova." + name + ".inspect", "Inspect authorized " + name + " metadata.",
                 {{"generation", generation}, {"assetId", asset}}, {"generation", "assetId"});
         add("nova.pack.validate", "Run read-only validation of saved files and open unsaved drafts. References resolve "
-            "through the project, the resource stack the user configured, and Nova's verified vanilla texture cache "
-            "(textures only); each finding has a rule, source, evidence and next step. Never downloads.",
+            "through the project, the resource stack the user configured, and Nova's verified vanilla baseline "
+            "(textures, plus vanilla models when the baseline holds them); each finding has a rule, source, evidence and next step. Never downloads.",
             {{"generation", generation}, {"assetId", asset}, {"limit", integerField(1, 200)}},
             {"generation"});
         QJsonObject targets{{"generation", generation}, {"projectId", generation},

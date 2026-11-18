@@ -141,8 +141,8 @@ class Inspector {
                            "exists.").arg(kind, id);
         if (location.nameSpace == "minecraft" && !sources.vanillaModelSource())
             return QString("The %1 %2 is not in the project or the configured resource stack. It may be a vanilla %1, "
-                           "but no verified vanilla resource source is configured for Java %3, and Nova's vanilla texture "
-                           "cache contains textures only, so Nova cannot resolve it.").arg(kind, id, s.version);
+                           "but no verified vanilla resource source is configured for Java %3, and Nova's vanilla baseline "
+                           "is missing or holds textures only, so Nova cannot resolve it.").arg(kind, id, s.version);
         return QString("The %1 %2 is not in the project or the configured resource stack.").arg(kind, id);
     }
     // Parent chain from `id`, one step per model, with the source of each step.

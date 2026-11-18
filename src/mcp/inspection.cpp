@@ -982,10 +982,11 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
                     c.rule = c.rule == "unresolved_parent" ? "parent_source_unavailable" : "model_source_unavailable";
                     c.message = QString("Model %1 is not in the project or the configured resource stack. It is probably a "
                                         "vanilla model, but no verified vanilla resource source is configured for Java %2 and "
-                                        "Nova's vanilla texture cache contains textures only, so Nova cannot check it or the "
-                                        "textures it inherits.").arg(location.id(), s.version);
-                    c.next = "Ask the user to add a verified vanilla resource source in Models › Resource stack to check "
-                             "vanilla parents; otherwise treat this as unchecked, not as an error.";
+                                        "Nova's vanilla baseline is missing or holds textures only, so Nova cannot check it or "
+                                        "the textures it inherits.").arg(location.id(), s.version);
+                    c.next = "Ask the user to download or repair the vanilla baseline (Resources › Vanilla Baseline), which "
+                             "adds vanilla models, or to add a verified vanilla resource source in Models › Resource stack; "
+                             "otherwise treat this as unchecked, not as an error.";
                 }
             }
             if (d.code == "pack_target" || d.code == "pack_format" || d.code == "missing_pack_metadata")
@@ -1006,8 +1007,8 @@ QJsonObject inspect(const Snapshot &s, const QString &tool, const QJsonObject &a
                 return canceled();
             if (!sources->vanillaModelSource())
                 limitations.append(QString("No verified vanilla resource source is configured for Java %1: references to "
-                    "vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla texture cache "
-                    "contains textures only.").arg(s.version));
+                    "vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla baseline is "
+                    "missing or holds textures only; downloading or repairing it adds vanilla models.").arg(s.version));
             if (!sources->stackComplete())
                 limitations.append("At least one configured resource-stack source is unavailable; see resource_stack_unavailable.");
             if (!supportedVersion(s.version))

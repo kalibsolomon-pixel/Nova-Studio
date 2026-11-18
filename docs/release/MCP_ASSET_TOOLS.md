@@ -220,7 +220,7 @@ A model whose parent is vanilla, with no verified vanilla resource source config
    {"id": "nova:item/vanilla_parent", "path": "assets/nova/models/item/vanilla_parent.json",
     "source": {"source": "project"}, "status": "confirmed"},
    {"id": "minecraft:item/generated", "path": "assets/minecraft/models/item/generated.json", "status": "unresolved"}]},
- "reason": "The model minecraft:item/generated is not in the project or the configured resource stack. It may be a vanilla model, but no verified vanilla resource source is configured for Java 1.21.11, and Nova's vanilla texture cache contains textures only, so Nova cannot resolve it."}
+ "reason": "The model minecraft:item/generated is not in the project or the configured resource stack. It may be a vanilla model, but no verified vanilla resource source is configured for Java 1.21.11, and Nova's vanilla baseline is missing or holds textures only, so Nova cannot resolve it."}
 ```
 
 A vanilla texture that only the cache provides:
@@ -229,7 +229,7 @@ A vanilla texture that only the cache provides:
 {"providers": [{"source": "vanilla_texture_cache", "verified": true, "selected": true}],
  "relationships": [{"type": "model_uses_texture", "status": "unresolved",
    "to": "assets/minecraft/textures/item/apple.png",
-   "reason": "No model in the project or the configured resource stack references this texture. No verified vanilla resource source is configured, so vanilla models that may use it are unavailable; Nova's vanilla texture cache contains textures only. Nova does not guess a model."}]}
+   "reason": "No model in the project or the configured resource stack references this texture. No verified vanilla resource source is configured, so vanilla models that may use it are unavailable; Nova's vanilla baseline is missing or holds textures only. Nova does not guess a model."}]}
 ```
 
 How to read these: `unresolved` means *Nova cannot establish the link from the available sources*, not that the
@@ -324,7 +324,7 @@ vanilla resource source is configured; `limitations` gives their count instead.
     {"severity": "Warning", "rule": "resource_stack_unavailable", "path": null, "source": "resource_stack",
      "message": "Resource stack source 1 (fakevanilla) is configured but unavailable: Vanilla cache does not match the selected official target version. Its files were not validated or used to resolve references."}
   ],
-  "limitations": ["No verified vanilla resource source is configured for Java 1.21.11: references to vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla texture cache contains textures only."]
+  "limitations": ["No verified vanilla resource source is configured for Java 1.21.11: references to vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla baseline is missing or holds textures only; downloading or repairing it adds vanilla models."]
 }
 ```
 
@@ -793,7 +793,7 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
 ```json
 {
   "name": "nova.pack.validate",
-  "description": "Run read-only validation of saved files and open unsaved drafts. References resolve through the project, the resource stack the user configured, and Nova's verified vanilla texture cache (textures only); each finding has a rule, source, evidence and next step. Never downloads.",
+  "description": "Run read-only validation of saved files and open unsaved drafts. References resolve through the project, the resource stack the user configured, and Nova's verified vanilla baseline (textures, plus vanilla models when the baseline holds them); each finding has a rule, source, evidence and next step. Never downloads.",
   "annotations": {
     "openWorldHint": false,
     "readOnlyHint": true

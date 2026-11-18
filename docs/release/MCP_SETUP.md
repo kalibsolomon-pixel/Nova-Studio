@@ -72,9 +72,10 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 - **Vanilla textures, relationships and validation (read-only).** Any connected agent can list and
   read the vanilla textures in Nova's verified local cache (`nova.vanilla.list`,
   `nova.vanilla.texture`), see how an asset is selected and used (`nova.asset.relationships`), and
-  validate saved files together with open unsaved drafts (`nova.pack.validate`). The cache holds
-  textures only; vanilla models are available only from a verified vanilla source you add under
-  **Models › Resource stack**. Agents cannot download a version: add it in Nova (Resources ›
+  validate saved files together with open unsaved drafts (`nova.pack.validate`). A baseline
+  downloaded or repaired with this version also holds vanilla models, blockstates and item
+  definitions, so vanilla parents resolve without setup; a verified vanilla source you add under
+  **Models › Resource stack** takes precedence. Agents cannot download a version: add it in Nova (Resources ›
   Vanilla Baseline). Details: [MCP_ASSET_TOOLS.md](MCP_ASSET_TOOLS.md).
 - **Guides.** Agents can read Nova's resource-pack guides (`nova.guide.get`, or the MCP resources
   `nova://rules/<version>/<topic>`). Guides exist for Minecraft Java 1.21.11 only, checked against
