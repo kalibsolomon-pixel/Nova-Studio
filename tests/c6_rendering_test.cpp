@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "models.h"
+#include "display.h"
+#include "render_layers.h"
+#include "special_models.h"
+#include "tints.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -9,6 +13,117 @@ using namespace nova;
 class RenderingTest : public QObject {
     Q_OBJECT
   private slots:
+    void representativeDisplayPoses() {
+        const QVector3D origin;
+        QCOMPARE(mc::displayContextPose("raw").map(origin), origin);
+        QCOMPARE(mc::displayContextPose("gui").map(origin), origin);
+        QCOMPARE(mc::displayContextPose("ground", -.5f).map({0, -.5f, 0}),
+                 QVector3D(0, -.875f, 0));
+        QCOMPARE(mc::displayContextPose("fixed").map({1, 0, 0}), QVector3D(.5f, 0, .875f));
+        QCOMPARE(mc::displayContextPose("firstperson_righthand").map(origin),
+                 QVector3D(1.12f, -1.04f, -1.44f));
+        QCOMPARE(mc::displayContextPose("firstperson_lefthand").map(origin),
+                 QVector3D(-1.12f, -1.04f, -1.44f));
+        QCOMPARE(mc::displayContextPose("head").map(origin), QVector3D(0, .5f, 0));
+        const auto right = mc::displayContextPose("thirdperson_righthand").map(origin);
+        const auto left = mc::displayContextPose("thirdperson_lefthand").map(origin);
+        QCOMPARE(right, QVector3D(-left.x(), left.y(), left.z()));
+    }
+
+    void alphaLayers() {
+        using mc::RenderLayer;
+        QCOMPARE(mc::blockRenderLayer("minecraft:stone"), RenderLayer::Solid);
+        QCOMPARE(mc::blockRenderLayer("other:glass"), RenderLayer::Solid);
+        QCOMPARE(mc::blockRenderLayer("minecraft:glass"), RenderLayer::Translucent);
+        QCOMPARE(mc::blockRenderLayer("minecraft:magenta_stained_glass_pane"), RenderLayer::Translucent);
+        QCOMPARE(mc::blockRenderLayer("minecraft:tripwire"), RenderLayer::Tripwire);
+        QCOMPARE(mc::blockRenderLayer("minecraft:oak_leaves"), RenderLayer::Cutout);
+        QCOMPARE(mc::blockRenderLayer("minecraft:waxed_oxidized_copper_bars"), RenderLayer::Cutout);
+        QCOMPARE(mc::itemRenderLayer("minecraft:glass", false), RenderLayer::Translucent);
+        QCOMPARE(mc::itemRenderLayer("minecraft:stone", false), RenderLayer::Cutout);
+        QCOMPARE(mc::itemRenderLayer("minecraft:stone", true), RenderLayer::Translucent);
+        QCOMPARE(mc::itemRenderLayer({}, false), RenderLayer::Translucent);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Cutout, false), .1f);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Cutout, true), .5f);
+        QCOMPARE(mc::alphaCutoff(RenderLayer::Translucent, true), .01f);
+    }
+
+    void bakedLighting() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        model.guiLight = mc::GuiLight::Front;
+        const QJsonObject faces{{"up", QJsonObject{}}, {"down", QJsonObject{}},
+                                {"north", QJsonObject{}}, {"south", QJsonObject{}},
+                                {"east", QJsonObject{}}, {"west", QJsonObject{}}};
+        QJsonObject box{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", faces}};
+        model.resolved["elements"] = QJsonArray{box};
+        const auto baked = mc::mesh(model);
+        QVERIFY(baked.guiLight == mc::GuiLight::Front);
+        QCOMPARE(baked.faces.size(), 6);
+        const QMap<QString, float> expected{{"up", 1.f}, {"down", .5f}, {"north", .8f},
+                                            {"south", .8f}, {"east", .6f}, {"west", .6f}};
+        for (const auto &face : baked.faces)
+            QCOMPARE(face.overworldShade(), expected.value(face.name));
+
+        mc::Instance quarterTurn;
+        quarterTurn.y = 90;
+        for (const auto &face : mc::transformed(baked, quarterTurn).faces)
+            if (face.name == "north")
+                QCOMPARE(face.overworldShade(), .6f);
+        box["shade"] = false;
+        model.resolved["elements"] = QJsonArray{box};
+        for (const auto &face : mc::mesh(model).faces)
+            QCOMPARE(face.overworldShade(), 1.f);
+
+        model.version = "26.3";
+        box.remove("shade");
+        box["shade_direction_override"] = "down";
+        model.resolved["elements"] = QJsonArray{box};
+        const auto overridden = mc::mesh(model);
+        QCOMPARE(overridden.faces.size(), 6);
+        for (const auto &face : overridden.faces)
+            QCOMPARE(face.overworldShade(), .5f);
+    }
+    void placedLightingWithFloor() {
+        mc::Model model;
+        model.valid = true;
+        model.version = "1.21.11";
+        QJsonObject faces;
+        for (const auto &d : {"up", "down", "south"})
+            faces[d] = QJsonObject{{"cullface", d}};
+        model.resolved["elements"] = QJsonArray{
+            QJsonObject{{"from", QJsonArray{0, 0, 0}}, {"to", QJsonArray{16, 16, 16}},
+                        {"faces", faces}}};
+        auto world = mc::mesh(model);
+        mc::applyPlacedLighting(world, {});
+        QCOMPARE(world.faces.size(), 3);
+        for (const auto &face : world.faces)
+            for (const auto shade : face.ambientShade)
+                QCOMPARE(shade, 1.f);
+
+        mc::applyPlacedLighting(world, "floor");
+        QCOMPARE(world.faces.size(), 2);
+        for (const auto &face : world.faces) {
+            QVERIFY(face.name != "down");
+            for (int i = 0; i < 4; ++i)
+                QCOMPARE(face.ambientShade[i], face.points[i].y() < 0 ? .6f : 1.f);
+        }
+
+        model.resolved["ambientocclusion"] = false;
+        mc::Instance rotated;
+        rotated.y = 90;
+        auto unlit = mc::transformed(mc::mesh(model), rotated);
+        mc::applyPlacedLighting(unlit, QJsonArray{QJsonValue(QJsonArray{-1, 0, 0})});
+        QCOMPARE(unlit.faces.size(), 2);
+        for (const auto &face : unlit.faces) {
+            QVERIFY(face.name != "south");
+            for (const auto shade : face.ambientShade)
+                QCOMPARE(shade, 1.f);
+        }
+    }
+
     void transformationCodec() {
         QMatrix4x4 m;
         QString error;
@@ -41,6 +156,73 @@ class RenderingTest : public QObject {
         lib.setVersion("1.21.11");
         QVERIFY(lib.dispatch("assets/nova/items/a.json").instances.isEmpty());
     }
+    void tintDefaults() {
+        mc::Library library("1.21.11");
+        mc::TintColors colors(library);
+        const auto check = [&](const QString &type, const QJsonObject &source, QRgb rgb) {
+            auto tint = colors.item("minecraft:" + type, source);
+            QVERIFY(tint.has_value());
+            QCOMPARE(*tint, rgb);
+        };
+        check("constant", {{"value", QJsonArray{.5, 0, 1}}}, qRgb(127, 0, 255));
+        check("grass", {}, 0xff7cbd6bu);
+        check("grass", {{"temperature", .8}, {"downfall", .4}}, 0xff91bd59u);
+        check("dye", {{"default", 0x123456}}, 0xff123456u);
+        check("potion", {}, 0xff385dc6u);
+        check("map_color", {}, 0xff46402eu);
+        check("firework", {}, 0xff8a8a8au);
+        check("team", {{"default", QJsonArray{0, 1, 0}}}, 0xff00ff00u);
+        check("custom_model_data", {{"default", 0x987654}}, 0xff987654u);
+        QCOMPARE(colors.block("minecraft:oak_leaves", {}).value(0), 0xff77ab2fu);
+        QCOMPARE(colors.block("minecraft:leaf_litter", {}).value(0), 0xffa37546u);
+        QCOMPARE(colors.block("minecraft:water", {}).value(0), 0xff3f76e4u);
+        QCOMPARE(colors.block("minecraft:redstone_wire", {}).value(0), qRgb(76, 0, 0));
+        QCOMPARE(colors.block("minecraft:redstone_wire", {{"power", "15"}}).value(0), qRgb(255, 50, 0));
+        QCOMPARE(colors.block("minecraft:pumpkin_stem", {{"age", 7}}).value(0), qRgb(224, 199, 28));
+        QCOMPARE(colors.block("minecraft:oak_leaves", {{"_tints", QJsonArray{0x765432}}}).value(0),
+                 0xff765432u);
+    }
+    void specialItemGeometry() {
+        mc::Model base;
+        base.valid = true;
+        base.id = "nova:item/special";
+        base.version = "1.21.11";
+        const auto chest = mc::specialMesh(base, {{"type", "minecraft:chest"}, {"texture", "trapped"}});
+        QCOMPARE(chest.faces.size(), 18);
+        QCOMPARE(chest.minimum, QVector3D(-.875f, -1, -.875f));
+        QCOMPARE(chest.maximum, QVector3D(.875f, .75f, 1));
+        for (const auto &face : chest.faces) {
+            QCOMPARE(face.texture, QString("assets/minecraft/textures/entity/chest/trapped.png"));
+            QVERIFY(face.entityCutout);
+            QVERIFY(face.normal.length() > .99f);
+        }
+        const auto open = mc::specialMesh(base, {{"type", "chest"}, {"openness", 1}});
+        QVERIFY(open.maximum.y() > chest.maximum.y());
+        const auto shulker = mc::specialMesh(base, {{"type", "shulker_box"}, {"texture", "nova:mint"}});
+        QCOMPARE(shulker.faces.size(), 12);
+        QCOMPARE(shulker.faces.front().texture, QString("assets/nova/textures/entity/shulker/mint.png"));
+        const auto bed = mc::specialMesh(base, {{"type", "bed"}, {"texture", "red"}});
+        QCOMPARE(bed.faces.size(), 36);
+        QCOMPARE((bed.maximum - bed.minimum).z(), 4.f);
+        QCOMPARE(mc::specialMesh(base, {{"type", "head"}, {"kind", "skeleton"}}).faces.size(), 6);
+        QCOMPARE(mc::specialMesh(base, {{"type", "player_head"}}).faces.size(), 12);
+        QCOMPARE(mc::specialMesh(base, {{"type", "shield"}}).faces.size(), 12);
+        QCOMPARE(mc::specialMesh(base, {{"type", "conduit"}}).faces.size(), 6);
+
+        QTemporaryDir root;
+        QDir().mkpath(root.path() + "/assets/nova/items");
+        QFile definition(root.filePath("assets/nova/items/storage.json"));
+        QVERIFY(definition.open(QIODevice::WriteOnly));
+        definition.write("{\"model\":{\"type\":\"special\",\"base\":\"nova:item/special\","
+                         "\"model\":{\"type\":\"chest\",\"texture\":\"trapped\"}}}");
+        definition.close();
+        mc::Library library("1.21.11");
+        library.update(root.path(), Index::scan(root.path()));
+        const auto dispatched = library.dispatch("assets/nova/items/storage.json");
+        QCOMPARE(dispatched.instances.size(), 1);
+        QCOMPARE(dispatched.instances.first().model, base.id);
+        QCOMPARE(dispatched.instances.first().special["texture"].toString(), QString("trapped"));
+    }
     void contours() {
         mc::Model model;
         model.valid = true;
@@ -52,20 +234,21 @@ class RenderingTest : public QObject {
         QImage image(3, 3, QImage::Format_RGBA8888);
         image.fill(Qt::white);
         auto geometry = mc::generatedMesh(model, {{model.textures["layer0"], image}});
-        QCOMPARE(geometry.faces.size(), 6);
+        QCOMPARE(geometry.faces.size(), 14);
         QCOMPARE(geometry.minimum.z(), -.0625f);
         QCOMPARE(geometry.maximum.z(), .0625f);
         image.setPixelColor(1, 1, Qt::transparent);
         geometry = mc::generatedMesh(model, {{model.textures["layer0"], image}});
-        QCOMPARE(geometry.faces.size(), 10);
+        QCOMPARE(geometry.faces.size(), 18);
         for (const auto &face : geometry.faces) {
             QVERIFY(face.normal.length() > .99f);
             QCOMPARE(face.elementIndex, -1);
+            QVERIFY(face.shade);
         }
         QMatrix4x4 mirror;
         mirror.scale(-1, 2, 1);
         auto reflected = mc::applyTransform(geometry, mirror);
-        QCOMPARE(reflected.faces.size(), 10);
+        QCOMPARE(reflected.faces.size(), 18);
         QVERIFY(reflected.faces[0].normal.length() > .99f);
     }
     void generatedLayerGeometryAndLimits() {
@@ -89,13 +272,14 @@ class RenderingTest : public QObject {
         model.resolved["textures"] = textures;
         const auto geometry = mc::generatedMesh(model, sprites);
         QVERIFY(geometry.previewLimitation.isEmpty());
-        QCOMPARE(geometry.faces.size(), 50); // front/back, four outside edges and four hole walls per layer
+        constexpr int FacesPerLayer = 2 + 2 * (8 + 16) + 4;
+        QCOMPARE(geometry.faces.size(), 5 * FacesPerLayer);
         QCOMPARE(geometry.minimum, QVector3D(-1, -1, -.0625f));
         QCOMPARE(geometry.maximum, QVector3D(1, 1, .0625f));
         for (int i = 0; i < geometry.faces.size(); ++i) {
             const auto &face = geometry.faces[i];
-            QCOMPARE(face.generatedLayer, i / 10);
-            QCOMPARE(face.texture, model.textures["layer" + QString::number(i / 10)]);
+            QCOMPARE(face.generatedLayer, i / FacesPerLayer);
+            QCOMPARE(face.texture, model.textures["layer" + QString::number(face.generatedLayer)]);
             QCOMPARE(face.tint, face.generatedLayer);
         }
         QMatrix4x4 pose;
@@ -121,9 +305,32 @@ class RenderingTest : public QObject {
                 if ((x + y) % 2 == 0)
                     busy.setPixelColor(x, y, Qt::white);
         unavailable[model.textures["layer0"]] = busy;
-        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("4096-span"));
+        QVERIFY(mc::generatedMesh(model, unavailable).previewLimitation.contains("4096-face"));
         model.valid = false;
         QVERIFY(mc::generatedMesh(model, {}).faces.isEmpty());
+    }
+    void animatedContourRetainsInternalTransition() {
+        mc::Model model;
+        model.valid = model.generated = true;
+        model.version = "1.21.11";
+        model.id = "nova:item/walking_dot";
+        const auto texture = QString("assets/nova/textures/item/walking_dot.png");
+        model.textures["layer0"] = texture;
+        QImage a(2, 2, QImage::Format_RGBA8888);
+        a.fill(Qt::transparent);
+        auto b = a;
+        a.setPixelColor(0, 0, Qt::white);
+        b.setPixelColor(1, 0, Qt::white);
+        const auto geometry = mc::generatedMesh(model, {{texture, a}}, {{texture, {a, b}}});
+        QCOMPARE(geometry.faces.size(), 10);
+        int inside = 0;
+        for (const auto &face : geometry.faces) {
+            if (face.name == "up" && face.points[0].x() == -1)
+                QCOMPARE(face.uv[0], QVector2D(.05f, .05f));
+            if (std::abs(face.normal.x()) == 1 && face.points[0].x() == 0)
+                ++inside;
+        }
+        QCOMPARE(inside, 2);
     }
 
 };

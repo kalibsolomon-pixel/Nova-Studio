@@ -1,13 +1,85 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "assets.h"
 #include "core.h"
+#include "cube.h"
+#include "display.h"
+#include "minecraft_animation.h"
+#include "render_layers.h"
+#include "tints.h"
 #include <QApplication>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QMetaObject>
 #include <QRunnable>
 #include <QStyle>
 #include <functional>
 namespace nova {
+namespace {
+bool isModelIcon(const QString &path) {
+    return path.endsWith(".json") && (!mc::Location::fromAsset(path, "models").isEmpty() ||
+                                      !mc::Location::fromAsset(path, "items").isEmpty() ||
+                                      !mc::Location::fromAsset(path, "blockstates").isEmpty());
+}
+struct IconRecipe {
+    std::shared_ptr<mc::Mesh> mesh = std::make_shared<mc::Mesh>();
+    QMap<QString, QImage> materials;
+    QImage fallback;
+    QString blockId;
+};
+IconRecipe buildIcon(mc::Library library, const QString &asset) {
+    IconRecipe result;
+    result.blockId = mc::previewBlockId(asset, library);
+    const auto id = mc::Location::fromAsset(asset, "models");
+    QVector<mc::Instance> instances;
+    if (id.isEmpty()) {
+        instances = library.dispatch(asset, {{"minecraft:display_context", "gui"}}).instances;
+    } else {
+        instances << mc::Instance{id, {}};
+        instances[0].tints = mc::TintColors(library).block(result.blockId, {});
+    }
+    qint64 pixelsLeft = 4 * 1024 * 1024;
+    auto load = [&](const QString &texture) {
+        if (texture.isEmpty() || result.materials.contains(texture) || result.materials.size() >= 32)
+            return;
+        QImage image;
+        const auto path = library.assetPath(texture);
+        if (!path.isEmpty()) {
+            const auto size = QImageReader(path, "png").size();
+            const auto pixels = qint64(size.width()) * size.height();
+            if (size.isValid() && pixels <= pixelsLeft) {
+                pixelsLeft -= pixels;
+                if (QFileInfo::exists(path + ".mcmeta")) {
+                    if (auto animation = openMinecraftAnimation(path, library.version()))
+                        image = animation->frameComposite(animation->animationState().entries.front().frame);
+                }
+                if (image.isNull())
+                    image = loadPng(path);
+            }
+        }
+        if (result.fallback.isNull() && !image.isNull())
+            result.fallback = image;
+        result.materials.insert(texture, image);
+    };
+    for (const auto &instance : instances) {
+        const auto model = library.model(instance.model);
+        if (model.generated)
+            for (const auto &texture : model.textures)
+                load(texture);
+        auto part = mc::displayMesh(model, instance, "gui", result.materials);
+        if (result.mesh->faces.size() + part.faces.size() > 8192)
+            break;
+        if (result.mesh->faces.isEmpty())
+            result.mesh->guiLight = part.guiLight;
+        for (const auto &face : part.faces)
+            load(face.texture);
+        if (part.faces.isEmpty() && result.fallback.isNull())
+            for (const auto &texture : model.textures)
+                load(texture);
+        result.mesh->faces += part.faces;
+    }
+    return result;
+}
+} // namespace
 AssetModel::AssetModel(QObject *p) : QAbstractItemModel(p), root(std::make_unique<Node>()) {
     root->directory = true;
     pool.setMaxThreadCount(2);
@@ -166,6 +238,20 @@ void AssetModel::setCategory(const QString &value) {
     root = build(sourceIndex, "", nullptr, 0);
     endResetModel();
 }
+void AssetModel::setModelSources(const std::shared_ptr<mc::Library> &library) {
+    modelSources = library ? std::make_shared<mc::Library>(*library) : nullptr;
+    ++modelRevision;
+    for (const auto &path : cache.keys())
+        if (isModelIcon(path))
+            cache.remove(path);
+    pending.removeIf(isModelIcon);
+    failed.removeIf(isModelIcon);
+    for (auto it = nodes.cbegin(); it != nodes.cend(); ++it)
+        if (!it.value()->directory && isModelIcon(it.key())) {
+            const auto index = indexFor(it.key());
+            emit dataChanged(index, index, {Qt::DecorationRole});
+        }
+}
 QModelIndex AssetModel::index(int r, int c, const QModelIndex &p) const {
     auto n = node(p);
     if (c != 0 || r < 0 || r >= int(n->children.size()))
@@ -236,7 +322,8 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
         return standardIcon(false);
     if (auto icon = cache.object(n->path))
         return *icon;
-    if (n->path.endsWith(".png", Qt::CaseInsensitive) && !pending.contains(n->path) &&
+    const auto sources = isModelIcon(n->path) ? modelSources : nullptr;
+    if ((sources || n->path.endsWith(".png", Qt::CaseInsensitive)) && !pending.contains(n->path) &&
         !failed.contains(n->path) && pending.size() < 128) {
         // Baseline rows come from the shared read-only cache; project rows from the project.
         const auto record = sourceIndex.records.constFind(n->path);
@@ -244,17 +331,38 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
                             record->origin == AssetIdentity::Origin::Baseline && !record->filesystemPath.isEmpty();
         QString path = n->path, full = cached ? record->filesystemPath : project + '/' + path;
         int gen = generation;
+        int revision = modelRevision;
         pending.insert(path);
-        pool.start(QRunnable::create([this, path, full, gen] {
-            auto im = loadPng(full);
-            if (!im.isNull())
-                im = im.scaled(64, 64, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+        pool.start(QRunnable::create([this, path, full, gen, revision, sources] {
+            auto recipe = sources ? buildIcon(*sources, path) : IconRecipe{};
+            if (!sources)
+                recipe.fallback = loadPng(full);
+            if (!recipe.fallback.isNull())
+                recipe.fallback = recipe.fallback.scaled(64, 64, Qt::IgnoreAspectRatio, Qt::FastTransformation);
             QMetaObject::invokeMethod(
                 const_cast<AssetModel *>(this),
-                [this, path, gen, im] {
-                    if (gen != generation)
+                [this, path, gen, revision, fromModel = bool(sources), recipe = std::move(recipe)] {
+                    if (gen != generation || (fromModel && revision != modelRevision))
                         return;
                     pending.remove(path);
+                    auto im = recipe.fallback;
+                    if (fromModel && !thumbnailContextFailed && !recipe.mesh->faces.isEmpty()) {
+                        if (!thumbnailCube) {
+                            thumbnailMetrics = std::make_unique<Metrics>();
+                            thumbnailCube = std::make_unique<Cube>(thumbnailMetrics.get());
+                            thumbnailCube->setAttribute(Qt::WA_DontShowOnScreen);
+                            thumbnailCube->setAttribute(Qt::WA_ShowWithoutActivating);
+                            thumbnailCube->resize(200, 150);
+                        }
+                        thumbnailCube->setPreviewContext("gui", false, recipe.blockId);
+                        thumbnailCube->setModel(recipe.mesh, {}, recipe.materials);
+                        if (!thumbnailCube->isValid())
+                            thumbnailCube->grabFramebuffer();
+                        thumbnailContextFailed = !thumbnailCube->isValid();
+                        const auto rendered = thumbnailCube->captureInventoryIcon(4);
+                        if (!rendered.isNull())
+                            im = rendered;
+                    }
                     if (im.isNull()) {
                         if (failed.size() < 512)
                             failed.insert(path);

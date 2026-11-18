@@ -65,14 +65,15 @@ QString token() {
     return QString::number(QRandomGenerator::global()->generate64(), 16).rightJustified(16, '0');
 }
 QString objectExtension(const QString &relative) {
-    return relative.endsWith(".png.mcmeta") ? ".mcmeta" : ".png";
+    return relative.endsWith(".png.mcmeta") ? ".mcmeta"
+         : relative.endsWith(".json") ? ".json" : ".png";
 }
 const QRegularExpression &folderRule() {
     static const QRegularExpression rule("^[0-9a-f]{32}$");
     return rule;
 }
 const QRegularExpression &objectRule() {
-    static const QRegularExpression rule("^([0-9a-f]{64})\\.(png|mcmeta)$");
+    static const QRegularExpression rule("^([0-9a-f]{64})\\.(png|mcmeta|json)$");
     return rule;
 }
 const QRegularExpression &objectTempRule() {
@@ -147,6 +148,14 @@ QString BaselineEntry::objectPath(const QString &relative) const {
     return it == files.end() ? QString() : BaselineCache(root).objectPath(it->sha256, relative);
 }
 
+bool BaselineEntry::hasModelData() const {
+    for (auto it = files.keyBegin(); it != files.keyEnd(); ++it)
+        if (it->startsWith(QLatin1String(modelPrefix)) ||
+            it->startsWith(QLatin1String(blockstatePrefix)) || it->startsWith(QLatin1String(itemPrefix)))
+            return true;
+    return false;
+}
+
 BaselineCache::BaselineCache(QString root)
     : base(QDir::cleanPath(QFileInfo(QDir::fromNativeSeparators(root)).absoluteFilePath())) {}
 
@@ -198,7 +207,7 @@ QByteArray BaselineCache::manifestBytes(const BaselineEntry &entry) {
         files.insert(it.key(), QJsonObject{{"sha256", it->sha256},
                                            {"size", it->size},
                                            {"origin", it->origin}});
-    QJsonObject o{{"schema", 1},
+    QJsonObject o{{"schema", entry.schema},
                   {"version", entry.version},
                   {"identity", entry.identity},
                   {"created", entry.created.toUTC().toString(Qt::ISODateWithMs)},
@@ -223,13 +232,15 @@ std::optional<BaselineEntry> BaselineCache::parseManifest(const QByteArray &byte
     if (!validSha256(digest) ||
         digest != sha256Hex(QJsonDocument(o).toJson(QJsonDocument::Compact)))
         return bad("digest mismatch");
-    if (o.value("schema").toInt(-1) != 1 || !o.value("schema").isDouble())
+    if (!o.value("schema").isDouble() ||
+        (o.value("schema").toInt() != 1 && o.value("schema").toInt() != 2))
         return bad("unsupported schema");
     BaselineEntry e;
     e.root = root;
     e.version = o.value("version").toString();
     e.identity = o.value("identity").toString();
     e.created = QDateTime::fromString(o.value("created").toString(), Qt::ISODateWithMs);
+    e.schema = o.value("schema").toInt();
     e.source = o.value("source").toObject();
     if (!validVersionId(e.version) || !validSha256(e.identity) || !e.created.isValid())
         return bad("version, identity or date");
@@ -258,7 +269,8 @@ std::optional<BaselineEntry> BaselineCache::parseManifest(const QByteArray &byte
         BaselineFile file;
         file.sha256 = f.value("sha256").toString();
         file.origin = f.value("origin").toString();
-        if (!validBaselinePath(it.key()) || !it.value().isObject() || !validSha256(file.sha256) ||
+        if ((!validBaselinePath(it.key()) && !validBaselineModelPath(it.key())) ||
+            !it.value().isObject() || !validSha256(file.sha256) ||
             !readSize(f.value("size"), 1, maxTextureBytes, &file.size) ||
             (file.origin != "jar" && file.origin != "asset-index"))
             return bad("file entry " + it.key().left(160));
@@ -313,6 +325,10 @@ std::optional<BaselineEntry> BaselineCache::load(const QString &version, const Q
     return entry;
 }
 
+bool BaselineCache::mayHold(const QString &version) const {
+    const auto folder = base + "/entries/" + version;
+    return validVersionId(version) && safePath(folder) && stat(folder) == Kind::Directory;
+}
 std::optional<BaselineEntry> BaselineCache::latest(const QString &version, Check check,
                                                    QString *error) const {
     if (!validVersionId(version))
@@ -414,6 +430,7 @@ QList<BaselineSummary> BaselineCache::list() const {
                 f.summary.identity = parsed->identity;
                 f.summary.created = parsed->created;
                 f.summary.files = int(parsed->files.size());
+                f.summary.models = parsed->hasModelData();
                 if (load(version, parsed->identity, Check::Sizes, &why))
                     f.summary.status = BaselineSummary::Status::Complete;
                 f.entry = std::move(parsed);
@@ -577,12 +594,12 @@ bool BaselineCache::publishObject(const QByteArray &bytes, const QString &sha256
         QFile file(temp);
         if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
             file.write(bytes) != bytes.size() || !file.flush())
-            return file.remove(), fail(error, "A vanilla texture could not be written to the cache");
+            return file.remove(), fail(error, "A vanilla file could not be written to the cache");
     }
     qint64 size = -1;
     if (stat(temp, &size) != Kind::File || size != bytes.size() || sha256File(temp) != sha256) {
         fs::removeRegularFile(temp);
-        return fail(error, "A vanilla texture was not written to the cache correctly");
+        return fail(error, "A vanilla file was not written to the cache correctly");
     }
     const bool replace = existing == Kind::File;
     if (replace)
@@ -598,10 +615,10 @@ bool BaselineCache::publishObject(const QByteArray &bytes, const QString &sha256
         fs::removeRegularFile(temp);
         if (valid()) // published concurrently with the same content
             return fs::setReadOnly(path, true), true;
-        return fail(error, "A vanilla texture could not be published in the cache");
+        return fail(error, "A vanilla file could not be published in the cache");
     }
     if (!valid())
-        return fail(error, "A vanilla texture was not stored correctly in the cache");
+        return fail(error, "A vanilla file was not stored correctly in the cache");
     fs::setReadOnly(path, true);
     return true;
 }

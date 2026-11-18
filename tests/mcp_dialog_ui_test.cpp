@@ -106,8 +106,8 @@ class McpDialogUiTests : public QObject {
             wording |= label->text() ==
                        "MCP lets an AI agent on this PC inspect the open resource pack and, only if you allow editing, "
                        "change it through Nova Studio. Access is off until you choose Allow. It covers the current "
-                       "project only and ends when the agent disconnects, the project changes or you revoke it. An "
-                       "unused authorization expires after five minutes.";
+                       "project only and stays on until you revoke it, the project changes or Nova closes. An agent "
+                       "that disconnects can reconnect on its own.";
         QVERIFY(wording);
         capture(dialog, "access-dark");
 

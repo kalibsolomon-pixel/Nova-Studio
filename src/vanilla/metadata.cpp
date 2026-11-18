@@ -72,6 +72,42 @@ QString hashFile(const QString &path, QCryptographicHash::Algorithm algorithm,
     }
     return QString::fromLatin1(hash.result().toHex());
 }
+// Segment rules shared by every baseline path (DESIGN "Path rules"): shape, charset,
+// length and Windows device names. `error` gets "<path> (<why>)" on failure.
+bool validSegments(const QString &relative, QString *error) {
+    const auto shown = relative.left(160);
+    auto reject = [&](const char *why) {
+        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String(why)));
+    };
+    if (relative.isEmpty())
+        return reject("empty path");
+    if (relative.contains(QChar(0)))
+        return reject("NUL character");
+    if (relative.contains('\\'))
+        return reject("backslash");
+    if (relative.contains(':'))
+        return reject("colon");
+    const auto segments = relative.split('/');
+    if (segments.size() > 33)
+        return reject("too many folders");
+    static const QRegularExpression allowed("^[a-z0-9_.-]+$");
+    static const QRegularExpression device("^(con|prn|aux|nul|com[0-9]|lpt[0-9])$");
+    for (const auto &segment : segments) {
+        if (segment.isEmpty())
+            return reject("empty folder name");
+        if (segment == "." || segment == "..")
+            return reject("relative folder reference");
+        if (segment.size() > 255)
+            return reject("name longer than 255 characters");
+        if (segment.endsWith('.') || segment.endsWith(' '))
+            return reject("name ends with a dot or space");
+        if (!allowed.match(segment).hasMatch())
+            return reject("uppercase or unsupported character");
+        if (device.match(segment.section('.', 0, 0)).hasMatch())
+            return reject("reserved Windows device name");
+    }
+    return true;
+}
 } // namespace
 
 testing::DownloadPolicy vanillaPolicy() {
@@ -190,41 +226,23 @@ std::optional<QList<AssetTexture>> parseAssetIndexTextures(const QByteArray &byt
 
 bool validBaselinePath(const QString &relative, QString *error) {
     const auto shown = relative.left(160);
-    auto reject = [&](const char *why) {
-        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String(why)));
-    };
-    if (relative.isEmpty())
-        return reject("empty path");
-    if (relative.contains(QChar(0)))
-        return reject("NUL character");
-    if (relative.contains('\\'))
-        return reject("backslash");
-    if (relative.contains(':'))
-        return reject("colon");
     if (!relative.startsWith(QLatin1String(texturePrefix)))
-        return reject("outside assets/minecraft/textures/");
+        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String("outside assets/minecraft/textures/")));
     if (!relative.endsWith(".png") && !relative.endsWith(".png.mcmeta"))
-        return reject("not a .png or .png.mcmeta file");
-    const auto segments = relative.split('/');
-    if (segments.size() > 33)
-        return reject("too many folders");
-    static const QRegularExpression allowed("^[a-z0-9_.-]+$");
-    static const QRegularExpression device("^(con|prn|aux|nul|com[0-9]|lpt[0-9])$");
-    for (const auto &segment : segments) {
-        if (segment.isEmpty())
-            return reject("empty folder name");
-        if (segment == "." || segment == "..")
-            return reject("relative folder reference");
-        if (segment.size() > 255)
-            return reject("name longer than 255 characters");
-        if (segment.endsWith('.') || segment.endsWith(' '))
-            return reject("name ends with a dot or space");
-        if (!allowed.match(segment).hasMatch())
-            return reject("uppercase or unsupported character");
-        if (device.match(segment.section('.', 0, 0)).hasMatch())
-            return reject("reserved Windows device name");
-    }
-    return true;
+        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String("not a .png or .png.mcmeta file")));
+    return validSegments(relative, error);
+}
+
+bool validBaselineModelPath(const QString &relative, QString *error) {
+    const auto shown = relative.left(160);
+    const bool inside = relative.startsWith(QLatin1String(modelPrefix)) ||
+                        relative.startsWith(QLatin1String(blockstatePrefix)) ||
+                        relative.startsWith(QLatin1String(itemPrefix));
+    if (!inside)
+        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String("outside the vanilla model folders")));
+    if (!relative.endsWith(".json"))
+        return fail(error, QString("%1 (%2)").arg(shown, QLatin1String("not a .json file")));
+    return validSegments(relative, error);
 }
 
 bool validVersionId(const QString &version) {

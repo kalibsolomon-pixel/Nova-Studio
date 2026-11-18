@@ -22,20 +22,41 @@ bool integer(const QJsonValue &value, int minimum, int *out) {
 bool supportedAnimationTarget(const QString &target) {
     return target == "1.21.11" || target == "26.1" || target == "26.3";
 }
+QSize minecraftFrameSize(QSize sheet, const QJsonObject &animation, QString *error) {
+    auto reject = [&](const QString &message) -> QSize {
+        fail(error, message);
+        return {};
+    };
+    int width = 0, height = 0;
+    if (animation.contains("width") && !integer(animation["width"], 1, &width))
+        return reject("width must be a positive integer");
+    if (animation.contains("height") && !integer(animation["height"], 1, &height))
+        return reject("height must be a positive integer");
+    // Java calculateFrameSize: a single specified dimension leaves the other at sheet size.
+    if (!width && !height)
+        width = height = std::min(sheet.width(), sheet.height());
+    else {
+        if (!width)
+            width = sheet.width();
+        if (!height)
+            height = sheet.height();
+    }
+    if (sheet.isEmpty() || width > Document::MaxDimension || height > Document::MaxDimension ||
+        sheet.width() % width || sheet.height() % height)
+        return reject("Spritesheet must divide into exact bounded frame cells");
+    return {width, height};
+}
 bool parseAnimation(const QImage &sheet, const QJsonObject &metadata, const QString &target,
                     AnimationState *out, QString *error, const AnimationLimits &limits) {
     if (!supportedAnimationTarget(target)) return fail(error, "Unverified Minecraft target; supported profiles: 1.21.11, 26.1, 26.3");
     if (sheet.isNull() || sheet.sizeInBytes() > limits.decodedBytes || !metadata["animation"].isObject())
         return fail(error, "A bounded PNG and an animation object are required");
     const auto object = metadata["animation"].toObject();
-    int width = 0, height = 0, ticks = 1;
-    if (object.contains("width") && !integer(object["width"], 1, &width)) return fail(error, "width must be a positive integer");
-    if (object.contains("height") && !integer(object["height"], 1, &height)) return fail(error, "height must be a positive integer");
-    // Java calculateFrameSize: a single specified dimension leaves the other at sheet size.
-    if (!width && !height) width = height = std::min(sheet.width(), sheet.height());
-    else { if (!width) width = sheet.width(); if (!height) height = sheet.height(); }
-    if (width > Document::MaxDimension || height > Document::MaxDimension || sheet.width() % width || sheet.height() % height)
-        return fail(error, "Spritesheet must divide into exact bounded frame cells");
+    const auto frameSize = minecraftFrameSize(sheet.size(), object, error);
+    if (frameSize.isEmpty())
+        return false;
+    const int width = frameSize.width(), height = frameSize.height();
+    int ticks = 1;
     const qint64 columns = sheet.width() / width, rows = sheet.height() / height, count = columns * rows;
     if (count < 1 || count > limits.sourceFrames || qint64(width) * height * 4 * (count + 1) > limits.decodedBytes)
         return fail(error, "Spritesheet exceeds frame or decoded-memory limits");

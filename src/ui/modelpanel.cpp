@@ -4,8 +4,11 @@
 #include "minecraft_animation.h"
 #include "modelauthor.h"
 #include "project.h"
+#include "render_layers.h"
 #include "settings.h"
 #include "theme.h"
+#include "tints.h"
+#include "vanilla/cache.h"
 #include <QCryptographicHash>
 #include <QImageReader>
 #include <QJsonDocument>
@@ -52,18 +55,18 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     contexts = new QComboBox;
     contexts->setObjectName("modelContext");
     contexts->setAccessibleName("Display context");
-    contexts->setToolTip("raw shows the model untransformed; other entries apply that display context");
+    contexts->setToolTip("Raw shows the untransformed model. Placed uses world block lighting.");
     contexts->addItems({"raw", "gui", "firstperson_righthand", "firstperson_lefthand",
                         "thirdperson_righthand", "thirdperson_lefthand", "ground", "fixed", "head",
-                        "on_shelf"});
+                        "on_shelf", "placed"});
     v->addWidget(contexts);
     inputs = new QLineEdit;
     inputs->setObjectName("modelInputs");
     inputs->setAccessibleName("Preview inputs JSON");
     inputs->setPlaceholderText("Preview inputs as JSON…");
-    inputs->setToolTip("Manual properties, e.g. "
-                       "{\"facing\":\"north\",\"minecraft:using_item\":true,\"_choice\":1}. "
-                       "Weighted choice is zero-based.");
+    inputs->setToolTip("Set block or item properties and override tint RGB values with _tints. "
+                       "Use _choice for the zero-based weighted variant. In Placed, set _neighbors "
+                       "to \"floor\" or a list of solid block offsets.");
     v->addWidget(inputs);
     buildDisplayEditor(v);
     materialPlayback = new MaterialPlayback(this);
@@ -178,6 +181,10 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     toggle("Neutral", &cube->neutral);
     viewLayout->addLayout(controls);
     auto lighting = new QVBoxLayout;
+    auto lightingMode = new QComboBox;
+    lightingMode->setObjectName("previewLightingMode");
+    lightingMode->setAccessibleName("Preview lighting");
+    lightingMode->addItems({"Vanilla lighting", "Studio lighting"});
     auto ambient = new QSpinBox;
     ambient->setRange(0, 100);
     ambient->setValue(55);
@@ -186,16 +193,30 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     auto light = new QComboBox;
     light->setObjectName("previewLight");
     light->addItems({"Light: upper left", "Light: upper right", "Light: front", "Light: below"});
+    auto neutral = findChild<QCheckBox *>("previewNeutral");
+    neutral->setEnabled(false);
+    ambient->setEnabled(false);
+    light->setEnabled(false);
+    lighting->addWidget(lightingMode);
     lighting->addWidget(ambient);
     lighting->addWidget(light);
     viewLayout->addLayout(lighting);
+    connect(lightingMode, &QComboBox::currentIndexChanged, this, [=, this](int mode) {
+        const bool studio = mode == 1;
+        cube->studioLighting = studio;
+        neutral->setEnabled(studio);
+        ambient->setEnabled(studio);
+        light->setEnabled(studio);
+        cube->update();
+    });
     connect(ambient, &QSpinBox::valueChanged, this, [this](int n) {
         cube->ambient = float(n) / 100;
         cube->update();
     });
     connect(light, &QComboBox::currentIndexChanged, this, [this](int n) {
         const QVector3D directions[] = {{-.4f, .8f, .6f}, {.4f, .8f, .6f}, {0, 0, 1}, {0, -1, 0}};
-        cube->lightDirection = directions[n];
+        if (n >= 0)
+            cube->lightDirection = directions[n];
         cube->update();
     });
     auto camera = new QHBoxLayout;
@@ -228,6 +249,8 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
             ambient->setValue(55);
         if (auto light = findChild<QComboBox *>("previewLight"))
             light->setCurrentIndex(0);
+        if (auto mode = findChild<QComboBox *>("previewLightingMode"))
+            mode->setCurrentIndex(0);
         choices();
         rebuild();
     });
@@ -500,7 +523,10 @@ void ModelPanel::loadResources() {
                     QSettings::IniFormat);
     const auto version = versions->currentText();
     const auto paths = prefs.value(resourceSettingsKey(root, version)).toStringList().mid(0, 8);
-    if (paths.isEmpty() && !library->hasFallbacks() && library->version() == version)
+    // Nothing configured, and this version's baseline cache was already checked or cannot hold an
+    // entry: skip the worker and its modal progress (switching projects must stay instant).
+    if (paths.isEmpty() && (cacheVersion == version || !vanilla::BaselineCache().mayHold(version)) &&
+        !library->hasFallbacks() && library->version() == version)
         return;
     const auto originalLibrary = library;
     const auto originalRoot = root;
@@ -522,6 +548,11 @@ void ModelPanel::loadResources() {
             else
                 sources << source;
         }
+        // Nova's verified baseline cache is the default lowest-priority model source; a
+        // user-configured vanilla folder (or any stack entry) still takes precedence.
+        if (auto cached = vanilla::BaselineCache().latest(version);
+            cached && cached->hasModelData())
+            sources << mc::ResourceSource::fromBaseline(*cached);
         // Additional packs precede vanilla regardless of an accidentally misplaced cache.
         std::stable_sort(sources.begin(), sources.end(),
                          [](const auto &a, const auto &b) { return !a.vanilla && b.vanilla; });
@@ -538,12 +569,18 @@ void ModelPanel::loadResources() {
         return;
     }
     *library = std::move(*watcher.result());
+    cacheVersion = version;
+    if (previewResourcesChanged)
+        previewResourcesChanged(library);
 }
 QStringList ModelPanel::resourceStackPaths() const {
     if (!library || root.isEmpty())
         return {};
     QSettings prefs(Settings(qApp->property("settingsFile").toString()).fileName(), QSettings::IniFormat);
     return prefs.value(resourceSettingsKey(root, library->version())).toStringList().mid(0, 8);
+}
+void ModelPanel::setMinecraftVersion(const QString &version) {
+    versions->setCurrentText(version);
 }
 void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &project) {
     if (library != value)
@@ -563,6 +600,7 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
         uvElement = -1;
         target.clear();
         pinned = false;
+        cacheVersion.clear(); // the fresh library starts without the cache model source
         const auto pack = Project::inspect(project).json["pack"].toObject();
         const auto format = PackFormat::parse(pack.contains("min_format") ? pack["min_format"]
                                                                           : pack["pack_format"]);
@@ -582,6 +620,8 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
     }
     if (library && (newProject || library->version() != versions->currentText()))
         loadResources();
+    if (previewResourcesChanged)
+        previewResourcesChanged(library);
     if (newProject && !stored.isEmpty()) {
         target = stored["target"].toString().left(2048);
         pinned = !target.isEmpty();
@@ -612,6 +652,8 @@ void ModelPanel::setLibrary(std::shared_ptr<mc::Library> value, const QString &p
             QSignalBlocker block(ambient);
             ambient->setValue(int(cube->ambient * 100));
         }
+        if (auto mode = findChild<QComboBox *>("previewLightingMode"))
+            mode->setCurrentIndex(cube->studioLighting ? 1 : 0);
     }
 }
 void ModelPanel::savePreviewState() {
@@ -755,7 +797,16 @@ void ModelPanel::openAsset(const QString &asset, bool showMaterial) {
             }
 }
 void ModelPanel::rebuild() {
-    inputs->setVisible(target.startsWith("definition:"));
+    const auto context = contexts->currentText();
+    const auto definition = target.startsWith("definition:") ? target.mid(11) : QString();
+    const auto blockstate = mc::Location::fromAsset(definition, "blockstates");
+    const auto blockId = library ? mc::previewBlockId(modelAsset(), *library) : QString();
+    const bool placed = context == "placed" || (context == "raw" && !blockstate.isEmpty());
+    inputs->setVisible(!definition.isEmpty() || !blockId.isEmpty() || placed);
+    const auto contextName = displayContext();
+    const bool oversized = library && library->source(definition)["oversized_in_gui"].toBool();
+    cube->setPreviewContext(contextName, placed, blockId, oversized);
+    cube->setContextTransform({});
     const int previousFace = cube->selectedFace;
     faces->clear();
     dependencies->clear();
@@ -807,25 +858,28 @@ void ModelPanel::rebuild() {
     QStringList previewLimitations;
     QString asset;
     QVector<mc::Instance> instances;
-    messages << "Isolated preview · world AO, atlas shaders and runtime tints omitted";
+    QJsonObject values;
+    if ((!definition.isEmpty() || !blockId.isEmpty() || placed) && !inputs->text().trimmed().isEmpty()) {
+        QJsonParseError error;
+        const auto json = QJsonDocument::fromJson(inputs->text().toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError || !json.isObject()) {
+            diagnostics->setText("Preview inputs must be a JSON object");
+            cube->setModel(combined, activeAsset);
+            overlay();
+            return;
+        }
+        values = json.object();
+    }
+    if (placed && !values["_neighbors"].isUndefined())
+        messages << "Placed preview · solid-block neighbourhood with uniform light";
     if (target.startsWith("model:")) {
         auto id = target.mid(6);
         instances << mc::Instance{id, "raw model"};
+        if (!blockId.isEmpty())
+            instances.last().tints = mc::TintColors(*library).block(blockId, values);
         asset = mc::Location::parse(id).asset("models");
     } else {
-        asset = target.mid(11);
-        QJsonParseError error;
-        QJsonObject values;
-        if (!inputs->text().trimmed().isEmpty()) {
-            auto json = QJsonDocument::fromJson(inputs->text().toUtf8(), &error);
-            if (error.error != QJsonParseError::NoError || !json.isObject()) {
-                diagnostics->setText("Preview inputs must be a JSON object");
-                cube->setModel(combined, activeAsset);
-                overlay();
-                return;
-            }
-            values = json.object();
-        }
+        asset = definition;
         auto dispatch = library->dispatch(asset, values, values["_choice"].toInt());
         instances = dispatch.instances;
         messages += dispatch.diagnostics;
@@ -840,33 +894,31 @@ void ModelPanel::rebuild() {
                     continue;
                 materials[path] = loadMaterial(path, messages);
             }
-        auto generatedSprites = materials;
+        QMap<QString, QVector<QImage>> generatedFrames;
         if (model.generated)
             for (const auto &path : model.textures)
-                if (auto doc = materialDocuments.value(path)) {
-                    auto silhouette = materials.value(path).copy();
-                    silhouette.fill(Qt::transparent);
-                    for (const auto &frame : doc->animationState().frames) {
-                        const auto pixels = doc->frameComposite(frame.id);
-                        if (pixels.size() != silhouette.size())
-                            continue;
-                        for (int y = 0; y < pixels.height(); ++y)
-                            for (int x = 0; x < pixels.width(); ++x)
-                                if (qAlpha(pixels.pixel(x, y)))
-                                    silhouette.setPixelColor(x, y, Qt::white);
+                if (auto doc = materialDocuments.value(path); doc && !generatedFrames.contains(path)) {
+                    const auto frames = doc->animationState().frames;
+                    if (frames.size() <= 1)
+                        continue;
+                    const auto size = materials.value(path).size();
+                    auto &pixels = generatedFrames[path];
+                    if (size.width() > 1024 || size.height() > 1024 ||
+                        qint64(size.width()) * size.height() * frames.size() > 16 * 1024 * 1024) {
+                        // Report the contour budget without decoding the entire sequence.
+                        pixels.resize(frames.size());
+                        continue;
                     }
-                    generatedSprites[path] = silhouette;
+                    for (const auto &frame : frames)
+                        pixels << doc->frameComposite(frame.id);
                 }
-        auto part = mc::transformed(mc::generatedMesh(model, generatedSprites), instance);
+        auto part = mc::displayMesh(model, instance, contextName, materials, generatedFrames);
+        if (placed)
+            mc::applyPlacedLighting(part, values["_neighbors"]);
+        if (combined->faces.isEmpty())
+            combined->guiLight = part.guiLight;
         if (!part.previewLimitation.isEmpty())
             previewLimitations << instance.model + ": " + part.previewLimitation;
-        // Minecraft order: display * translate(-0.5) * item-definition transformation.
-        part = mc::applyTransform(
-            std::move(part),
-            mc::itemPose(mc::displayTransform(model, displayContext()), instance.transformation));
-        for (auto &face : part.faces)
-            if (face.tint >= 0 && face.tint < instance.tints.size())
-                face.color = instance.tints[face.tint];
         messages += part.diagnostics;
         if (combined->faces.size() + part.faces.size() > 24576) {
             messages << "Combined geometry budget (24576 faces)";
@@ -923,7 +975,7 @@ void ModelPanel::rebuild() {
     materialPlayback->setMaterials(animations);
     if (animations.isEmpty())
         cube->setMaterialPreview(false);
-    cube->setContextTransform(QMatrix4x4());
+    cube->setContextTransform(mc::displayContextPose(contextName, mesh->minimum.y()));
     syncing = true;
     for (const auto &face : mesh->faces)
         {

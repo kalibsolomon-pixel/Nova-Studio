@@ -312,7 +312,7 @@ class Document {
     int historyOperations() const { return int(history.size()); }
     void setHistoryLimits(qint64 bytes, int operations);
     void restorePixels(const QImage &pixels, const Revision &originalRevision);
-    static std::shared_ptr<Document> open(const QString &path, QString *error = nullptr);
+    static std::shared_ptr<Document> open(const QString &path, QString *error = nullptr, bool includeMetadata = true);
     // A document bound to a project path that does not exist yet, built from verified baseline
     // bytes. Opening writes nothing and leaves it unmodified; both revisions are "missing", so its
     // first save (or, for an animated texture, PNG + .mcmeta pair export) is create-only.

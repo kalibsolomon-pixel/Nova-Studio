@@ -4,7 +4,7 @@ Nova Studio's MCP Phase 3 tools help an agent understand a resource pack before 
 **read-only**: they never change the pack, Nova's caches or any other file, never start a download, and never
 accept a filesystem path. They work in read-only and editing connections alike and follow the same rules as every
 other Nova tool: the user authorizes one project at a time, revocation and project switches end access, and each
-call needs the `generation` and `projectId` from `nova.project.info`.
+project-scoped call uses `generation` and, where the tool requires it, `projectId` from `nova.project.info`.
 
 | Tool | What it answers |
 | --- | --- |
@@ -12,6 +12,27 @@ call needs the `generation` and `projectId` from `nova.project.info`.
 | `nova.vanilla.texture` | Give me one cached vanilla texture (PNG), with its hash, size and provenance. |
 | `nova.asset.relationships` | How is this pack asset selected and used: definitions, models, variables, faces, companions? |
 | `nova.pack.validate` | What is wrong in the saved files *and* the open unsaved drafts, and how do I know? |
+| `nova.texture.analyze` | How do the palette, luminance, tile edges and frame layout read, and which assets look alike? |
+
+## Preparing assets for edits
+
+- `nova.asset.open` takes `generation`, `projectId` and a pack texture `assetId`. With editing
+  permission, it opens the texture in a background tab and returns the current revision. Repeated
+  calls reuse the same open document.
+- `nova.asset.create_preview` and `nova.asset.create` accept a `source` in place of `parameters`.
+  Use an indexed texture ID or a verified cache path such as `vanilla:block/water_still.png`. Copy
+  uses the open draft when available and otherwise reads the saved PNG and its animation metadata.
+  Creating the copy requires editing permission. The result is an unsaved draft that can be edited
+  and saved with the usual draft tools.
+- `nova.pack.bootstrap` takes `generation`, `projectId` and `indexRevision` from
+  `nova.project.info`. With editing permission, it initializes an authorized folder with Java
+  1.21.11 metadata (pack format 75.0) and the standard `assets/minecraft/textures` folders. A second
+  call preserves existing pack metadata. Get a fresh `indexRevision` after initialization before
+  creating assets.
+
+Use `nova.texture.read` for indexed pixels, `nova.asset.preview_image` for labelled contact sheets or
+revision comparisons, and `nova.texture.analyze` for palette and layout checks. See
+[MCP_TEXTURE_TOOLS.md](MCP_TEXTURE_TOOLS.md).
 
 ## Where the data comes from
 
@@ -23,16 +44,15 @@ Nova uses these sources, in this order of precedence. The first source that has 
    Minecraft version, in their configured order. A folder made with `prepare-vanilla-cache.py` counts as a
    *verified vanilla resource source* only if its `nova-vanilla.json` matches the official client Nova pins for that
    version; otherwise Nova refuses it and reports it as unavailable.
-4. **Nova's vanilla texture cache**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
-   Baseline). It holds **textures and their `.png.mcmeta` only**. It contains no models, item definitions,
-   blockstates or equipment definitions and is never used as a model source.
+4. **Nova's vanilla baseline**: the per-user cache behind *Use Vanilla Baseline* (Resources › Vanilla
+   Baseline). Current entries hold textures, animation metadata, models, item definitions and blockstates.
+   Older entries can hold just textures and animation metadata.
 
 Consequences an agent must respect:
 
-- Vanilla *models* (for example `minecraft:item/generated` or `minecraft:block/cube_all`) are available only when
-  the user configured a verified vanilla resource source. Without one, Nova reports links to them as unresolved or
-  unchecked. It never guesses a model, never treats a texture as a cube, and never reads a Minecraft JAR, the
-  `.minecraft` folder or any other location.
+- Vanilla models such as `minecraft:item/generated` and `minecraft:block/cube_all` resolve from a verified
+  source on the resource stack or a verified baseline with model data. When neither source supplies the
+  model, Nova reports the link as unresolved or unchecked.
 - If the cache has no entry for a version, Nova says so (`vanilla_not_cached`). Only the user can add a version, in
   Nova, which asks before downloading. An MCP request never downloads anything.
 - Responses name resource paths (`assets/<namespace>/...`), stack positions and folder names. They never contain
@@ -201,7 +221,7 @@ A model whose parent is vanilla, with no verified vanilla resource source config
    {"id": "nova:item/vanilla_parent", "path": "assets/nova/models/item/vanilla_parent.json",
     "source": {"source": "project"}, "status": "confirmed"},
    {"id": "minecraft:item/generated", "path": "assets/minecraft/models/item/generated.json", "status": "unresolved"}]},
- "reason": "The model minecraft:item/generated is not in the project or the configured resource stack. It may be a vanilla model, but no verified vanilla resource source is configured for Java 1.21.11, and Nova's vanilla texture cache contains textures only, so Nova cannot resolve it."}
+ "reason": "The model minecraft:item/generated is not in the project or the configured resource stack. It may be a vanilla model, but no verified vanilla resource source is configured for Java 1.21.11, and Nova's vanilla baseline is missing or holds textures only, so Nova cannot resolve it."}
 ```
 
 A vanilla texture that only the cache provides:
@@ -210,7 +230,7 @@ A vanilla texture that only the cache provides:
 {"providers": [{"source": "vanilla_texture_cache", "verified": true, "selected": true}],
  "relationships": [{"type": "model_uses_texture", "status": "unresolved",
    "to": "assets/minecraft/textures/item/apple.png",
-   "reason": "No model in the project or the configured resource stack references this texture. No verified vanilla resource source is configured, so vanilla models that may use it are unavailable; Nova's vanilla texture cache contains textures only. Nova does not guess a model."}]}
+   "reason": "No model in the project or the configured resource stack references this texture. No verified vanilla resource source is configured, so vanilla models that may use it are unavailable; Nova's vanilla baseline is missing or holds textures only. Nova does not guess a model."}]}
 ```
 
 How to read these: `unresolved` means *Nova cannot establish the link from the available sources*, not that the
@@ -305,11 +325,30 @@ vanilla resource source is configured; `limitations` gives their count instead.
     {"severity": "Warning", "rule": "resource_stack_unavailable", "path": null, "source": "resource_stack",
      "message": "Resource stack source 1 (fakevanilla) is configured but unavailable: Vanilla cache does not match the selected official target version. Its files were not validated or used to resolve references."}
   ],
-  "limitations": ["No verified vanilla resource source is configured for Java 1.21.11: references to vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla texture cache contains textures only."]
+  "limitations": ["No verified vanilla resource source is configured for Java 1.21.11: references to vanilla models are reported as Unsupported (unchecked), not as errors. Nova's vanilla baseline is missing or holds textures only; downloading or repairing it adds vanilla models."]
 }
 ```
 
 `nova.workflow.validate_changes` is unchanged: it validates selected project assets without the resource stack.
+
+## `nova.texture.analyze`
+
+Pass `generation`, `projectId`, and either one pack `assetId` or `assetIds` with up to 16 distinct
+pack texture IDs. The result preserves input order and includes an `error` on any unavailable asset.
+Nova analyzes the visible composite of an open draft's active frame or the first source frame of a
+saved PNG. Pixel metrics cover frames up to 256 × 256. Visible colour counts include distinct RGBA
+values with nonzero alpha. The luminance range uses the 10th and 90th percentiles of encoded Rec.
+709 luma, and reports gaps between occupied levels.
+
+For textures under `textures/block/`, Nova compares opposite edges to ordinary adjacent pairs inside
+the tile and flags unusually strong seams. For a matching Minecraft texture in the locally verified
+baseline, it compares sheet dimensions and frame grid. A draft's animated layout uses Nova's
+one-column export. A missing baseline leaves the comparison unavailable.
+
+When two sampled frames have the same dimensions, Nova checks colour distance and transparency over
+the pixels occupied by either frame. Near-duplicate, luminance and seam findings are advisory. Each
+finding includes a rule, evidence and a next step. Use `nova.pack.validate` for pack references and
+metadata errors.
 
 ## Version-specific rules
 
@@ -418,6 +457,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -547,6 +592,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -697,6 +748,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maxLength": 16,
         "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){1,2}$",
         "type": "string"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [
@@ -774,7 +831,7 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
 ```json
 {
   "name": "nova.pack.validate",
-  "description": "Run read-only validation of saved files and open unsaved drafts. References resolve through the project, the resource stack the user configured, and Nova's verified vanilla texture cache (textures only); each finding has a rule, source, evidence and next step. Never downloads.",
+  "description": "Run read-only validation of saved files and open unsaved drafts. References resolve through the project, the resource stack the user configured, and Nova's verified vanilla baseline (textures, plus vanilla models when the baseline holds them); each finding has a rule, source, evidence and next step. Never downloads.",
   "annotations": {
     "openWorldHint": false,
     "readOnlyHint": true
@@ -796,6 +853,12 @@ These are the definitions `tools/list` returns (checked by the `mcp-relationship
         "maximum": 200,
         "minimum": 1,
         "type": "integer"
+      },
+      "verbosity": {
+        "enum": [
+          "summary",
+          "full"
+        ]
       }
     },
     "required": [

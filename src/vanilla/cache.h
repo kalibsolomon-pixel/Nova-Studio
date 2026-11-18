@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-// Shared per-user vanilla texture cache (DESIGN.md section 3):
-//   objects/<aa>/<sha256>.png|.mcmeta     content-addressed, read-only, shared by all versions
+// Shared per-user vanilla baseline cache (DESIGN.md section 3):
+//   objects/<aa>/<sha256>.png|.mcmeta|.json     content-addressed, read-only, shared by all versions
 //   entries/<version>/<identity[0:32]>/manifest.json   the only "complete" marker
-//   staging/<token>/                      temporary downloads, swept under the lock
-//   cache.lock                            QLockFile held for every mutation
+//   staging/<token>/                          temporary downloads, swept under the lock
+//   cache.lock                                QLockFile held for every mutation
 // Readers never lock: objects are immutable and manifests appear atomically. Every
 // mutation (BaselineInstaller, remove) holds cache.lock.
 #include "metadata.h"
@@ -30,10 +30,13 @@ struct BaselineEntry {
     QString version;  // Minecraft Java version id
     QString identity; // 64 hex, identityKey() of the source metadata
     QDateTime created;
+    int schema = 1;   // manifest schema: 1 textures only, 2 textures + vanilla model data
     QJsonObject source; // manifest_url, version_url, version_sha1, client{}, asset_index{}
-    QMap<QString, BaselineFile> files; // assets/minecraft/textures/... -> object
+    QMap<QString, BaselineFile> files; // assets/minecraft/textures|models|blockstates|items/... -> object
     bool isValid() const { return !identity.isEmpty(); }
     bool contains(const QString &relative) const { return files.contains(relative); }
+    // Whether the entry also holds model data (models/blockstates/item definitions).
+    bool hasModelData() const;
     // Absolute path of the object holding `relative` ("" if not in the entry).
     QString objectPath(const QString &relative) const;
 };
@@ -45,6 +48,7 @@ struct BaselineSummary {
     QString identity; // 64 hex when the manifest is readable, else the 32-hex folder name
     QDateTime created;
     int files = 0;
+    bool models = false;   // the entry also holds vanilla model data
     qint64 bytes = 0;       // all objects the entry references (each object counted once)
     qint64 uniqueBytes = 0; // referenced by no other valid entry
     qint64 sharedBytes = 0; // also referenced by another valid entry
@@ -72,6 +76,8 @@ class BaselineCache {
     std::optional<BaselineEntry> load(const QString &version, const QString &identity,
                                       Check check = Check::Sizes, QString *error = nullptr,
                                       const std::shared_ptr<std::atomic_bool> &cancel = {}) const;
+    // Cheap pre-check (one directory stat): false means latest(version) certainly finds nothing.
+    bool mayHold(const QString &version) const;
     // Newest (by `created`) entry for `version` passing `check`.
     std::optional<BaselineEntry> latest(const QString &version, Check check = Check::Sizes,
                                         QString *error = nullptr) const;

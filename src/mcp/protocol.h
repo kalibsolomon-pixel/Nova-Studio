@@ -28,7 +28,7 @@ class Protocol {
 // Tool errors are {code, message}; details carry data only where it helps the caller (a JSON
 // pointer for invalid arguments, per-document save outcomes, supported versions or topics).
 QJsonObject toolError(const QString &code, const QString &message, const QJsonObject &details = {});
-QJsonObject toolReply(const QJsonValue &id, const QJsonObject &payload);
+QJsonObject toolReply(const QJsonValue &id, const QJsonObject &payload, bool fullText = false);
 QJsonObject rpcError(const QJsonValue &id, int code, const QString &message, const QJsonValue &data = {});
 QJsonObject resourceReply(const QJsonValue &id, const QString &uri, const QString &mimeType, const QString &text);
 // The first schema violation as a JSON pointer and a field-specific message; empty when valid.
@@ -37,10 +37,12 @@ struct SchemaError {
     bool isEmpty() const { return message.isEmpty(); }
 };
 SchemaError checkArguments(const QJsonValue &value, const QJsonObject &schema);
-const QJsonArray &toolDefinitions();
+const QJsonArray &toolDefinitions(); // full schemas, which every call is checked against
+const QJsonArray &toolListing();     // what tools/list publishes (brief batch operations)
 // The native command behind a compact texture tool (nova.texture.put_pixels -> put_pixels); empty
 // for every other tool. These tools are mutations and need editing permission.
 QString compactTextureCommand(const QString &tool);
+bool nativeTextureCommand(const QString &command);
 QStringList categories();
 QString randomToken();
 }

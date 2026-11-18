@@ -12,12 +12,19 @@
 
 ## Editing and Minecraft
 
-- The 3D preview approximates Minecraft's rendering. Check final results in the game.
-- Common generated and handheld item models use thin, alpha-contoured texture layers and
-  resolved item display transforms from project models and explicitly configured resource
-  stacks. Missing sprites, sprites above 1024 pixels per side, or contours beyond the
-  4096-span budget use a named flat approximation. Missing model data retains the explicit
-  preview fallback. This does not expand the vanilla cache or provide full rendering parity.
+- The 3D preview has fixed hand, head, ground and frame poses. In-game animation, stack offsets,
+  lighting from the world lightmap, atlas mipmaps, fog, shader packs and enchantment glint can
+  change the result. The Placed context samples a local light model for air and solid cubes.
+- Vanilla parents such as `item/generated` resolve only when the target version has a baseline
+  cache entry with model data (the default after a fresh download or **Download / Repair
+  Baseline…**), or when a verified vanilla folder is configured in the Model panel's resource
+  stack; a texture-only cache from an older Nova keeps working and shows the update hint. The
+  cache never enters the project or the export.
+- Generated items use per-frame alpha edges and a one-pixel thickness. Missing sprites, sprites
+  above 1024 pixels per side and contours over the 4096-element budget use flat layers.
+- Special item previews cover chests, shulker boxes, beds, common skulls and heads, plain shields
+  and inactive conduits. Runtime banner patterns, player skins, decorated pots, dragon and piglin
+  heads, and other special renderers remain incomplete. See the [model preview guide](MODEL_PREVIEW.md).
 - Test in Minecraft targets Minecraft Java Edition 1.21.11 with Fabric and needs a one-time
   download. The production Minecraft launcher hand-off is not part of this preview.
 
@@ -26,18 +33,17 @@
 - Automatic setup was verified with Claude Code 2.1.317 and Codex CLI 0.166.0-alpha.6 using test
   configuration folders, and with Claude Desktop's configuration format on a copy of its file.
   A live Claude Desktop session was not tested.
-- Each authorization serves one agent session. Reconnecting an agent needs a new Allow.
+- One agent is connected at a time. An authorization stays on until you revoke it, switch
+  projects or close Nova Studio; a disconnected agent reconnects with a freshly offered code.
 - Uninstalling Nova Studio does not remove agents' `nova-studio` entries.
-- **Agent Session (ACP) is experimental and off by default**; turn it on in **Edit › Preferences ›
-  Experimental**. It was tested with a scripted test agent, and
-  with OpenCode 1.19.5 (`opencode acp`) for start-up and attaching Nova's tools only, in an isolated
-  configuration with no sign-in and no message sent; no conversation with a real AI model has been
-  tested, and Claude Code, Codex and other agents have not been tested with it. Nova controls only
-  its own tools: an agent's built-in file, shell or web tools follow that agent's own configuration,
-  and Nova can neither see nor limit them. The agent's replies and reasoning are shown as the agent
-  writes them; the window does not list its tool calls. Changing from read-only to editing restarts
-  the agent session.
-- MCP asset creation never creates folders; an agent must ask you to create a missing folder.
+- **Agent Session (ACP) is experimental.** Automated tests use a scripted agent. A previous
+  smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
+  Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
+  tool details, and permission options depend on what the agent reports. Its built-in file,
+  shell, and web tools follow that agent’s configuration. Changing from read-only to editing
+  restarts the agent session.
+- With editing permission, `nova.pack.bootstrap` can initialize a folder with Java 1.21.11 metadata and standard
+  Minecraft texture folders. Other asset creation requires the destination folder to exist.
 
 ## Search
 

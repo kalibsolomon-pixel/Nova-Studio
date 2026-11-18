@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "resources.h"
+#include "vanilla/cache.h"
+#include "vanilla/overlay.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -63,6 +65,17 @@ ResourceSource ResourceSource::open(const QString &folder, const QString &target
         return fail(s.index.error);
     return s;
 }
+ResourceSource ResourceSource::fromBaseline(const vanilla::BaselineEntry &entry) {
+    ResourceSource s;
+    s.root = entry.root; // the objects live under it; containment and hashes keep it read-only
+    s.version = entry.version;
+    s.vanilla = true;
+    s.label = "Vanilla Java " + entry.version;
+    s.index = vanilla::baselineIndex(entry, true);
+    for (auto it = entry.files.cbegin(); it != entry.files.cend(); ++it)
+        s.hashes.insert(it.key(), it->sha256);
+    return s;
+}
 void ResourceStack::build(const QString &root, const Index &editable,
                           const QVector<ResourceSource> &fallbacks, const QString &version) {
     candidates.clear();
@@ -73,7 +86,10 @@ void ResourceStack::build(const QString &root, const Index &editable,
         for (auto i = index.records.cbegin(); i != index.records.cend(); ++i) {
             if (!i.key().startsWith("assets/"))
                 continue;
-            const auto full = base + '/' + i.key();
+            // A source may file its records away from base/relative (the cache's objects).
+            const auto stored = i.value().filesystemPath;
+            const auto full = stored.startsWith(base + '/', Qt::CaseInsensitive) ? stored
+                                                                                 : base + '/' + i.key();
             if (QDir::cleanPath(full) != full || !safe(base, full))
                 continue;
             if (!hashes.isEmpty() && !hashes.contains(i.key()))

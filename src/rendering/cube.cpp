@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cube.h"
+#include "render_layers.h"
 #include "theme.h"
 #include <QOpenGLFramebufferObject>
 #include <QScopedValueRollback>
@@ -13,8 +14,41 @@
 #include <numeric>
 namespace nova {
 struct Vertex {
-    float x, y, z, u, v, nx, ny, nz, shade;
+    float x, y, z, u, v, nx, ny, nz, shade, worldShade;
 };
+namespace {
+using Lights = std::array<QVector3D, 2>;
+const Lights &previewLights(bool gui, mc::GuiLight guiLight) {
+    static const Lights level{QVector3D(.2f, 1.f, -.7f).normalized(),
+                              QVector3D(-.2f, 1.f, .7f).normalized()};
+    // Lighting's GUI matrices expressed in the preview's Y-up coordinates.
+    static const auto guiLights = [](bool side) -> Lights {
+        QMatrix4x4 pose;
+        if (side) {
+            pose.rotate(62, 0, 1, 0);
+            pose.rotate(185.5f, 1, 0, 0);
+        } else {
+            pose.scale(1, -1, 1);
+        }
+        pose.rotate(-22.5f, 0, 1, 0);
+        pose.rotate(135, 1, 0, 0);
+        return {pose.mapVector(level[0]), pose.mapVector(level[1])};
+    };
+    static const Lights front = guiLights(false), side = guiLights(true);
+    return !gui ? level : guiLight == mc::GuiLight::Front ? front : side;
+}
+QRect guiClipRect(const QRect &slot, bool oversized, const mc::Mesh &mesh) {
+    const auto span = (mesh.maximum - mesh.minimum) * 8;
+    const int width = int(std::ceil(span.x())), height = int(std::ceil(span.y()));
+    if (!oversized || (width <= 16 && height <= 16))
+        return slot;
+    const auto center = slot.topLeft() + QPoint(slot.width() / 2, slot.height() / 2);
+    const int scale = slot.width() / 16;
+    return {center.x() + int(std::floor(mesh.minimum.x() * 8)) * scale,
+            center.y() + (int(std::floor(mesh.maximum.y() * 8)) - height) * scale,
+            width * scale, height * scale};
+}
+} // namespace
 Cube::Cube(Metrics *m, QWidget *p) : QOpenGLWidget(p), metrics(m) {
     setMinimumSize(200, 150);
     setFocusPolicy(Qt::StrongFocus);
@@ -97,7 +131,6 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
     materialImages = materials;
     if (!fallback.isNull())
         materialImages.insert(QString{}, fallback);
-    alphaCache.clear();
     selectedFace = -1;
     updateEmptyState();
     update();
@@ -251,9 +284,32 @@ void Cube::fitModel() {
     cameraPan = {};
     update();
 }
-QMatrix4x4 Cube::matrix() const {
+QRect Cube::guiSlot(const QSize &viewport) const {
+    const int limit = std::min(viewport.width(), viewport.height());
+    const int side = inventoryCapture ? limit : 16 * std::max(1, limit / 32);
+    return {(viewport.width() - side) / 2, (viewport.height() - side + 1) / 2, side, side};
+}
+QMatrix4x4 Cube::matrix(bool model) const {
     QMatrix4x4 projection, view;
-    float aspect = captureAspect > 0 ? captureAspect : float(width()) / float(std::max(1, height()));
+    const auto viewport = captureSize ? QSize(captureSize, captureSize)
+                                     : size() * devicePixelRatioF();
+    const float aspect = float(viewport.width()) / float(std::max(1, viewport.height()));
+    if (previewContext == "gui") {
+        const auto slot = guiSlot(viewport);
+        const float unit = 2.f / slot.width();
+        // In centred, Y-up mesh coordinates the 16, -16, 16 pose maps one unit to 8 px.
+        projection.ortho(-slot.x() * unit - 1, (viewport.width() - slot.x()) * unit - 1,
+                         -slot.y() * unit - 1, (viewport.height() - slot.y()) * unit - 1,
+                         -125.f, 125.f);
+        return projection;
+    }
+    if (previewContext.startsWith("firstperson_")) {
+        // The neutral 70-degree held-item camera, with room for a 16:9 reference view.
+        const float halfWidth = .05f * .70020754f * std::max(aspect, 16.f / 9);
+        const float halfHeight = halfWidth / aspect;
+        projection.frustum(-halfWidth, halfWidth, -halfHeight, halfHeight, .05f, 200.f);
+        return model ? projection * contextTransform : projection;
+    }
     if (perspective) {
         projection.perspective(40.f, aspect, .05f, 200.f);
         view.translate(float(cameraPan.x()), float(cameraPan.y()), -6.f / scale);
@@ -265,23 +321,35 @@ QMatrix4x4 Cube::matrix() const {
     }
     view.rotate(pitch, 1, 0, 0);
     view.rotate(yaw, 0, 1, 0);
-    const auto center = contextFraming ? QVector3D() : (scene().minimum + scene().maximum) / 2;
-    view *= contextTransform;
+    const auto center = contextFraming || !previewContext.isEmpty()
+                            ? QVector3D() : (scene().minimum + scene().maximum) / 2;
     view.translate(-center);
+    if (model)
+        view *= contextTransform;
     return projection * view;
 }
 QImage Cube::captureModel(bool comparison) {
+    return captureFrame(256, comparison, false);
+}
+QImage Cube::captureInventoryIcon(int scale) {
+    if (scale < 1 || scale > 16 || previewContext != "gui")
+        return {};
+    return captureFrame(16 * scale, false, true);
+}
+QImage Cube::captureFrame(int size, bool comparison, bool inventory) {
     if (!isValid() || !modelMesh || modelMesh->faces.isEmpty() || !program || !program->isLinked())
         return {};
     makeCurrent();
     QImage pixels;
     {
-        QOpenGLFramebufferObject framebuffer(256, 256, QOpenGLFramebufferObject::CombinedDepthStencil);
+        QOpenGLFramebufferObject framebuffer(size, size, QOpenGLFramebufferObject::CombinedDepthStencil);
         if (framebuffer.isValid() && framebuffer.bind()) {
             GLint viewport[4];
             glGetIntegerv(GL_VIEWPORT, viewport);
-            glViewport(0, 0, 256, 256);
-            QScopedValueRollback aspect(captureAspect, 1.f);
+            glViewport(0, 0, size, size);
+            QScopedValueRollback frameSize(captureSize, size);
+            QScopedValueRollback icon(inventoryCapture, inventory);
+            QScopedValueRollback context(previewContext, comparison ? QString{} : previewContext);
             // Use the same block-centred camera and scale for both revisions.
             QScopedValueRollback fixed(contextFraming, comparison || contextFraming);
             QScopedValueRollback rotation(contextTransform, comparison ? QMatrix4x4{} : contextTransform);
@@ -308,19 +376,12 @@ void Cube::uploadGeometry() {
         for (int i : {0, 1, 2, 0, 2, 3}) {
             const auto p = f.points[i];
             const auto uv = f.uv[i];
-            auto n = f.normal;
-            if (!f.shadeDirection.isEmpty()) {
-                const QStringList names{"down", "up", "north", "south", "west", "east"};
-                const QVector3D ns[] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
-                                        {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
-                const auto k = names.indexOf(f.shadeDirection);
-                if (k >= 0)
-                    n = ns[k];
-            }
+            const auto n = f.lightNormal;
             vertices << Vertex{
-                p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f};
+                p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f,
+                f.overworldShade() * f.ambientShade[i]};
         }
-    auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0}; };
+    auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0, 1}; };
     QVector<Vertex> edges;
     edges.reserve(scene().faces.size() * 10);
     for (const auto &f : scene().faces)
@@ -375,20 +436,26 @@ void Cube::initializeGL() {
     bool ok = program->addShaderFromSourceCode(
         QOpenGLShader::Vertex,
         "attribute vec3 position; attribute vec2 texcoord; attribute vec3 normal; attribute float "
-        "shade;"
+        "shade; attribute float worldShade;"
         "uniform mat4 mvp; uniform vec3 direction; uniform float ambient; uniform float neutral;"
-        "varying vec2 uv; varying float light; void "
-        "main(){gl_Position=mvp*vec4(position,1.0);uv=texcoord;"
-        "light=mix(1.0,ambient+(1.0-ambient)*max(dot(normal,normalize(direction)),0.0),shade*(1.0-"
-        "neutral));}");
+        "uniform vec3 light0; uniform vec3 light1; uniform int lightingMode;"
+        "varying vec2 uv; varying float light; void main(){"
+        "gl_Position=mvp*vec4(position,1.0);uv=texcoord;"
+        "if(lightingMode==2){"
+        "float studio=ambient+(1.0-ambient)*max(dot(normal,normalize(direction)),0.0);"
+        "light=mix(1.0,studio,shade*(1.0-neutral));"
+        "}else if(lightingMode==1){light=worldShade;}"
+        "else{float diffuse=max(dot(normal,light0),0.0)+max(dot(normal,light1),0.0);"
+        "light=min(1.0,0.4+0.6*diffuse);}}");
     ok = ok &&
          program->addShaderFromSourceCode(
              QOpenGLShader::Fragment,
              "uniform sampler2D tex; uniform float solid; uniform vec4 solidColor; uniform vec3 "
-             "tintColor; varying vec2 uv; "
+             "tintColor; uniform float alphaCutoff; uniform bool blended; varying vec2 uv; "
              "varying float light; void main(){if(solid>0.5){gl_FragColor=solidColor;return;}vec4 "
              "c=texture2D(tex,uv);"
-             "if(c.a<0.001) discard; gl_FragColor=vec4(c.rgb*tintColor*light,c.a);}");
+             "if(c.a<alphaCutoff) discard;"
+             "gl_FragColor=vec4(c.rgb*tintColor*light,blended?c.a:1.0);}");
     if (!ok || !program->link() || !buffer.create() || !lineBuffer.create() ||
         !guideBuffer.create()) {
         setToolTip(program->log());
@@ -402,7 +469,10 @@ void Cube::paintGL() {
     timer.start();
     // Models read against the same surround as textures.
     const QColor clear = ui::current().canvas;
-    glClearColor(clear.redF(), clear.greenF(), clear.blueF(), 1);
+    if (inventoryCapture)
+        glClearColor(0, 0, 0, 0);
+    else
+        glClearColor(clear.redF(), clear.greenF(), clear.blueF(), 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if ((!document && !modelMesh) || !program || !program->isLinked() || !buffer.isCreated()) {
         QPainter p(this);
@@ -431,10 +501,10 @@ void Cube::paintGL() {
             } else
                 ++it;
         }
-        QImage missing(2, 2, QImage::Format_RGBA8888);
-        missing.fill(QColor(230, 0, 200));
-        missing.setPixelColor(0, 0, Qt::black);
-        missing.setPixelColor(1, 1, Qt::black);
+        QImage missing(16, 16, QImage::Format_RGBA8888);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x)
+                missing.setPixelColor(x, y, (x < 8) != (y < 8) ? QColor(248, 0, 248) : Qt::black);
         materialImages[QString()] = missing;
         for (auto i = materialImages.cbegin(); i != materialImages.cend(); ++i)
             dirtyMaterials.insert(i.key());
@@ -501,10 +571,19 @@ void Cube::paintGL() {
         }
     }
     auto m = matrix();
+    const bool clipToSlot = previewContext == "gui" && !inventoryCapture;
+    if (clipToSlot) {
+        GLint viewport[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        const QSize size(viewport[2], viewport[3]);
+        const auto slot = guiClipRect(guiSlot(size), oversizedInGui, scene())
+                              .intersected(QRect(QPoint(), size));
+        glScissor(viewport[0] + slot.x(), viewport[1] + slot.y(), slot.width(), slot.height());
+        glEnable(GL_SCISSOR_TEST);
+    }
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     program->bind();
@@ -514,6 +593,11 @@ void Cube::paintGL() {
     program->setUniformValue("direction", lightDirection);
     program->setUniformValue("ambient", std::clamp(ambient, 0.f, 1.f));
     program->setUniformValue("neutral", neutral ? 1.f : 0.f);
+    const auto &lights = previewLights(previewContext == "gui", scene().guiLight);
+    const auto local = contextTransform.transposed();
+    program->setUniformValue("light0", local.mapVector(lights[0]).normalized());
+    program->setUniformValue("light1", local.mapVector(lights[1]).normalized());
+    program->setUniformValue("lightingMode", studioLighting ? 2 : placedBlock ? 1 : 0);
     buffer.bind();
     auto attribute = [&](const char *name, int offset, int count) {
         int a = program->attributeLocation(name);
@@ -524,56 +608,48 @@ void Cube::paintGL() {
     attribute("texcoord", 3, 2);
     attribute("normal", 5, 3);
     attribute("shade", 8, 1);
+    attribute("worldShade", 9, 1);
     QVector<int> order(scene().faces.size());
     std::iota(order.begin(), order.end(), 0);
-    auto imageFor = [&](const mc::Face &f) -> QImage {
-        return document && (!modelMesh || f.texture == activeTexture) && !materialPreview
-                   ? (playbackPreview.isNull() ? document->image : playbackPreview)
-                   : materialImages.value(f.texture);
-    };
-    // Classify each material once per paint, not once per face. Pixel uploads and meshes stay
-    // independent.
-    QHash<QString, bool> translucent;
-    for (const auto &f : scene().faces) {
-        if (!translucent.contains(f.texture)) {
-            const auto image = imageFor(f);
-            auto info = alphaCache.value(f.texture);
-            if (info.key != image.cacheKey()) {
-                info = {image.cacheKey(), false};
-                if (image.hasAlphaChannel())
-                    for (int y = 0; y < image.height() && !info.partial; ++y)
-                        for (int x = 0; x < image.width(); ++x) {
-                            int a = qAlpha(image.pixel(x, y));
-                            if (a > 0 && a < 255) {
-                                info.partial = true;
-                                break;
-                            }
-                        }
-                alphaCache[f.texture] = info;
-                metrics->count("material_alpha_scans", 1);
-            }
-            translucent[f.texture] = info.partial;
-        }
-        if (f.forceTranslucent)
-            translucent[f.texture] = true;
+    const auto blockLayer = mc::blockRenderLayer(previewBlock);
+    const auto blockItemLayer = mc::itemRenderLayer(previewBlock, false);
+    QVector<mc::RenderLayer> layers;
+    layers.reserve(order.size());
+    for (const auto &face : scene().faces) {
+        if (face.forceTranslucent)
+            layers << mc::RenderLayer::Translucent;
+        else if (face.entityCutout)
+            layers << mc::RenderLayer::Cutout;
+        else if (placedBlock)
+            layers << blockLayer;
+        else if (face.generatedLayer >= 0 ||
+                 (modelMesh && mc::Location::fromAsset(face.texture, "textures").section(':', 1)
+                                   .startsWith("item/")))
+            layers << mc::RenderLayer::Translucent;
+        else
+            layers << blockItemLayer;
     }
     auto depth = [&](int i) {
         auto c = (scene().faces[i].points[0] + scene().faces[i].points[2]) / 2;
         return m.map(c).z();
     };
-    // Generated layers share their front/back planes. Keep all of them in the blended
-    // pass: splitting opaque upper layers from translucent lower layers reverses their
-    // authored order. Stable depth sorting preserves layer order on coincident planes.
     auto blended = [&](int i) {
-        const auto &face = scene().faces[i];
-        return face.generatedLayer >= 0 || translucent[face.texture];
+        return layers[i] == mc::RenderLayer::Translucent || layers[i] == mc::RenderLayer::Tripwire;
     };
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
         bool ta = blended(a), tb = blended(b);
-        return ta != tb ? !ta : depth(a) > depth(b);
+        return ta != tb ? !ta : ta && depth(a) > depth(b);
     });
+    bool blend = false;
+    glDisable(GL_BLEND);
     for (int i : order) {
         const auto &f = scene().faces[i];
+        if (blend != blended(i)) {
+            blend = blended(i);
+            glEnable(GL_BLEND);
+        }
+        program->setUniformValue("alphaCutoff", mc::alphaCutoff(layers[i], placedBlock));
+        program->setUniformValue("blended", int(blend));
         program->setUniformValue(
             "tintColor",
             QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
@@ -581,13 +657,14 @@ void Cube::paintGL() {
                        ? texture
                        : materialTextures.value(f.texture, materialTextures.value(QString()));
         glBindTexture(GL_TEXTURE_2D, t);
-        glDepthMask(blended(i) ? GL_FALSE : GL_TRUE);
         glDrawArrays(GL_TRIANGLES, i * 6, 6);
     }
-    glDepthMask(GL_TRUE);
     buffer.release();
+    if (clipToSlot)
+        glDisable(GL_SCISSOR_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
     // Reusable line buffers keep outlines, wireframe and guides in the same GL
     // pipeline. Qt vector overlays were suppressed on the verified Radeon path.
     program->setUniformValue("solid", 1.f);
@@ -597,10 +674,11 @@ void Cube::paintGL() {
         attribute("texcoord", 3, 2);
         attribute("normal", 5, 3);
         attribute("shade", 8, 1);
+        attribute("worldShade", 9, 1);
     };
     bindLines(lineBuffer);
     for (int i = 0; i < scene().faces.size(); ++i)
-        if (wireframe || outlines || i == selectedFace) {
+        if (!inventoryCapture && (wireframe || outlines || i == selectedFace)) {
             program->setUniformValue("solidColor", i == selectedFace
                                                        ? QVector4D(1, .82f, .31f, 1)
                                                        : QVector4D(.76f, .8f, .94f, .6f));
@@ -609,12 +687,13 @@ void Cube::paintGL() {
         }
     lineBuffer.release();
     bindLines(guideBuffer);
-    if (groundGrid) {
+    program->setUniformValue("mvp", matrix(false));
+    if (!inventoryCapture && groundGrid) {
         program->setUniformValue("solidColor", QVector4D(.32f, .34f, .4f, .4f));
         glLineWidth(1);
         glDrawArrays(GL_LINES, 0, 36);
     }
-    if (axes) {
+    if (!inventoryCapture && axes) {
         const QVector4D colors[] = {{1, .2f, .2f, 1}, {.2f, 1, .2f, 1}, {.2f, .8f, 1, 1}};
         for (int i = 0; i < 3; ++i) {
             program->setUniformValue("solidColor", colors[i]);
@@ -622,7 +701,7 @@ void Cube::paintGL() {
             glDrawArrays(GL_LINES, 36 + i * 2, 2);
         }
     }
-    if (referenceFrame) {
+    if (!inventoryCapture && referenceFrame) {
         program->setUniformValue("solidColor", QVector4D(.95f, .62f, .3f, .7f));
         glLineWidth(1);
         glDrawArrays(GL_LINES, referenceFrame == 2 ? 66 : 42, referenceFrame == 2 ? 8 : 24);
@@ -632,7 +711,7 @@ void Cube::paintGL() {
     program->release();
     // QPainter overlays below share this context: leave no model vertex arrays enabled,
     // or its fills read them and are dropped.
-    for (auto name : {"position", "texcoord", "normal", "shade"})
+    for (auto name : {"position", "texcoord", "normal", "shade", "worldShade"})
         program->disableAttributeArray(name);
     if (modelMesh && scene().faces.isEmpty()) {
         QPainter p(this);
@@ -643,6 +722,13 @@ void Cube::paintGL() {
     metrics->record("preview_submit_cpu", timer);
 }
 int Cube::faceAt(QPointF position) const {
+    if (previewContext == "gui") {
+        const auto viewport = size() * devicePixelRatioF();
+        const auto slot = guiClipRect(guiSlot(viewport), oversizedInGui, scene());
+        const auto p = position * devicePixelRatioF();
+        if (!slot.contains(QPoint(int(p.x()), viewport.height() - 1 - int(p.y()))))
+            return -1;
+    }
     bool ok = false;
     const auto inv = matrix().inverted(&ok);
     if (!ok)
@@ -687,6 +773,10 @@ void Cube::mouseMoveEvent(QMouseEvent *e) {
         emit displayDragged(d, keys);
         return;
     }
+    if (previewContext == "gui" || previewContext.startsWith("firstperson_")) {
+        last = e->position();
+        return;
+    }
     if (e->buttons() & (Qt::MiddleButton | Qt::RightButton))
         cameraPan += QPointF(d.x(), -d.y()) * .008 / scale;
     else if (e->buttons() & Qt::LeftButton) {
@@ -705,6 +795,8 @@ void Cube::mouseReleaseEvent(QMouseEvent *e) {
     }
 }
 void Cube::wheelEvent(QWheelEvent *e) {
+    if (previewContext == "gui" || previewContext.startsWith("firstperson_"))
+        return;
     scale = float(std::clamp(double(scale) * std::pow(1.002, e->angleDelta().y() / 3.), .05, 8.));
     update();
 }

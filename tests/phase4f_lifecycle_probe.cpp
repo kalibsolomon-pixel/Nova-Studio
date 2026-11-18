@@ -292,21 +292,29 @@ int main(int argc, char **argv) {
         if (auto dialog = EditorTestAccess::comparisonDialog(window))
             dialog->close();
         EditorTestAccess::clearComparisons(window);
-        // MCP: authorize, connect a client, revoke (disconnects), reconnect is refused.
+        // MCP: authorize, connect a client, revoke (disconnects); the used code is refused afterwards.
         if (on("mcp"))
             EditorTestAccess::showReview(window);
         settle(60);
         if (auto service = on("mcp") ? EditorTestAccess::mcp(window) : nullptr) {
             if (service->authorize(EditorTestAccess::project(window), cycle % 3 == 0)) {
+                const auto code = service->connectionCode();
                 QLocalSocket client;
                 if (qEnvironmentVariable("NOVA_LC_MCP") != "authorize") {
-                    client.connectToServer("nova-mcp-" + service->connectionCode().left(32));
+                    client.connectToServer("nova-mcp-" + code.left(32));
                     client.waitForConnected(1000);
                 }
                 settle(30);
                 service->revoke();
                 settle(30);
                 client.abort();
+                // A revoked grant accepts no client: the old pipe name is gone.
+                QLocalSocket refused;
+                refused.connectToServer("nova-mcp-" + code.left(32));
+                if (refused.waitForConnected(1000)) {
+                    problems.append(QString("cycle %1: a revoked grant still accepted a client").arg(cycle));
+                    refused.abort();
+                }
             } else {
                 problems.append(QString("cycle %1: MCP authorization failed").arg(cycle));
             }

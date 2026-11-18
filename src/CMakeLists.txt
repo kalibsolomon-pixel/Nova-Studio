@@ -12,7 +12,7 @@ add_library(nova-asset-index STATIC assets/index.cpp assets/index.h assets/monit
 target_include_directories(nova-asset-index PUBLIC assets)
 target_link_libraries(nova-asset-index PUBLIC Qt6::Core)
 
-add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp)
+add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp models/render_layers.h models/render_layers.cpp models/tints.h models/tints.cpp models/special_models.h models/special_models.cpp)
 target_sources(nova-models PRIVATE models/validation.h models/validation.cpp)
 target_include_directories(nova-models PUBLIC models)
 target_link_libraries(nova-models PUBLIC nova-core nova-asset-index Qt6::Gui)
@@ -21,7 +21,8 @@ add_library(nova-application STATIC app/settings.cpp app/settings.h app/session.
   app/project_config.cpp app/project_config.h app/baseline_reset.cpp app/baseline_reset.h)
 target_link_libraries(nova-application PUBLIC nova-core nova-asset-index)
 target_include_directories(nova-application PUBLIC app)
-target_link_libraries(nova-models PRIVATE nova-application)
+# ResourceSource::fromBaseline exposes the verified baseline cache as a model source.
+target_link_libraries(nova-models PRIVATE nova-application nova-vanilla)
 
 # Phase 3-D: hand-off of the current pack to a launcher that signs in and
 # starts Minecraft (Nova never handles Microsoft or Minecraft credentials).
@@ -64,7 +65,7 @@ target_link_libraries(nova-vanilla PRIVATE Qt6::CorePrivate)
 add_library(nova-mcp-protocol STATIC mcp/protocol.cpp mcp/protocol.h mcp/guides.cpp mcp/guides.h
   mcp/handoff.cpp mcp/handoff.h)
 target_include_directories(nova-mcp-protocol PUBLIC mcp "${PROJECT_BINARY_DIR}/generated")
-target_link_libraries(nova-mcp-protocol PUBLIC Qt6::Core)
+target_link_libraries(nova-mcp-protocol PUBLIC Qt6::Core PRIVATE nova-core)
 if(WIN32)
   target_link_libraries(nova-mcp-protocol PRIVATE advapi32 shell32 ole32)
 endif()
@@ -115,7 +116,7 @@ add_library(nova-workspace STATIC
   ui/display_editor.cpp
   ui/modelauthor.h ui/modelauthor.cpp
   ui/resourcetools.h ui/resourcetools.cpp ui/resourceworkspace.cpp
-  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h ui/agent_session.cpp
+  ui/mcp_access.cpp ui/mcp_setup.cpp ui/mcp_setup.h ui/agent_session.cpp ui/agent_conversation.cpp ui/agent_conversation.h
   ui/search.cpp ui/search.h
   ui/workflow_review.cpp
   ui/model_materials.cpp

@@ -5,11 +5,12 @@
 
 // Phase 4-G: offering an authorized connection to an AI agent without editing its configuration.
 //
-// Nova still issues a single-use, five-minute connection code only after the user chooses
+// Nova issues a single-use connection code with no time limit, only after the user chooses
 // Allow in the MCP Integration window. The code is written to a per-user file that only the
 // current user (at medium integrity or above) can read, so an agent's configuration can name
 // nova-mcp.exe without embedding a secret. The bridge reads the file when NOVA_MCP_CODE is not
-// set. Nova withdraws the file when the code is used, expires, is revoked or Nova exits.
+// set. Nova withdraws the file when the code is used, is revoked or Nova exits; when a connected
+// agent disconnects while the access is still valid, Nova replaces it with a fresh code.
 namespace nova::mcp::handoff {
 struct Pending {
     QString code, project;

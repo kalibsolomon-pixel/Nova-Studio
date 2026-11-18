@@ -7,18 +7,24 @@
 #include "search.h"
 #include "service.h"
 #include "agent_client.h"
+#include "theme.h"
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QTextEdit>
+#include <QTextBlock>
+#include <QToolButton>
 #include <QProcess>
 #include <QPushButton>
 #include <QScreen>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -86,8 +92,19 @@ class AcpSessionTest : public QObject {
 
     Service *service() { return window->findChild<Service *>(); }
     nova::acp::Session *session() { return dialog->findChild<nova::acp::Session *>(); }
-    QString transcript() { return dialog->findChild<QTextEdit *>("acpConversation")->toPlainText(); }
-    QString status() { return dialog->findChild<QLabel *>("acpStatus")->text(); }
+    QList<QTextEdit *> messages() {
+        return dialog->findChild<QWidget *>("acpConversation")->findChildren<QTextEdit *>();
+    }
+    QString transcript() {
+        QStringList text;
+        for (auto message : messages())
+            text << message->accessibleName() + '\n' + message->toPlainText();
+        return text.join('\n');
+    }
+    QString status() {
+        return dialog->findChild<QLabel *>("acpStatus")->text() + ' ' +
+               dialog->findChild<QLabel *>("acpStatusDetail")->text();
+    }
     QString notice() { return dialog->findChild<QLabel *>("acpNotice")->text(); }
     // Names any modal dialog that is open, for failure messages (an open modal makes Nova refuse edits).
     static QString modal() {
@@ -99,6 +116,7 @@ class AcpSessionTest : public QObject {
                                                  box ? box->text() : widget->objectName());
     }
     QPushButton *button(const char *name) { return dialog->findChild<QPushButton *>(name); }
+    QPlainTextEdit *composer() { return dialog->findChild<QPlainTextEdit *>("acpPrompt"); }
     void open() {
         QElapsedTimer timer;
         timer.start();
@@ -107,6 +125,8 @@ class AcpSessionTest : public QObject {
         window->findChild<QAction *>("acpSession")->trigger();
         dialog = window->findChild<QDialog *>("acpSessionDialog");
         QVERIFY(dialog);
+        auto picker = dialog->findChild<QComboBox *>("acpAgentPicker");
+        picker->setCurrentIndex(picker->findData("custom"));
         dialog->findChild<QLineEdit *>("acpAgentPath")->setText(agent());
     }
     // Starts a read-only session and waits until the agent's bridge holds the grant.
@@ -119,7 +139,7 @@ class AcpSessionTest : public QObject {
     }
     void ask(const QString &prompt, const QString &expect) {
         const auto before = transcript().size();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText(prompt);
+        composer()->setPlainText(prompt);
         button("acpSend")->click();
         QTRY_VERIFY2_WITH_TIMEOUT(transcript().mid(before).contains(expect),
                                   qPrintable(modal() + " | " + transcript().right(1500)), 15000);
@@ -147,9 +167,6 @@ class AcpSessionTest : public QObject {
             QVERIFY(image.save(pack + "/assets/nova/textures/block/plain.png"));
         }
         qApp->setProperty("settingsFile", base + "/settings/studio.ini");
-        // Agent Session is experimental and off by default; every other slot turns it on.
-        if (QTest::currentTestFunction() != QByteArray("hiddenUntilEnabled"))
-            QSettings(base + "/settings/studio.ini", QSettings::IniFormat).setValue("experimental/agentSession", true);
         qunsetenv("FAKE_ACP_SKIP_MCP");
         const auto evidence = qEnvironmentVariable("NOVA_EVIDENCE_DIR");
         if (!evidence.isEmpty())
@@ -162,43 +179,34 @@ class AcpSessionTest : public QObject {
         window.reset();
     }
 
-    // Off by default: the command is hidden, cannot be triggered and is not offered by Search until
-    // Preferences › Experimental turns it on.
-    void hiddenUntilEnabled() {
+    void experimentalSessionIsDiscoverableWithoutAProject() {
         QElapsedTimer timer;
         timer.start();
-        window = std::make_unique<nova::Window>(root, QString{}, timer);
+        window = std::make_unique<nova::Window>(QString{}, QString{}, timer);
         window->show();
         auto command = window->findChild<QAction *>("acpSession");
         QVERIFY(command);
-        QVERIFY(!command->isVisible());
-        QVERIFY(!command->isEnabled());
-        command->trigger();
-        QVERIFY(!window->findChild<QDialog *>("acpSessionDialog"));
+        QVERIFY(command->isVisible());
+        QVERIFY(command->isEnabled());
         const auto offered = [this] {
             for (const auto &entry : window->searchIndex().entries)
                 if (entry.action && entry.action->objectName() == "acpSession")
                     return true;
             return false;
         };
-        QVERIFY(!offered());
-
-        QTimer::singleShot(150, window.get(), [] {
-            auto preferences = qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            QVERIFY(preferences && preferences->objectName() == "preferencesDialog");
-            auto box = preferences->findChild<QCheckBox *>("preferenceExperimentalAgentSession");
-            QVERIFY(box && !box->isChecked());
-            box->setChecked(true);
-            preferences->accept();
-        });
-        window->findChild<QAction *>("preferencesCommand")->trigger();
-        QVERIFY(command->isVisible());
-        QVERIFY(command->isEnabled());
         QVERIFY(offered());
-        command->trigger();
+        window->findChild<QAction *>("mcpAccess")->trigger();
+        auto mcp = window->findChild<QDialog *>("mcpAccessDialog");
+        QVERIFY(mcp);
+        auto entry = mcp->findChild<QPushButton *>("mcpOpenAgentSession");
+        QVERIFY(entry && entry->isVisible());
+        entry->click();
         dialog = window->findChild<QDialog *>("acpSessionDialog");
         QVERIFY(dialog);
-        QVERIFY(dialog->windowTitle().contains("Experimental"));
+        QVERIFY(!dialog->isModal());
+        QCOMPARE(dialog->findChild<QLabel *>("acpExperimental")->text(), "Experimental");
+        QVERIFY(dialog->findChild<QLabel *>("acpProjectHint")->isVisible());
+        QVERIFY(!button("acpStart")->isEnabled());
         QVERIFY(!session());
     }
 
@@ -221,18 +229,85 @@ class AcpSessionTest : public QObject {
         QVERIFY(!button("acpEditing")->isEnabled());
     }
 
+    void composerKeyboardAndHistory() {
+        open();
+        startReadOnly();
+        auto prompt = composer();
+        prompt->setPlainText("First line");
+        prompt->moveCursor(QTextCursor::End);
+        QTest::keyClick(prompt, Qt::Key_Return, Qt::ShiftModifier);
+        QTest::keyClicks(prompt, "Second line");
+        QCOMPARE(prompt->toPlainText(), "First line\nSecond line");
+        QTest::keyClick(prompt, Qt::Key_Return);
+        QTRY_VERIFY(transcript().contains("First line\nSecond line"));
+        QTRY_VERIFY(status().startsWith("Connected"));
+        prompt->setPlainText("Draft");
+        QTest::keyClick(prompt, Qt::Key_Up);
+        QCOMPARE(prompt->toPlainText(), "First line\nSecond line");
+        QTest::keyClick(prompt, Qt::Key_Down);
+        QCOMPARE(prompt->toPlainText(), "Draft");
+    }
+
+    void customArgumentsAndAuthentication() {
+        open();
+        const QString arguments = "--require-auth \"value with spaces\" &";
+        dialog->findChild<QLineEdit *>("acpAgentArguments")->setText(arguments);
+        {
+            Answer yes(QMessageBox::Yes);
+            button("acpStart")->click();
+        }
+        QTRY_VERIFY(button("acpSignIn")->isVisible());
+        QVERIFY(!service()->clientConnected());
+        QCOMPARE(dialog->findChild<QComboBox *>("acpAuthMethod")->currentText(), "Scripted sign-in");
+        button("acpSignIn")->click();
+        QTRY_VERIFY_WITH_TIMEOUT(status().startsWith("Connected") && service()->clientConnected(), 15000);
+        ask("args", "ARGUMENTS --require-auth | value with spaces | &");
+        dialog->close();
+        const auto saved = nova::Settings(qApp->property("settingsFile").toString()).load();
+        QCOMPARE(saved.acpAgent, "custom");
+        QCOMPARE(saved.acpProgram, agent());
+        QCOMPARE(saved.acpArguments, arguments);
+    }
+
+    void resolvesOnlyStandardNpmLaunchers() {
+        const auto npm = root + "/npm prefix";
+        const auto shim = npm + "/claude-code-acp.cmd";
+        const auto script = npm + "/node_modules/@zed-industries/claude-code-acp/dist/index.js";
+        write(script, "// fixture only");
+        QVERIFY(QFile::copy(agent(), npm + "/node.exe"));
+        write(shim, "@ECHO off\r\n"
+                    "  SET \"_prog=%dp0%\\node.exe\"\r\n"
+                    "  SET \"_prog=node\"\r\n"
+                    "endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\" "
+                    "\"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
+        const auto oldPath = qgetenv("PATH");
+        const auto restore = qScopeGuard([oldPath] { qputenv("PATH", oldPath); });
+        qputenv("PATH", QDir::toNativeSeparators(npm).toLocal8Bit() + ';' + oldPath);
+        QCOMPARE(nova::acp::findAgentExecutable("claude-code-acp"), QDir::toNativeSeparators(shim));
+        const auto resolved = nova::acp::resolveAgentProgram(shim, {"with spaces", "&&"});
+        QCOMPARE(resolved.executable, QDir::toNativeSeparators(npm + "/node.exe"));
+        const QStringList expected{QDir::toNativeSeparators(script), "with spaces", "&&"};
+        QCOMPARE(resolved.arguments, expected);
+        write(shim, "@node \"%~dp0\\node_modules\\..\\outside.js\" %*\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+        write(shim, "@node \"%~dp0\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %* & calc\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+        write(shim, "  SET \"_prog=python\"\r\n"
+                    "\"%_prog%\" \"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+    }
+
     // Read-only tools work; editing and saving are refused; nothing in the pack changes.
     void readOnlySession() {
         open();
         const auto before = fingerprint(root);
         startReadOnly();
         ask("call nova.assets.list {}", "RESULT ok");
-        // The window is a conversation: the user, the agent's reply and its reasoning; no tool activity.
         const auto shown = transcript();
         QVERIFY2(shown.contains("You\ncall nova.assets.list {}") && shown.contains("Agent\nRESULT ok") &&
-                 shown.contains("Agent · thinking\nThinking about: call nova.assets.list"), qPrintable(shown.left(600)));
-        for (const auto hidden : {"[agent tool]", "in_progress", "completed", "[Nova]", "tool_call", "Session started"})
-            QVERIFY2(!shown.contains(hidden), hidden);
+                 shown.contains("Agent reasoning\nThinking about: call nova.assets.list"), qPrintable(shown.left(600)));
+        auto card = dialog->findChild<QToolButton *>("acpToolDetails");
+        QVERIFY(card && card->text().startsWith("Nova tool"));
         ask("call nova.drafts.save_all {}", "RESULT error");
         QVERIFY2(transcript().contains("permission_denied"), qPrintable(transcript().right(800)));
         ask("call nova.asset.create {\"namespace\":\"nova\",\"path\":\"block/x\",\"conflictPolicy\":\"reject\",\"parameters\":{\"command\":\"texture\",\"width\":16,\"height\":16,\"layerName\":\"Base\",\"fill\":\"transparent\",\"pixelFormat\":\"rgba8888\"}}",
@@ -248,13 +323,10 @@ class AcpSessionTest : public QObject {
         startReadOnly();
         ask("Please check which textures in this pack still need a 16×16 version.", "Nothing needs changing.");
         const auto shown = transcript();
-        QVERIFY2(shown.contains("You\nPlease check") && shown.contains("Agent · thinking") &&
+        QVERIFY2(shown.contains("You\nPlease check") && shown.contains("Agent reasoning") &&
                  shown.contains("Agent\nI checked the textures in Synthetic Pack"), qPrintable(shown));
         QVERIFY(!shown.contains("**")); // Markdown is rendered, not shown raw
-        // With no permission request pending, no permission controls are shown.
-        for (const auto name : {"acpPermissionAllow", "acpPermissionReject"})
-            QVERIFY2(!button(name)->isVisible(), name);
-        QVERIFY(!dialog->findChild<QLabel *>("acpPermission")->isVisible());
+        QVERIFY(!dialog->findChild<QWidget *>("acpPermissionCard")->isVisible());
         const auto evidence = qEnvironmentVariable("NOVA_EVIDENCE_DIR");
         if (evidence.isEmpty())
             return;
@@ -267,6 +339,54 @@ class AcpSessionTest : public QObject {
         const auto pixels = screen->grabWindow(0, origin.x(), origin.y(), frame.width(), frame.height());
         QVERIFY(!pixels.isNull());
         QVERIFY(pixels.save(evidence + "/acp-conversation-window.png"));
+    }
+
+    void planToolDetailsAndTurnError() {
+        open();
+        startReadOnly();
+        ask("activity", "Review finished.");
+        auto plan = dialog->findChild<QWidget *>("acpPlan");
+        QVERIFY(plan);
+        const auto planLabels = plan->findChildren<QLabel *>();
+        QVERIFY(std::any_of(planLabels.cbegin(), planLabels.cend(), [](const QLabel *label) {
+            return label->text() == "Review texture sizes";
+        }));
+        const auto details = dialog->findChildren<QToolButton *>("acpToolDetails");
+        QCOMPARE(details.size(), 2);
+        QVERIFY(details.at(0)->text().startsWith("Nova tool"));
+        QVERIFY(details.at(1)->text().startsWith("Agent tool"));
+        QVERIFY(!details.at(1)->isChecked());
+        const auto content = details.at(1)->parentWidget()->findChild<QLabel *>("acpToolContent");
+        QVERIFY(content);
+        QVERIFY2(content->text().contains("Changes to notes.txt"), qPrintable(content->text()));
+        details.at(1)->click();
+        QVERIFY(details.at(1)->isChecked());
+        QTRY_VERIFY(content->isVisible());
+        const auto area = messages().last();
+        const auto code = area->document()->findBlockByNumber(1);
+        QVERIFY(code.text().contains("plain.png"));
+        QCOMPARE(code.blockFormat().background().color(), nova::ui::current().raised);
+        window->findChild<QAction *>("darkThemeCommand")->setChecked(false);
+        QCOMPARE(code.blockFormat().background().color(), nova::ui::current().raised);
+        composer()->setPlainText("turn-error");
+        button("acpSend")->click();
+        QTRY_COMPARE(notice(), "Agent error: Scripted upstream failure.");
+    }
+
+    void streamingPreservesSelection() {
+        open();
+        startReadOnly();
+        composer()->setPlainText("stream");
+        button("acpSend")->click();
+        QTRY_VERIFY(transcript().contains("Agent\nFirst chunk"));
+        auto reply = messages().last();
+        QTextCursor selection(reply->document());
+        selection.setPosition(0);
+        selection.setPosition(5, QTextCursor::KeepAnchor);
+        reply->setTextCursor(selection);
+        QTRY_VERIFY(transcript().contains("First chunk and the next chunk."));
+        QTRY_VERIFY(status().startsWith("Connected"));
+        QCOMPARE(reply->textCursor().selectedText(), "First");
     }
 
     // The grant accepts only a bridge started by the Nova-launched agent; others do not consume it.
@@ -326,9 +446,19 @@ class AcpSessionTest : public QObject {
         QVERIFY(alive(pid));
         QTRY_VERIFY(session()->processTree().size() >= 2);
         const auto tree = session()->processTree();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("crash");
+        composer()->setPlainText("crash");
         button("acpSend")->click();
         QTRY_VERIFY_WITH_TIMEOUT(status().contains("code 3"), 10000);
+        QVERIFY(status().contains("Show agent output"));
+        const auto toggle = dialog->findChild<QToolButton *>("acpOutputToggle");
+        const auto output = dialog->findChild<QPlainTextEdit *>("acpAgentOutput");
+        QVERIFY(toggle && output && !output->isVisible());
+        toggle->click();
+        QTRY_VERIFY(output->isVisible());
+        const auto tail = output->toPlainText();
+        QVERIFY(tail.contains("Scripted failure: missing dependency."));
+        QVERIFY(!tail.contains("discarded startup message") && !tail.contains("[31m"));
+        QVERIFY(session()->agentOutput().toUtf8().size() <= nova::acp::Session::OutputLimit);
         QCOMPARE(service()->status(), "Disabled");
         QVERIFY(service()->connectionCode().isEmpty());
         expectTreeGone(tree);
@@ -339,18 +469,40 @@ class AcpSessionTest : public QObject {
     void cancelAndPermission() {
         open();
         startReadOnly();
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("wait");
+        composer()->setPlainText("wait");
         button("acpSend")->click();
         QTRY_VERIFY(button("acpCancel")->isEnabled());
         button("acpCancel")->click();
         QTRY_COMPARE_WITH_TIMEOUT(notice(), QString("You cancelled the agent's turn."), 10000);
         QVERIFY(dialog->findChild<QLabel *>("acpNotice")->isVisible());
-        dialog->findChild<QLineEdit *>("acpPrompt")->setText("ask");
+        composer()->setPlainText("ask");
         button("acpSend")->click();
-        QTRY_VERIFY(button("acpPermissionReject")->isVisible());
-        QVERIFY(dialog->findChild<QLabel *>("acpPermission")->text().contains("not a Nova tool"));
+        QTRY_VERIFY(button("acpPermissionReject") && button("acpPermissionReject")->isVisible());
+        QVERIFY(dialog->findChild<QLabel *>("acpPermission")->text().contains("notes.txt"));
         button("acpPermissionReject")->click();
         QTRY_VERIFY_WITH_TIMEOUT(transcript().contains("PERMISSION selected no"), 10000);
+    }
+
+    void permissionQueueHonorsEveryOption() {
+        open();
+        startReadOnly();
+        composer()->setPlainText("ask-queue");
+        button("acpSend")->click();
+        const auto summary = dialog->findChild<QLabel *>("acpPermission");
+        const auto count = dialog->findChild<QLabel *>("acpPermissionCount");
+        QVERIFY(summary && count);
+        QTRY_COMPARE(count->text(), "2 pending");
+        QVERIFY(summary->text().contains("notes.txt"));
+        const auto allowAlways = button("acpPermissionAllowAlways");
+        QTRY_VERIFY(allowAlways && allowAlways->isVisible());
+        allowAlways->click();
+        QTRY_VERIFY(summary->text().contains("draft.txt"));
+        QTRY_VERIFY(button("acpPermissionRejectAlways") && button("acpPermissionRejectAlways")->isVisible());
+        button("acpPermissionRejectAlways")->click();
+        QTRY_VERIFY(transcript().contains("PERMISSION selected yes-always perm-1"));
+        QTRY_VERIFY(transcript().contains("PERMISSION selected no-always perm-2"));
+        QVERIFY(!dialog->findChild<QWidget *>("acpPermissionCard")->isVisible());
+        QCOMPARE(service()->permission(), "Read-only");
     }
 
     // Stop ends the agent and everything it started, and revokes the grant.

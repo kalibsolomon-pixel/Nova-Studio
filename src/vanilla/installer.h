@@ -2,9 +2,9 @@
 #pragma once
 // Populates the shared baseline cache for one Minecraft Java version from Mojang's
 // official metadata (DESIGN.md "Population"): lock -> re-check -> metadata -> free space
-// -> client jar -> verify -> extract textures -> asset-index textures -> manifest.
-// Runs on the GUI thread's event loop; hashing and extraction run on QtConcurrent.
-// Nothing is published as an entry until the final atomic manifest write.
+// -> client jar -> verify -> extract textures and vanilla model data -> asset-index
+// textures -> manifest. Runs on the GUI thread's event loop; hashing and extraction run
+// on QtConcurrent. Nothing is published as an entry until the final atomic manifest write.
 #include "cache.h"
 #include <QFuture>
 #include <QElapsedTimer>
@@ -38,7 +38,8 @@ struct InstallerOptions {
     // identity is reused without any network access.
     QString expectedIdentity;
     int lockTimeoutMs = 10 * 60 * 1000;
-    // Re-verify an existing entry with full SHA-256 instead of sizes (explicit repair).
+    // Re-verify an existing entry with full SHA-256 instead of sizes (explicit repair), and
+    // re-extract a texture-only (schema 1) entry so it gains the vanilla model data.
     bool repair = false;
     // Tests: bytes available at a path (default QStorageInfo).
     std::function<qint64(const QString &)> freeSpace;

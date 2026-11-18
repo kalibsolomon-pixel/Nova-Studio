@@ -10,7 +10,9 @@ namespace nova::vanilla {
 // One Baseline record per entry file: filesystemPath = cache object, projectRoot = cache
 // root, nameSpace "minecraft", category from assetCategory(), metadataReference for a .png
 // with a .png.mcmeta. `directories` holds every ancestor folder (including ""). No disk access.
-Index baselineIndex(const BaselineEntry &entry);
+// Textures by default: the asset-browser overlay stays textures-only; model data (models,
+// blockstates, item definitions) is indexed only for a ResourceSource built from the entry.
+Index baselineIndex(const BaselineEntry &entry, bool includeModelData = false);
 // Project records are kept as they are (shadowsBaseline = true when the baseline has the same
 // path); baseline-only records are added with their ancestor folders. Files stay sorted and
 // folder child lists sorted and de-duplicated. A baseline path under a project *file* of the

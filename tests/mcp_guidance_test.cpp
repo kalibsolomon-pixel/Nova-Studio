@@ -68,7 +68,9 @@ class GuidanceTest : public QObject {
         for (const auto &phrase : {"resource-pack paths", "never filesystem paths", "Minecraft version",
                                    "ask the user", "not proof", "Saving a texture writes it to its resource path",
                                    "nova.drafts.save", "Save All", "saved and failed", "item definitions, models, blockstates",
-                                   ".png.mcmeta", "nova.guide.get", "never try to work around", "consent"})
+                                   ".png.mcmeta", "nova.guide.get", "never try to work around", "consent",
+                                   "nova.texture.read", "nova.texture.adjust_bulk", "nova.asset.preview_image",
+                                   "nova.texture.analyze"})
             QVERIFY2(instructions.contains(QLatin1String(phrase)), phrase);
         QVERIFY(!instructions.contains("1.21.11")); // version rules belong in guides, not in instructions
     }
@@ -89,7 +91,7 @@ class GuidanceTest : public QObject {
         QVERIFY(uris.contains(guides::StyleNotesUri));
         for (const auto &topic : guides::topics())
             QVERIFY2(uris.contains("nova://rules/1.21.11/" + topic), qPrintable(topic));
-        QCOMPARE(guides::topics(), (QStringList{"pack", "items", "textures", "armor", "trims", "animations", "pvp"}));
+        QCOMPARE(guides::topics(), (QStringList{"pack", "items", "textures", "armor", "trims", "animations", "pixel-art", "pvp"}));
         QCOMPARE(list.size(), 1 + guides::topics().size() + 1);
         const auto templates = result(protocol.receive(request(3, "resources/templates/list")))["resourceTemplates"].toArray();
         QCOMPARE(templates.first().toObject()["uriTemplate"].toString(), "nova://rules/{version}/{topic}");
@@ -260,6 +262,7 @@ class GuidanceTest : public QObject {
         for (const auto &key : {"block/stone.png", "item/diamond_sword.png", "item/diamond_chestplate.png"})
             QCOMPARE(size(sizes[key]), QString("16×16"));
         has("textures", "16×16");
+        has("pixel-art", "`block/stone.png` and `item/diamond_sword.png` are " + size(sizes["block/stone.png"]));
         has("textures", size(sizes["entity/equipment/humanoid/diamond.png"]));
         has("armor", size(sizes["entity/equipment/humanoid_leggings/diamond.png"]));
         has("trims", size(sizes["trims/entity/humanoid/coast.png"]));
@@ -298,6 +301,8 @@ class GuidanceTest : public QObject {
             has("animations", QString("%1 %2").arg(name).arg(a["frametime"].toInt()));
         }
         QCOMPARE(animations["magma"].toObject()["frames"].toInt(), 3);
+        const auto magma = animations["magma"].toObject();
+        has("pixel-art", QString("`block/magma.png` is %1: %2 frames").arg(size(magma["size"])).arg(magma["frames"].toInt()));
         QVERIFY(animations["magma"].toObject()["interpolate"].toBool());
         QVERIFY(animations["prismarine"].toObject()["interpolate"].toBool());
         const auto prismarine = animations["prismarine"].toObject();
