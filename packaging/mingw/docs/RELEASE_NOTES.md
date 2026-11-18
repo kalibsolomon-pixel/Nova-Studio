@@ -43,9 +43,9 @@ Minecraft game assets.
   textures, explain how an asset is used, and validate the pack. See MCP_SETUP.md,
   MCP_TEXTURE_TOOLS.md and MCP_ASSET_TOOLS.md.
 - **MCP diagnostics.** A local check that the bridge starts and declares its tools.
-- **Agent Session (ACP), experimental and off by default.** Edit › Preferences › Experimental shows
-  Resources › Agent Session, which starts an ACP agent such as OpenCode with Nova's tools attached.
-  Conversations with a real AI model have not been tested; see KNOWN_LIMITATIONS.md.
+- **Agent Session (ACP), experimental.** Open it from Resources, Search, or MCP Integration.
+  Choose an ACP agent such as OpenCode and start a read-only session with Nova’s tools attached.
+  See MCP_SETUP.md for setup steps and KNOWN_LIMITATIONS.md for test coverage.
 
 ## Requirements
 

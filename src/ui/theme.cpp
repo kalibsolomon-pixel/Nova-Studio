@@ -473,7 +473,7 @@ QString styleSheet(const Tokens &t) {
         {"@accent", t.accent},
         {"@onAccent", t.onAccent},
         {"@focusOnAccent", mix(t.accent, t.onAccent, 0.55)},
-        {"@primaryDisabledText", mix(t.accent, t.onAccent, 0.45)},
+        {"@primaryDisabledText", t.dark ? mix(t.accent, t.onAccent, 0.45) : mix(t.text, t.muted, 0.65)},
         {"@primaryDisabledFill", mix(t.window, t.accent, 0.42)},
         {"@selectionText", t.selectionText},
         {"@selection", t.selection},
@@ -584,6 +584,9 @@ QChar materialGlyph(const QString &name) {
         {"close", QChar(0xe5cd)},
         {"check", QChar(0xe5ca)},
         {"pending", QChar(0xe835)}, // check_box_outline_blank
+        {"in-progress", QChar(0xe8b5)}, // schedule
+        {"error", QChar(0xe000)},
+        {"chat", QChar(0xe0b7)},
         {"add", QChar(0xe145)},
         {"duplicate", QChar(0xe14d)},
         {"delete", QChar(0xe92e)},

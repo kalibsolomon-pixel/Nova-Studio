@@ -393,9 +393,9 @@ void Window::showAgentSession() {
     setupRow->addWidget(setupHint, 1);
     setupRow->addWidget(copyInstall, 0, Qt::AlignTop);
     form->addRow(setupRow);
-    const auto choice = [dialog] { return agentChoices.at(dialog->agentPicker->currentIndex()); };
+    const auto choice = [dialog]() -> const AgentChoice & { return agentChoices.at(dialog->agentPicker->currentIndex()); };
     const auto configure = [this, dialog, form, choice, detected, programRow, setupRow, choose, setupHint] {
-        const auto selected = choice();
+        const auto &selected = choice();
         const auto path = detected.at(dialog->agentPicker->currentIndex());
         const bool custom = selected.command.isEmpty();
         dialog->program->setText(custom ? preferences.acpProgram : path);
@@ -404,7 +404,7 @@ void Window::showAgentSession() {
         choose->setVisible(custom);
         form->setRowVisible(dialog->arguments, custom);
         form->setRowVisible(setupRow, path.isEmpty() && !custom);
-        setupHint->setText(QString("Requires Node.js and npm. Install with %1. To sign in, run %2.")
+        setupHint->setText(QString("Install with %1 (requires Node.js and npm).\nSign in with %2.")
                                .arg(selected.install, selected.signIn));
     };
     connect(dialog->agentPicker, &QComboBox::currentIndexChanged, dialog, [this, choice, configure] {
@@ -427,7 +427,7 @@ void Window::showAgentSession() {
     dialog->status = new QLabel("Not running", dialog);
     dialog->status->setObjectName("acpStatus");
     dialog->status->setProperty("role", "statusPill");
-    statusRow->addWidget(dialog->status, 0, Qt::AlignTop);
+    statusRow->addWidget(dialog->status, 0, Qt::AlignLeft | Qt::AlignTop);
     dialog->statusDetail = ui::hint({}, dialog);
     dialog->statusDetail->setObjectName("acpStatusDetail");
     dialog->statusDetail->setWordWrap(true);
@@ -481,8 +481,8 @@ void Window::showAgentSession() {
 
     auto conversationSection = section(layout, "Conversation", 1);
     auto transcript = new QStackedWidget(dialog);
-    transcript->setMinimumHeight(140);
-    auto empty = ui::emptyState("Messages will appear here once you send a prompt.", transcript);
+    transcript->setMinimumHeight(8 * ui::ControlHeight);
+    auto empty = ui::emptyState("Messages will appear here once you send a prompt.", transcript, "chat");
     dialog->conversation = new AgentConversation(dialog);
     dialog->conversation->setObjectName("acpConversation");
     transcript->addWidget(empty);
@@ -562,13 +562,13 @@ void Window::showAgentSession() {
                          "Its own file and shell tools follow its configuration. Nova manages only Nova tools.", dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
-    dialog->resize(760, 740);
+    dialog->resize(760, 800);
 
     auto ours = [this, dialog] {
         return mcpService && dialog->grant && mcpService->grantSerial() == dialog->grant &&
                !mcpService->authorizedProject().isEmpty();
     };
-    auto refresh = [this, dialog, ours, choose, projectHint, outputToggle] {
+    auto refresh = [this, dialog, ours, choose, projectHint, outputToggle, form, choice] {
         const auto state = dialog->session ? dialog->session->state() : acp::Session::State::Idle;
         const bool live = state == acp::Session::State::Starting || state == acp::Session::State::Ready ||
                           state == acp::Session::State::Prompting;
@@ -604,6 +604,7 @@ void Window::showAgentSession() {
         dialog->agentPicker->setEnabled(configuring);
         dialog->program->setEnabled(configuring);
         dialog->arguments->setEnabled(configuring);
+        form->setRowVisible(dialog->arguments, configuring && choice().command.isEmpty());
         choose->setEnabled(configuring);
         dialog->edit->setEnabled(live && ours() && !dialog->editing && mcpService->clientConnected());
         dialog->revoke->setEnabled(ours());
@@ -611,7 +612,7 @@ void Window::showAgentSession() {
         dialog->send->setEnabled(state == acp::Session::State::Ready && !dialog->prompt->toPlainText().trimmed().isEmpty());
         dialog->prompt->setEnabled(state == acp::Session::State::Ready || state == acp::Session::State::Prompting);
         dialog->cancel->setEnabled(state == acp::Session::State::Prompting);
-        outputToggle->setEnabled(bool(dialog->session));
+        outputToggle->setVisible(bool(dialog->session));
     };
     // Ends Nova's grant when the session that owned it ends; never touches another grant.
     auto release = [this, dialog, ours] {
@@ -653,7 +654,7 @@ void Window::showAgentSession() {
         mcpService->setClientFilter([session = QPointer<acp::Session>(session)](qint64 pid) {
             return session && session->ownsProcess(pid);
         });
-        connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release] {
+        connect(session, &acp::Session::stateChanged, dialog, [dialog, session, refresh, release, connected = false]() mutable {
             if (session->state() == acp::Session::State::Stopping)
                 dialog->permission->clear();
             if (session->state() == acp::Session::State::Ended) {
@@ -667,6 +668,10 @@ void Window::showAgentSession() {
                 dialog->tell({});
             }
             refresh();
+            if (session->state() == acp::Session::State::Ready && !connected) {
+                connected = true;
+                dialog->prompt->setFocus(Qt::OtherFocusReason);
+            }
         });
         connect(session, &acp::Session::authenticationRequired, dialog, [dialog, choice](const QJsonArray &methods) {
             dialog->authMethod->clear();
@@ -735,7 +740,7 @@ void Window::showAgentSession() {
     });
     connect(dialog->start, &QPushButton::clicked, dialog, [this, dialog, begin, choice] {
         const auto executable = QDir::toNativeSeparators(dialog->program->text().trimmed());
-        const auto selected = choice();
+        const auto &selected = choice();
         const auto args = selected.command.isEmpty() ? QProcess::splitCommand(dialog->arguments->text()) : selected.arguments;
         QString problem;
         const auto program = acp::resolveAgentProgram(executable, args, &problem);

@@ -49,20 +49,34 @@ AgentProgram resolveAgentProgram(const QString &path, const QStringList &argumen
         return fail("Nova could not read the npm launcher.");
     // npm's current and older cmd-shim forms. Extract only a quoted script under the
     // shim's node_modules directory. No batch statement or expansion is executed.
+    constexpr auto insensitive = QRegularExpression::CaseInsensitiveOption;
     static const QRegularExpression invocation(
-        R"rx(^\s*(?:endLocal\s*&\s*goto\s+[^\r\n]+?\s*\|\|\s*title\s+%COMSPEC%\s*&\s*)?@?(?:"%_prog%"|node(?:\.exe)?|"%~dp0\\node\.exe")\s+"(?:%dp0%|%~dp0)\\(node_modules\\[^"%\r\n]+\.(?:js|cjs|mjs))"\s+%\*\s*$)rx",
-        QRegularExpression::CaseInsensitiveOption);
+        R"rx(^\s*(?:endLocal\s*&\s*goto\s+[^\r\n]+?\s*\|\|\s*title\s+%COMSPEC%\s*&\s*)?)rx"
+        R"rx(@?(?<program>"%_prog%"|node(?:\.exe)?|"%~dp0\\node\.exe")\s+)rx"
+        R"rx("(?:%dp0%|%~dp0)\\(?<script>node_modules\\[^"%\r\n<>:|?*]+\.(?:js|cjs|mjs))"\s+%\*\s*$)rx", insensitive);
+    static const QRegularExpression programAssignment(R"rx(^\s*@?SET\s+"_prog=([^"]+)"\s*$)rx", insensitive);
+    bool hasNodeAssignment = false, usesProgramVariable = false;
     QString target;
     for (const auto &line : QString::fromUtf8(shim.read(16384)).split('\n')) {
+        if (const auto assignment = programAssignment.match(line); assignment.hasMatch()) {
+            const auto program = assignment.captured(1).toLower();
+            if (program != "node" && program != "node.exe" && program != "%dp0%\\node.exe")
+                return fail("The npm launcher does not use Node.js.");
+            hasNodeAssignment = true;
+        }
         const auto match = invocation.match(line);
         if (!match.hasMatch())
             continue;
-        const auto relative = QDir::fromNativeSeparators(match.captured(1));
+        usesProgramVariable |= match.captured("program").compare("\"%_prog%\"", Qt::CaseInsensitive) == 0;
+        const auto relative = QDir::fromNativeSeparators(match.captured("script"));
         if (relative != QDir::cleanPath(relative) || (!target.isEmpty() && target != relative))
             return fail("The npm launcher has an unsupported script path.");
+        for (const auto &component : relative.split('/'))
+            if (component.endsWith('.') || component.endsWith(' '))
+                return fail("The npm launcher has an unsupported script path.");
         target = relative;
     }
-    if (target.isEmpty())
+    if (target.isEmpty() || (usesProgramVariable && !hasNodeAssignment))
         return fail("Choose a native .exe or a standard npm .cmd launcher.");
     const auto script = file.absoluteDir().absoluteFilePath(target);
     if (!QFileInfo(script).isFile())

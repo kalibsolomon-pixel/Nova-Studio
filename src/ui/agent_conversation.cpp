@@ -40,8 +40,9 @@ class MessageBody final : public QTextEdit {
         setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
         document()->setDocumentMargin(0);
-        connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
-                this, [this](const QSizeF &size) { setFixedHeight(int(std::ceil(size.height()))); });
+        const auto fitHeight = [this](const QSizeF &size) { setFixedHeight(int(std::ceil(size.height()))); };
+        connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this, fitHeight);
+        fitHeight(document()->size());
         connect(this, &QTextEdit::selectionChanged, this, [this] {
             if (formatPending && !textCursor().hasSelection())
                 finishMarkdown();
@@ -135,8 +136,8 @@ class ActivityIcon final : public QLabel {
     void refresh() {
         const auto &t = ui::current();
         const auto icon = status == "completed" ? ui::lineIcon("check", t.success) :
-                          status == "failed" ? ui::lineIcon("info", t.danger) :
-                          status == "in_progress" ? ui::lineIcon("activity", t.info) :
+                          status == "failed" ? ui::lineIcon("error", t.danger) :
+                          status == "in_progress" ? ui::lineIcon("in-progress", t.info) :
                           ui::lineIcon("pending", t.muted);
         setPixmap(icon.pixmap(size(), devicePixelRatioF()));
     }

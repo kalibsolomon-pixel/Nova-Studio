@@ -175,3 +175,5 @@ shortcut and an Edit › Tool menu entry. Rules separate Effects and the colour 
 `tests/phase3b_gallery.cpp` drives the real window through every major view in both themes.
 Set `NOVA_PHASE3B_GALLERY_DIR` to a folder and run `nova-phase3b-gallery.exe`. Compare the
 dark and light captures before and after the change.
+Pass `agentSession` to capture the Agent Session setup and a scripted ACP conversation
+with tool cards and queued permissions in both themes.

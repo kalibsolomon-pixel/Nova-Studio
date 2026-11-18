@@ -261,6 +261,10 @@ add_test(NAME mcp-reliability COMMAND nova-mcp-reliability-tests)
 # grants, revoke, project switch, crash and stop cleanup, cancel, permissions, editing, secrets.
 add_executable(nova-fake-acp-agent fake_acp_agent.cpp)
 target_link_libraries(nova-fake-acp-agent PRIVATE Qt6::Core)
+target_compile_definitions(nova-phase3b-gallery PRIVATE
+  NOVA_MCP_TEST_BRIDGE="$<TARGET_FILE:nova-mcp>"
+  NOVA_FAKE_ACP_AGENT="$<TARGET_FILE:nova-fake-acp-agent>")
+add_dependencies(nova-phase3b-gallery nova-mcp nova-fake-acp-agent)
 add_executable(nova-acp-session-tests acp_session_test.cpp)
 target_link_libraries(nova-acp-session-tests PRIVATE nova-workspace nova-mcp-service nova-acp Qt6::Test)
 target_compile_definitions(nova-acp-session-tests PRIVATE

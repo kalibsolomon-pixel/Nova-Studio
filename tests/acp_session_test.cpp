@@ -276,6 +276,8 @@ class AcpSessionTest : public QObject {
         write(script, "// fixture only");
         QVERIFY(QFile::copy(agent(), npm + "/node.exe"));
         write(shim, "@ECHO off\r\n"
+                    "  SET \"_prog=%dp0%\\node.exe\"\r\n"
+                    "  SET \"_prog=node\"\r\n"
                     "endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\" "
                     "\"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
         const auto oldPath = qgetenv("PATH");
@@ -289,6 +291,9 @@ class AcpSessionTest : public QObject {
         write(shim, "@node \"%~dp0\\node_modules\\..\\outside.js\" %*\r\n");
         QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
         write(shim, "@node \"%~dp0\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %* & calc\r\n");
+        QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+        write(shim, "  SET \"_prog=python\"\r\n"
+                    "\"%_prog%\" \"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
         QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
     }
 
