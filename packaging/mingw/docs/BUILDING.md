@@ -1,7 +1,7 @@
-# Building the GCC qualification candidate
+# Building Nova Studio with GCC
 
-This is a local, unsigned qualification build, not a published release. Nova Studio remains
-GPL-3.0-or-later, native Windows C++20 and Qt 6.12.0. No Microsoft compiler or separately
+Nova Studio is GPL-3.0-or-later, native Windows C++20 and Qt 6.12.0. The release is unsigned.
+No Microsoft compiler or separately
 installed compiler redistributable is used. The legacy MSVC build path remains supported
 by `scripts/build-studio.ps1` for existing licensed development environments.
 
@@ -57,8 +57,8 @@ working source bytes against the tree and verifies each corresponding-source ZIP
 the archived blobs. `clean_source=false` truthfully distinguishes this from a committed build.
 An extracted source ZIP is marked `+source-archive`; bit-identical PE reproduction is not claimed.
 
-The exact GCC runtime source package and its metadata accompany the candidate separately to keep
-the installed editor small. Any future authorized download location must provide that source
+The exact GCC runtime source package and its metadata accompany the release separately to keep
+the installed editor small. Any distribution must provide that source
 alongside installers and portable ZIPs. Qt DLLs may be replaced by compatible GCC Qt 6.12.0 builds;
 no signature, hash or licensing mechanism prevents replacement or debugging modified libraries.
 

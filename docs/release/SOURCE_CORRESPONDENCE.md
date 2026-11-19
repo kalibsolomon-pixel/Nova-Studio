@@ -1,8 +1,9 @@
 # Source corresponding to the reviewed preview candidate
 
-Source home: https://github.com/kalibsolomon-pixel/Nova-Studio, branch `main`.
-This is source access, not a binary release or release/legal approval. No binary downloads,
-GitHub Releases or release tags were created by the home-repository consolidation.
+This is a historical record of the preview candidate, not the source identity of 0.1.0.
+For any release, use the source revision and hashes in that release's manifest and the source
+archive distributed with its binaries. Source home: https://github.com/kalibsolomon-pixel/Nova-Studio.
+The earlier home-repository consolidation itself created no binary downloads or tags.
 
 ## Obtain the exact Nova source
 

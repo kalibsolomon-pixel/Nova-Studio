@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Phase 4-I.1 (EXPERIMENTAL): package a GCC/MinGW-w64 build as a portable ZIP and NSIS installer.
+"""Package a GCC/MinGW-w64 build as a portable ZIP and NSIS installer.
 
 The GCC counterpart of scripts/package-phase4g.py. It never touches build/phase4g-distribution (the
-MSVC candidates) and its packages are named *-windows-x64-mingw-experimental, so they cannot be
-mistaken for an MSVC candidate. Not for publication.
+MSVC candidates) and its packages are named *-windows-x64-mingw to distinguish the toolchain.
 
   1. Refuses anything but a Release build made by scripts/build-mingw.ps1 (nova-mingw-toolchain.json,
      whose g++ must be the configured compiler), and product/packaging sources that differ from HEAD
@@ -92,7 +91,7 @@ if clean:
         clean = False
 if not clean and not snapshot_verified and not a.allow_modified:
     raise SystemExit('Commit product and packaging sources, rebuild, then package (or use --allow-modified for a rehearsal)')
-label = a.label or f'nova-studio-{version}-windows-x64-mingw-experimental-{revision[:8]}'
+label = a.label or f'nova-studio-{version}-windows-x64-mingw-{revision[:8]}'
 if not re.fullmatch(r'[A-Za-z0-9_.+-]+', label):
     raise SystemExit('Label must be a simple directory name')
 out = root / 'build/phase4i-distribution' / label
@@ -264,7 +263,7 @@ bare = {k: v for k, v in os.environ.items() if k.upper() not in ('PATH', 'QT_PLU
 bare['PATH'] = os.pathsep.join([str(system), os.environ['SystemRoot'], str(system / 'Wbem')])
 bridge_version = run([str(payload / 'nova-mcp.exe'), '--version'], env=bare).stdout.strip()
 self_test = json.loads(run([str(payload / 'nova-mcp.exe'), '--self-test'], env=bare).stdout)
-if f' {version} ' not in f' {bridge_version} ' or self_test['tools'] != 39 or self_test['version'] != version:
+if f' {version} ' not in f' {bridge_version} ' or self_test['tools'] != 44 or self_test['version'] != version:
     raise SystemExit(f'Bridge identity mismatch: {bridge_version} / {self_test}')
 bridge_license = run([str(payload / 'nova-mcp.exe'), '--license'], env=bare).stdout
 if 'GPL-3.0-or-later' not in bridge_license or 'NO WARRANTY' not in bridge_license:
@@ -276,9 +275,9 @@ files = sorted(f for f in payload.rglob('*') if f.is_file())
 manifest = dict(format='nova-release-payload', version=version, source_revision=revision,
                 clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_tree,
                 architecture='windows-x64', configuration='Release', qt='6.12.0',
-                compiler=gxx_version, toolchain_family='gcc-mingw-w64-ucrt64', experimental=True,
+                compiler=gxx_version, toolchain_family='gcc-mingw-w64-ucrt64', experimental=False,
                 packaging_recipe_sha256=sha256(__file__),
-                signing='unsigned; no credentials used', public_distribution_authorized=False,
+                signing='unsigned; no credentials used', public_distribution_authorized=True,
                 license=dict(nova='GPL-3.0-or-later', text='LICENSE.txt', gpl_text_sha256=GPL3_SHA256,
                              copyright='licenses/COPYRIGHT.md', third_party='licenses/THIRD_PARTY_NOTICES.md'),
                 corresponding_source=source_info,
@@ -343,7 +342,7 @@ cmake_version = run([str(cmake), '--version'], env=tool_env).stdout.splitlines()
 nsis_version = run([str(makensis), '-VERSION']).stdout.strip()
 release = dict(format='nova-release-candidate', product='Nova Studio', version=version, source_revision=revision,
                clean_source=clean, source_snapshot_verified=snapshot_verified, source_tree=source_tree,
-               preview=True, experimental='GCC/MinGW-w64 UCRT64 qualification build (Phase 4-I.2)',
+               preview=False, experimental=False,
                platform='Windows 11 x64',
                artifacts={g: dict(file=p.name, bytes=p.stat().st_size, sha256=checksums[p.name]) for g, p in artifacts.items()},
                installer=dict(technology=f'NSIS {nsis_version} via CPack ({cmake_version})', stub_machine=hex(installer_machine),
@@ -356,6 +355,6 @@ release = dict(format='nova-release-candidate', product='Nova Studio', version=v
                license=manifest['license'],
                corresponding_source=dict(source_info, file=source_name, also_in_packages=f'source/{source_name}'),
                gcc_runtime_corresponding_source=runtime_source,
-               bridge=manifest['bridge'], signing='unsigned', published=False, public_distribution_authorized=False)
+               bridge=manifest['bridge'], signing='unsigned', published=False, public_distribution_authorized=True)
 (out / 'release-manifest.json').write_text(json.dumps(release, indent=2) + '\n', encoding='utf-8')
 print(json.dumps(release, indent=2))

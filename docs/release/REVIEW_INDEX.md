@@ -1,7 +1,8 @@
-# Local release review: 0.1.0-preview.1
+# Historical local release review: 0.1.0-preview.1
 
-Source access is authorized separately from binary release acceptance. The existing candidate is
-unsigned and unpublished and retains the owner's experimental / not-for-publication labels.
+This records a historical candidate; it does not qualify later builds. At the time of this review,
+source access was authorized separately from binary release acceptance, and the candidate was
+unsigned and unpublished with experimental / not-for-publication labels.
 [Source correspondence](SOURCE_CORRESPONDENCE.md) identifies its exact tree and public-history
 commit. Source publication is not binary release or legal approval.
 

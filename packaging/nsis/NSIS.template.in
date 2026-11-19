@@ -34,7 +34,7 @@ SetCompressor @CPACK_NSIS_COMPRESSOR@
 Name "${APP_NAME} ${VERSION}"
 Caption "${APP_NAME} ${VERSION} Setup"
 UninstallCaption "Uninstall ${APP_NAME} ${VERSION}"
-BrandingText "${APP_NAME} ${VERSION} · preview"
+BrandingText "${APP_NAME} ${VERSION}"
 OutFile "@CPACK_TOPLEVEL_DIRECTORY@/@CPACK_OUTPUT_FILE_NAME@"
 InstallDir "$LOCALAPPDATA\Programs\${APP_NAME}"
 InstallDirRegKey HKCU "${PRODUCT_KEY}" "InstallLocation"
@@ -48,7 +48,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "CompanyName" "@CPACK_PACKAGE_VENDOR@"
 VIAddVersionKey "FileDescription" "${APP_NAME} ${VERSION} per-user installer"
-VIAddVersionKey "Comments" "Source ${REVISION}. Preview release."
+VIAddVersionKey "Comments" "Source ${REVISION}."
 VIAddVersionKey "LegalCopyright" "@CPACK_NOVA_COPYRIGHT@. Licensed under @CPACK_NOVA_LICENSE@."
 
 !include "MUI2.nsh"
@@ -61,7 +61,7 @@ VIAddVersionKey "LegalCopyright" "@CPACK_NOVA_COPYRIGHT@. Licensed under @CPACK_
 !define MUI_UNICON "@CPACK_NSIS_MUI_UNIICON@"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Install ${APP_NAME} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "This is a preview release of ${APP_NAME}, a resource-pack editor for Minecraft Java Edition. ${APP_NAME} is free software under the GNU General Public License version 3 or later.$\r$\n$\r$\nIt installs for your Windows account only and does not need administrator rights. Your resource packs, settings and recovery data are never changed by Setup.$\r$\n$\r$\nThis installer is not code-signed, so Windows may ask you to confirm that you want to run it."
+!define MUI_WELCOMEPAGE_TEXT "${APP_NAME} is a resource-pack editor for Minecraft Java Edition. ${APP_NAME} is free software under the GNU General Public License version 3 or later.$\r$\n$\r$\nIt installs for your Windows account only and does not need administrator rights. Your resource packs, settings and recovery data are never changed by Setup.$\r$\n$\r$\nThis installer is not code-signed, so Windows may ask you to confirm that you want to run it."
 !insertmacro MUI_PAGE_WELCOME
 ; GPL-3.0 section 9: the license need not be accepted to install or run the program, so this page
 ; only informs (a Next button, no "I agree"). Phase 4-H.2: the same page presents the end-user terms
@@ -236,7 +236,7 @@ Section "-Install"
   FileWrite $0 "${APP_NAME} ${VERSION} (source ${REVISION})$\r$\nThis folder is managed by the ${APP_NAME} installer. Do not store other files here.$\r$\n"
   FileClose $0
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
-  WriteRegStr HKCU "${PRODUCT_KEY}" "DisplayName" "${APP_NAME} (preview)"
+  WriteRegStr HKCU "${PRODUCT_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${PRODUCT_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${PRODUCT_KEY}" "Publisher" "@CPACK_PACKAGE_VENDOR@"
   WriteRegStr HKCU "${PRODUCT_KEY}" "InstallLocation" "$INSTDIR"

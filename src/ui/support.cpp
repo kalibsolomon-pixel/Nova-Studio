@@ -83,7 +83,7 @@ void Window::buildSupportMenu() {
     about->setObjectName("aboutCommand");
     connect(about, &QAction::triggered, this, [this] {
         auto box = new QMessageBox(QMessageBox::NoIcon, "About Nova Studio",
-                                   QString("Nova Studio %1 (preview)\nBuild %2 · Qt %3")
+                                   QString("Nova Studio %1\nBuild %2 · Qt %3")
                                        .arg(AppVersion, BuildRevision, qVersion()),
                                    QMessageBox::Close, this);
         box->setObjectName("aboutDialog");

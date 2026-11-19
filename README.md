@@ -11,8 +11,8 @@
 Nova Studio is a Windows 11 desktop editor for Minecraft Java Edition resource packs. It is written
 in C++20 with Qt Widgets and is free software under the GNU GPL, version 3 or later.
 
-**Status: preview.** Version `0.1.0-preview.1` is the first preview. Keep backups of resource packs
-you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
+Version `0.1.0` is the first full release. Keep backups of resource packs you care about. See
+[known limitations](docs/release/KNOWN_LIMITATIONS.md).
 
 ## Features
 
@@ -47,15 +47,15 @@ you care about. See [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 | [Search](docs/release/SEARCH.md) | The Ctrl+K search box |
 | [MCP setup](docs/release/MCP_SETUP.md) | Connecting Claude Desktop, Claude Code, Codex or other MCP clients |
 | [Known limitations](docs/release/KNOWN_LIMITATIONS.md) | What is not tested or not supported yet |
-| [Release notes](docs/release/RELEASE_NOTES.md) | 0.1.0-preview.1 |
+| [Release notes](docs/release/RELEASE_NOTES.md) | 0.1.0 |
 | [Building from source](docs/release/BUILDING.md) | Toolchain, build, tests and packaging |
 | [Source correspondence](docs/release/SOURCE_CORRESPONDENCE.md) | Exact candidate commit, archives, hashes and runtime source |
 | [Public-source preparation](docs/release/PUBLIC_SOURCE_PREPARATION.md) | Provenance, privacy scope, deletions and pending review |
 
 ## Building
 
-The candidate package uses GCC/MinGW-w64 UCRT64 and the modified Qt Base 6.12.0 build described in
-[the GCC guide](docs/phase-4i/MINGW_BUILD_GUIDE.md). It remains experimental and not for publication.
+The release package uses GCC/MinGW-w64 UCRT64 and the modified Qt Base 6.12.0 build described in
+[the GCC guide](docs/phase-4i/MINGW_BUILD_GUIDE.md).
 MSVC is a separate regression-test build. [BUILDING.md](docs/release/BUILDING.md) describes both.
 The commands below build the MSVC test variant with Windows 11 x64, the pinned standalone Build
 Tools, Qt Base 6.12.0 for MSVC x64 and Python 3.12.
@@ -101,9 +101,9 @@ See [COPYRIGHT.md](COPYRIGHT.md) and the [GCC notices](packaging/mingw/THIRD_PAR
 
 ## Source code for binary releases
 
-The source home is https://github.com/kalibsolomon-pixel/Nova-Studio (`main`). Publishing source
-does not approve or publish the unsigned binary candidate. The [correspondence record](docs/release/SOURCE_CORRESPONDENCE.md)
-identifies its exact source commit and hashes.
+The source home is https://github.com/kalibsolomon-pixel/Nova-Studio (`main`). Each release's
+manifest identifies its exact source revision and artifact hashes. The [correspondence record](docs/release/SOURCE_CORRESPONDENCE.md)
+also documents the earlier preview candidate.
 
 Every binary release must include the complete corresponding source code of that exact build, in the
 package's `source` folder and as a separate `nova-studio-<version>-source.zip` download. In the

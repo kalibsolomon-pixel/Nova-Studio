@@ -43,7 +43,7 @@ cand = root / 'build' / a.distribution / a.candidate
 installers = sorted(cand.glob('nova-studio-*-windows-x64*.exe'))
 if len(installers) != 1:
     raise SystemExit(f'Expected exactly one installer in {cand}, found {[i.name for i in installers]}')
-installer = installers[0]
+production_installer = installers[0]
 payload = cand / 'payload' / 'Nova Studio'
 manifest = json.loads((payload / 'package-manifest.json').read_text(encoding='utf-8'))
 version = manifest['version']
@@ -71,14 +71,46 @@ sdk_python = find_sdk_python()
 stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 out = root / 'build/phase4g-evidence/installer' / stamp
 out.mkdir(parents=True)
+# Compile the same validated payload with only the registration and default-directory paths changed.
+# This preserves any real Nova installation. It does not qualify those exact production paths.
+template_dir = out / 'test-template'
+template_dir.mkdir()
+template = (build / 'packaging/nsis-mingw/NSIS.template.in').read_text(encoding='utf-8')
+replacements = {
+    '!define PRODUCT_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaStudio"':
+        '!define PRODUCT_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NovaStudioReleaseTest"',
+    '!define SHORTCUT "$SMPROGRAMS\\${APP_NAME}.lnk"':
+        '!define SHORTCUT "$SMPROGRAMS\\Nova Studio Release Test.lnk"',
+    'InstallDir "$LOCALAPPDATA\\Programs\\${APP_NAME}"': f'InstallDir "{out / "occupied-default"}"',
+}
+for original, replacement in replacements.items():
+    if template.count(original) != 1:
+        raise SystemExit(f'Unexpected installer template; refusing isolation: {original}')
+    template = template.replace(original, replacement)
+(template_dir / 'NSIS.template.in').write_text(template, encoding='utf-8')
+cpack = pathlib.Path(re.search(r'CMAKE_COMMAND:INTERNAL=(.*)', (build / 'CMakeCache.txt').read_text(encoding='utf-8'))[1].strip()).with_name('cpack.exe')
+subprocess.run([str(cpack), '-G', 'NSIS', '--config', str(build / 'CPackConfig.cmake'),
+                '-D', f'NOVA_PAYLOAD={payload}', '-D', f'NOVA_TEST_TEMPLATE_DIR={template_dir}',
+                '-B', str(out / 'isolated-installer')], cwd=str(build), check=True, capture_output=True)
+test_installers = list((out / 'isolated-installer').glob('*.exe'))
+if len(test_installers) != 1:
+    raise SystemExit('Expected exactly one isolated installer')
+generated_scripts = list((out / 'isolated-installer').rglob('project.nsi'))
+if len(generated_scripts) != 1:
+    raise SystemExit('Cannot inspect the generated test installer script; refusing to run it')
+generated = generated_scripts[0].read_text(encoding='utf-8')
+for required in ('NovaStudioReleaseTest', 'Nova Studio Release Test.lnk', str(out / 'occupied-default')):
+    if required not in generated:
+        raise SystemExit(f'Test installer isolation missing {required}; refusing to run it')
+installer = test_installers[0]
 uia = build / 'tests/nova-phase4f-uia-client.exe'
 local = pathlib.Path(os.environ['LOCALAPPDATA'])
 appdata = pathlib.Path(os.environ['APPDATA'])
 claude_cli = sorted(local.glob('Claude-Data/claude_*/claude-code/*/*/claude.exe'), key=lambda f: f.stat().st_mtime)[-1]
 codex_cli = sorted(local.glob('OpenAI/Codex/bin/*/codex.exe'), key=lambda f: f.stat().st_mtime)[-1]
-KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaStudio'
+KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaStudioReleaseTest'
 INNO_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\{4160E321-01F3-4BA8-B8DF-65FEE14D6D65}_is1'
-SHORTCUT = appdata / 'Microsoft/Windows/Start Menu/Programs/Nova Studio.lnk'
+SHORTCUT = appdata / 'Microsoft/Windows/Start Menu/Programs/Nova Studio Release Test.lnk'
 INNO_DIR = local / 'Programs/Nova Studio'
 INNO_MENU = appdata / 'Microsoft/Windows/Start Menu/Programs/Nova Studio'
 OWNER_DATA = local / 'Nova Studio'
@@ -315,17 +347,25 @@ def invoke(hwnd, names, label):
 
 # =============================================================== pre-state
 say(f'Nova Studio {version} installer acceptance, run {stamp}')
-before = dict(inno_dir=tree(INNO_DIR), inno_menu=tree(INNO_MENU), owner_data=tree(OWNER_DATA), inno_key=registry(INNO_KEY))
+real_key = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaStudio'
+real_shortcut = appdata / 'Microsoft/Windows/Start Menu/Programs/Nova Studio.lnk'
+before = dict(inno_dir=tree(INNO_DIR), inno_menu=tree(INNO_MENU), owner_data=tree(OWNER_DATA),
+              inno_key=registry(INNO_KEY), real_key=registry(real_key),
+              real_shortcut=sha256(real_shortcut) if real_shortcut.exists() else None)
+report['isolation'] = 'Test-only installer changes registration, shortcut and default installation paths; production installer paths are not exercised.'
 report['pre_state'] = dict(inno_install_files=len(before['inno_dir'] or {}), owner_data_files=len(before['owner_data'] or {}),
                            inno_registered=before['inno_key'] is not None)
 if registry() is not None or SHORTCUT.exists():
     raise SystemExit('A Nova Studio NSIS installation already exists; uninstall it before running acceptance.')
-check('installer is a 32-bit NSIS stub (expected); payload binaries are x64', pe_machine(installer) == 0x14c, hex(pe_machine(installer)))
+check('production installer is a 32-bit NSIS stub (expected); payload binaries are x64', pe_machine(production_installer) == 0x14c, hex(pe_machine(production_installer)))
 
-# 1. Default folder holds the owner's Phase 3-E Inno Setup copy: refused, untouched.
+# 1. The isolated default folder holds unrelated data: refused, untouched.
+occupied = out / 'occupied-default'
+occupied.mkdir()
+(occupied / 'owner-file.txt').write_text('preserve', encoding='utf-8')
 code = run_installer()
-check('default folder with the earlier Inno Setup copy is refused (exit 4)', code == 4, code)
-check('...the earlier copy is unchanged', tree(INNO_DIR) == before['inno_dir'])
+check('nonempty default folder is refused (exit 4)', code == 4, code)
+check('...its existing file is unchanged', (occupied / 'owner-file.txt').read_text(encoding='utf-8') == 'preserve')
 check('...no uninstall entry or shortcut was created', registry() is None and not SHORTCUT.exists())
 
 # 2. A non-empty unrelated folder is refused.
@@ -383,7 +423,7 @@ check('first installation into a path with spaces and Unicode succeeds', code ==
 values = registry() or {}
 report['registry'] = values
 check('uninstall entry: name, version, folder, uninstaller, size',
-      values.get('DisplayName') == 'Nova Studio (preview)' and values.get('DisplayVersion') == version and
+      values.get('DisplayName') == 'Nova Studio' and values.get('DisplayVersion') == version and
       pathlib.Path(values.get('InstallLocation', '')) == target and UNINSTALLER in values.get('UninstallString', '') and
       values.get('EstimatedSize', 0) > 50000, values)
 link = shortcut_info(SHORTCUT) if SHORTCUT.exists() else {}
@@ -469,20 +509,23 @@ for _ in range(50):  # UI Automation clicks are processed asynchronously by the 
     if handoff.exists():
         break
     time.sleep(0.2)
-check('Allow read-only offers one connection (in the isolated profile)', ok and handoff.exists())
+check('Allow read-only offers a connection in the isolated profile', ok and handoff.exists())
 listing = claude_list()
 (out / 'claude-mcp-list.txt').write_text(listing, encoding='utf-8')
 nova_line = next((line for line in listing.splitlines() if line.startswith('nova-studio:')), '')
 # Claude Code prints a check mark, or a square-root sign on consoles without UTF-8.
 check('real Claude Code 2.x connects through the installed bridge after Allow',
       nova_line.endswith('Connected') and 'Failed' not in nova_line, listing.strip())
-check('...and the single-use offer is withdrawn once used', not handoff.exists())
-invoke(hwnd, 'Allow read-only', 'allow-2')
+for _ in range(50):
+    if handoff.exists():
+        break
+    time.sleep(0.2)
+check('authorization offers a new connection after the agent disconnects', handoff.exists())
 tools = subprocess.run([str(sdk_python), str(root / 'tests/phase4g_sdk_tools.py'), str(target / 'nova-mcp.exe')],
                        env={**env, 'PATH': env['PATH']}, capture_output=True, text=True, timeout=120)
 listed = json.loads(tools.stdout) if tools.returncode == 0 else {}
 report['sdk'] = listed
-check('official MCP SDK lists 39 tools through the installed bridge', len(listed.get('tools', [])) == 39, tools.stderr[-400:])
+check('official MCP SDK lists 44 tools through the installed bridge', len(listed.get('tools', [])) == 44, tools.stderr[-400:])
 # Installer refuses to replace a running copy.
 before_running = tree(target)
 code = run_installer(target)
@@ -555,9 +598,14 @@ shutil.copytree(payload, old_payload)
 (old_payload / 'legacy-file-removed-in-new-version.txt').write_text('old', encoding='utf-8')
 cpack = pathlib.Path(re.search(r'CMAKE_COMMAND:INTERNAL=(.*)', (build / 'CMakeCache.txt').read_text(encoding='utf-8'))[1].strip()).with_name('cpack.exe')
 subprocess.run([str(cpack), '-G', 'NSIS', '--config', str(build / 'CPackConfig.cmake'), '-D', f'NOVA_PAYLOAD={old_payload}',
-                '-D', 'NOVA_VERSION_OVERRIDE=0.1.0-preview.0', '-B', str(out / 'previous')], cwd=str(build), check=True,
+                '-D', 'NOVA_VERSION_OVERRIDE=0.1.0-preview.0', '-D', f'NOVA_TEST_TEMPLATE_DIR={template_dir}',
+                '-B', str(out / 'previous')], cwd=str(build), check=True,
                capture_output=True)
 previous = next((out / 'previous').glob('*.exe'))
+previous_scripts = list((out / 'previous').rglob('project.nsi'))
+if len(previous_scripts) != 1 or any(required not in previous_scripts[0].read_text(encoding='utf-8')
+                                     for required in ('NovaStudioReleaseTest', 'Nova Studio Release Test.lnk', str(out / 'occupied-default'))):
+    raise SystemExit('Previous-version test installer is not isolated; refusing to run it')
 upgrade = out / 'upgrade folder'
 code = run_installer(upgrade, exe=previous)
 check('previous version (0.1.0-preview.0) installs', code == 0 and (registry() or {}).get('DisplayVersion') == '0.1.0-preview.0', code)
@@ -576,6 +624,8 @@ check("owner's Phase 3-E Start menu folder unchanged", tree(INNO_MENU) == before
 check("owner's Phase 3-E uninstall entry unchanged", registry(INNO_KEY) == before['inno_key'])
 check("owner's Nova Studio data (%LOCALAPPDATA%\\Nova Studio) unchanged", tree(OWNER_DATA) == before['owner_data'])
 
+check('existing Nova uninstall entry unchanged', registry(real_key) == before['real_key'])
+check('existing Nova shortcut unchanged', (sha256(real_shortcut) if real_shortcut.exists() else None) == before['real_shortcut'])
 report['checks'] = checks
 report['passed'] = sum(c['ok'] for c in checks)
 report['total'] = len(checks)

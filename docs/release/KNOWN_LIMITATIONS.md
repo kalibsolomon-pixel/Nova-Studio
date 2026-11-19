@@ -1,4 +1,4 @@
-# Known limitations (0.1.0-preview.1)
+# Known limitations (0.1.0)
 
 ## Platform
 
@@ -26,7 +26,7 @@
   and inactive conduits. Runtime banner patterns, player skins, decorated pots, dragon and piglin
   heads, and other special renderers remain incomplete. See the [model preview guide](MODEL_PREVIEW.md).
 - Test in Minecraft targets Minecraft Java Edition 1.21.11 with Fabric and needs a one-time
-  download. The production Minecraft launcher hand-off is not part of this preview.
+  download. The production Minecraft launcher hand-off is not included in this release.
 - Reloading from Nova uses a small Nova companion mod that the test runtime compiles when it is
   prepared, so a runtime prepared by an older Nova prepares again once. A game started before that
   shows the F3+T hint instead. Reloading and Compare Icons were checked in Minecraft 1.21.11 at

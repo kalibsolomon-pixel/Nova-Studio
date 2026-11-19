@@ -1,74 +1,32 @@
-# Nova Studio 0.1.0-preview.1 — release notes
+# Nova Studio 0.1.0 — release notes
 
-**Preview source.** Public source access does not publish or approve the existing unsigned,
-experimental Windows candidate. Binary release and owner acceptance remain pending. Keep backups
-of resource packs you care about. See [exact source correspondence](SOURCE_CORRESPONDENCE.md).
+Nova Studio is a Windows editor for Minecraft Java Edition resource packs. Keep backups of packs
+you care about. See [known limitations](KNOWN_LIMITATIONS.md) for the supported scope and test coverage.
 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
-Nova Studio is developed and published by the Nova Studio contributors, who are solely responsible
-for it. "Minecraft" is a trademark of Mojang AB and Microsoft Corporation. Nova Studio contains no
-Minecraft game assets.
+Nova Studio is developed and published by the Nova Studio contributors. Minecraft is a trademark
+of Mojang AB and Microsoft Corporation. Nova Studio contains no Minecraft game assets.
 
-## What Nova Studio does
+## Features
 
-- Edits Minecraft Java Edition resource-pack textures with layers, selections, transforms,
-  filters, palettes and pixel-accurate tools.
-- Edits animated textures on a timeline and exports Minecraft `.mcmeta` animations.
-- Edits block and item models and their UVs, with a live 3D preview and display transforms.
-- Validates a pack and lists problems with the assets that cause them.
-- Tests the pack in a Nova-managed Minecraft Java Edition 1.21.11 runtime (Fabric), downloaded on
-  your request from each component's publisher.
-- Saves atomically, keeps undo history, and recovers unsaved work after a crash.
+- Edit textures with layers, selections, brushes, colour tools, filters and batch operations.
+- Create animated textures, edit models and UVs, and preview supported Minecraft item and block models.
+- Use a verified local vanilla texture and model baseline, downloaded from Mojang on request.
+- Test a pack in a managed Minecraft Java 1.21.11 Fabric runtime, reload changes and compare icons.
+- Search commands and assets with Ctrl+K. Nova saves atomically and offers recovery after a crash.
+- Connect an AI agent through MCP to inspect or edit a pack with your permission. Agent Session
+  (ACP) remains experimental and off by default; real provider conversations remain unverified.
 
-## New in this release
+## Requirements and installation
 
-- **Windows installer.** A per-user installer (no administrator rights) with a Start menu entry
-  and an uninstaller that keeps your projects, settings and recovery data. A portable ZIP of the
-  same files is also prepared locally; neither is published by this source consolidation.
-- **Search (Ctrl+K).** One search box for commands, tools, settings, workspaces, panels and
-  textures. It finds things by name, alias or shortcut and explains when a command is unavailable.
-  The previous command palette shortcut, Ctrl+Shift+P, still works.
-- **AI agent setup (MCP).** Resources › MCP Integration › Agent Setup adds Nova Studio to
-  Claude Desktop, Claude Code or Codex for you, or shows the configuration to copy for other
-  MCP clients. Agents still need your explicit permission for each session and project.
-- **MCP diagnostics.** A local check that the bridge starts and declares its tools.
+Windows 11 x64 and an OpenGL 2.1 or later graphics driver are required. Testing has been on one
+development PC, not a clean Windows installation or other GPUs. See [installation](INSTALLATION.md).
+The installer and application are **unsigned**; Windows SmartScreen may show a warning. Check the
+download against `SHA256SUMS.txt` before running it. Do not disable Windows security features.
 
-## Requirements
+## Source and licenses
 
-- Windows 11, 64-bit. Other Windows versions are not tested.
-- OpenGL 2.1 or later. Tested on an AMD graphics driver only.
-- About 220 MB of disk space for the installation.
-- Internet access only if you use Test in Minecraft (to download the runtime once).
-
-## Installing
-
-See [INSTALLATION.md](INSTALLATION.md). The installer is **not code-signed**, so Windows SmartScreen
-may say it does not recognize the app. Choose **More info**, check that the file name and the
-SHA-256 checksum match the published ones, then choose **Run anyway**. Do not turn off Windows
-security features to install Nova Studio.
-
-## Upgrading from internal builds
-
-Earlier internal candidates were numbered 0.3.0-rc.1 and used a different installer. If one is
-installed, uninstall it from Settings › Apps first. Its settings and projects are kept and are
-used by this release.
-
-## Known limitations
-
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
-
-## Licensing
-
-Nova Studio is free software under the GNU General Public License version 3 or later
-(GPL-3.0-or-later). The license is `LICENSE.txt`; `licenses/COPYRIGHT.md` says what it covers.
-Third-party notices are in `licenses/THIRD_PARTY_NOTICES.md`, and **Help › Licenses and Source
-Code** shows all of them.
-
-The reviewed GCC/MinGW candidate carries Qt, GCC runtime and MinGW notices; it ships no Microsoft
-VC runtime DLLs. MSVC is a separate regression-test layout with Microsoft tool/runtime terms.
-See `packaging/mingw/THIRD_PARTY_NOTICES.md` and the source-correspondence record.
-
-The candidate's complete corresponding source is in `source/` and retained alongside the local
-installer as `nova-studio-0.1.0-preview.1-source.zip`. A future authorized binary distribution must
-provide matching source and sidecars alongside its downloads. `docs\BUILDING.md` in the package
-(`docs/release/BUILDING.md` in the source) explains how to build it.
+Nova Studio is GPL-3.0-or-later. The package contains the corresponding source archive, license
+and third-party notices, Qt source and patch. The matching Nova source and GCC runtime source
+sidecars accompany the release downloads. See `licenses/THIRD_PARTY_NOTICES.md`, the package's
+`docs/BUILDING.md`, and Help › Licenses and Source Code.

@@ -12,3 +12,8 @@ if(NOVA_VERSION_OVERRIDE)
   set(CPACK_PACKAGE_VERSION "${NOVA_VERSION_OVERRIDE}")
   set(CPACK_PACKAGE_FILE_NAME "nova-studio-${NOVA_VERSION_OVERRIDE}-windows-x64")
 endif()
+# Installer acceptance uses a test-only template with isolated registration paths.
+if(NOVA_TEST_TEMPLATE_DIR)
+  list(PREPEND CMAKE_MODULE_PATH "${NOVA_TEST_TEMPLATE_DIR}")
+  list(PREPEND CPACK_MODULE_PATH "${NOVA_TEST_TEMPLATE_DIR}")
+endif()

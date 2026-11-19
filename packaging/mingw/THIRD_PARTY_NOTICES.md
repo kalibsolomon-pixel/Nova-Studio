@@ -1,8 +1,7 @@
 # Third-party components in Nova Studio
 
-<!-- Phase 4-I (experimental): notices for a GCC/MinGW-w64 (MSYS2 UCRT64) build with Qt Base built
-     from the 6.12.0 source plus the documented PCRE2 patch. The MSVC build uses packaging/THIRD_PARTY_NOTICES.md.
-     Not for publication until the owner accepts the toolchain migration. -->
+<!-- Notices for a GCC/MinGW-w64 (MSYS2 UCRT64) build with Qt Base built from the 6.12.0 source
+     plus the documented PCRE2 patch. The MSVC build uses packaging/THIRD_PARTY_NOTICES.md. -->
 
 Nova Studio itself is free software under the GNU General Public License version 3 or later
 (GPL-3.0-or-later): see `LICENSE.txt` and `licenses/COPYRIGHT.md`. The components below are not

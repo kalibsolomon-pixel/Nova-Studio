@@ -38,7 +38,7 @@ $options = @(
     '-DFEATURE_pkg_config=OFF',
     '-DFEATURE_system_zlib=OFF', '-DFEATURE_system_png=OFF', '-DFEATURE_system_jpeg=OFF', '-DFEATURE_system_pcre2=OFF',
     '-DFEATURE_system_harfbuzz=OFF', '-DFEATURE_system_freetype=OFF', '-DFEATURE_system_doubleconversion=OFF',
-    '-DFEATURE_system_libb2=OFF', '-DFEATURE_system_md4c=OFF',
+    '-DFEATURE_system_libb2=OFF', '-DINPUT_libmd4c=qt', '-DFEATURE_system_textmarkdownreader=OFF',
     '-DFEATURE_icu=OFF', '-DINPUT_opengl=dynamic', '-DFEATURE_schannel=ON', '-DFEATURE_openssl=OFF',
     '-DFEATURE_dbus=OFF', '-DFEATURE_sql=OFF', '-DFEATURE_zstd=OFF', '-DFEATURE_glib=OFF', '-DFEATURE_vulkan=OFF',
     # Off in the official kit too. MSYS2's CMake package installs brotli, so without this Qt Network
