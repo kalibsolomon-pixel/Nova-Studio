@@ -42,17 +42,42 @@ namespace nova {
 namespace clients = mcp::clients;
 namespace {
 struct AgentChoice {
-    QString id, name, command;
+    QString id, name;
+    QStringList commands; // the current adapter's command first, then commands of retired packages
     QStringList arguments;
-    QString install, signIn;
+    QString package, signIn;
+    QStringList retired; // npm packages replaced by `package`; they no longer receive updates
 };
 const QList<AgentChoice> agentChoices{
-    {"opencode", "OpenCode", "opencode", {"acp"}, "npm install -g opencode-ai", "opencode auth login"},
-    {"claude", "Claude Code", "claude-code-acp", {}, "npm install -g @zed-industries/claude-code-acp", "claude, then /login"},
-    {"codex", "Codex", "codex-acp", {}, "npm install -g @zed-industries/codex-acp", "codex login"},
-    {"gemini", "Gemini CLI", "gemini", {"--experimental-acp"}, "npm install -g @google/gemini-cli", "gemini"},
-    {"custom", "Custom", {}, {}, {}, {}},
+    {"opencode", "OpenCode", {"opencode"}, {"acp"}, "opencode-ai", "opencode auth login", {}},
+    {"claude", "Claude Code", {"claude-agent-acp", "claude-code-acp"}, {}, "@agentclientprotocol/claude-agent-acp",
+     "claude, then /login", {"@zed-industries/claude-agent-acp", "@zed-industries/claude-code-acp"}},
+    {"codex", "Codex", {"codex-acp"}, {}, "@agentclientprotocol/codex-acp", "codex login", {"@zed-industries/codex-acp"}},
+    {"gemini", "Gemini CLI", {"gemini"}, {"--acp"}, "@google/gemini-cli", "gemini", {}},
+    {"custom", "Custom", {}, {}, {}, {}, {}},
 };
+struct Detection {
+    QString path, retired; // retired: the replaced npm package this launcher still runs
+};
+Detection detect(const AgentChoice &choice) {
+    for (const auto &command : choice.commands) {
+        const auto path = acp::findAgentExecutable(command);
+        if (path.isEmpty())
+            continue;
+        const auto script = QDir::fromNativeSeparators(acp::resolveAgentProgram(path, {}).arguments.value(0));
+        for (const auto &package : choice.retired)
+            if (script.contains("/node_modules/" + package + '/', Qt::CaseInsensitive))
+                return {path, package};
+        return {path, {}};
+    }
+    return {};
+}
+// One command per line, so pasting into cmd or PowerShell runs each. The retired package goes first:
+// it may own the same command name, which npm refuses to overwrite.
+QString installCommand(const AgentChoice &choice, const Detection &found) {
+    const auto install = "npm install -g " + choice.package;
+    return found.retired.isEmpty() ? install : "npm uninstall -g " + found.retired + '\n' + install;
+}
 QString bridgePath() {
     const auto configured = qApp->property("mcpBridgePath").toString(); // tests supply the build's bridge
     return configured.isEmpty() ? clients::locateBridge(QCoreApplication::applicationDirPath()).path : configured;
@@ -317,6 +342,7 @@ class AgentSessionDialog : public QDialog {
     QLineEdit *program, *arguments;
     Composer *prompt;
     QComboBox *agentPicker, *authMethod;
+    QList<Detection> detected; // one per agentChoices entry
     QWidget *authRow;
     acp::AgentProgram activeProgram;
     AgentConversation *conversation;
@@ -355,13 +381,19 @@ void Window::showAgentSession() {
     form->setVerticalSpacing(ui::SpaceM);
     dialog->agentPicker = new QComboBox(dialog);
     dialog->agentPicker->setObjectName("acpAgentPicker");
-    QStringList detected;
-    for (const auto &choice : agentChoices) {
-        const auto path = choice.command.isEmpty() ? QString{} : acp::findAgentExecutable(choice.command);
-        detected << path;
-        dialog->agentPicker->addItem(choice.name + (choice.command.isEmpty() ? QString{} :
-                                      path.isEmpty() ? " · Not found" : " · Detected"), choice.id);
-    }
+    for (const auto &choice : agentChoices)
+        dialog->agentPicker->addItem(choice.name, choice.id);
+    const auto detectAll = [dialog] {
+        dialog->detected.clear();
+        for (int i = 0; i < agentChoices.size(); ++i) {
+            const auto &choice = agentChoices.at(i);
+            const auto found = detect(choice);
+            dialog->detected << found;
+            dialog->agentPicker->setItemText(i, choice.name + (choice.commands.isEmpty() ? QString{} :
+                found.path.isEmpty() ? " · Not found" : !found.retired.isEmpty() ? " · Update needed" : " · Detected"));
+        }
+    };
+    detectAll();
     dialog->agentPicker->setCurrentIndex(qMax(0, dialog->agentPicker->findData(preferences.acpAgent)));
     auto pickerRow = new QHBoxLayout;
     pickerRow->setSpacing(ui::SpaceL);
@@ -386,39 +418,61 @@ void Window::showAgentSession() {
     setupHint->setTextFormat(Qt::PlainText);
     setupHint->setWordWrap(true);
     setupHint->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    setupHint->setObjectName("acpSetupHint");
     auto copyInstall = new QPushButton("Copy install command", dialog);
     copyInstall->setObjectName("acpCopyInstall");
+    auto recheck = new QPushButton("Check again", dialog);
+    recheck->setObjectName("acpCheckAgain");
+    recheck->setToolTip("Look for the agent again after installing or updating it");
+    auto setupButtons = new QVBoxLayout;
+    setupButtons->setSpacing(ui::SpaceM);
+    setupButtons->addWidget(copyInstall);
+    setupButtons->addWidget(recheck);
+    setupButtons->addStretch();
     auto setupRow = new QHBoxLayout;
     setupRow->setSpacing(ui::SpaceM);
     setupRow->addWidget(setupHint, 1);
-    setupRow->addWidget(copyInstall, 0, Qt::AlignTop);
+    setupRow->addLayout(setupButtons);
     form->addRow(setupRow);
     const auto choice = [dialog]() -> const AgentChoice & { return agentChoices.at(dialog->agentPicker->currentIndex()); };
-    const auto configure = [this, dialog, form, choice, detected, programRow, setupRow, choose, setupHint] {
+    const auto found = [dialog] { return dialog->detected.at(dialog->agentPicker->currentIndex()); };
+    const auto configure = [this, dialog, form, choice, found, programRow, setupRow, choose, setupHint, copyInstall] {
         const auto &selected = choice();
-        const auto path = detected.at(dialog->agentPicker->currentIndex());
-        const bool custom = selected.command.isEmpty();
-        dialog->program->setText(custom ? preferences.acpProgram : path);
+        const auto agent = found();
+        const bool custom = selected.commands.isEmpty();
+        dialog->program->setText(custom ? preferences.acpProgram : agent.path);
         dialog->program->setReadOnly(!custom);
-        form->setRowVisible(programRow, custom || !path.isEmpty());
+        form->setRowVisible(programRow, custom || !agent.path.isEmpty());
         choose->setVisible(custom);
         form->setRowVisible(dialog->arguments, custom);
-        form->setRowVisible(setupRow, path.isEmpty() && !custom);
-        setupHint->setText(QString("Install with %1 (requires Node.js and npm).\nSign in with %2.")
-                               .arg(selected.install, selected.signIn));
+        form->setRowVisible(setupRow, !custom && (agent.path.isEmpty() || !agent.retired.isEmpty()));
+        copyInstall->setText(agent.retired.isEmpty() ? "Copy install command" : "Copy update commands");
+        const auto commands = installCommand(selected, agent);
+        setupHint->setText(agent.retired.isEmpty()
+            ? QString("Not installed. Run this in a terminal (requires Node.js and npm):\n%1\nSign in with %2, "
+                      "then choose Check again.").arg(commands, selected.signIn)
+            : QString("This launcher runs %1, which no longer receives updates. It has been replaced by %2. "
+                      "Run these in a terminal, then choose Check again:\n%3")
+                  .arg(agent.retired, selected.package, commands));
     };
     connect(dialog->agentPicker, &QComboBox::currentIndexChanged, dialog, [this, choice, configure] {
         preferences.acpAgent = choice().id;
         configure();
     });
     connect(dialog->program, &QLineEdit::textChanged, dialog, [this, choice](const QString &path) {
-        if (choice().command.isEmpty())
+        if (choice().commands.isEmpty())
             preferences.acpProgram = path;
     });
     connect(dialog->arguments, &QLineEdit::textChanged, dialog, [this](const QString &args) {
         preferences.acpArguments = args;
     });
-    connect(copyInstall, &QPushButton::clicked, dialog, [choice] { QApplication::clipboard()->setText(choice().install); });
+    connect(copyInstall, &QPushButton::clicked, dialog, [choice, found] {
+        QApplication::clipboard()->setText(installCommand(choice(), found()));
+    });
+    connect(recheck, &QPushButton::clicked, dialog, [detectAll, configure] {
+        detectAll();
+        configure();
+    });
     configure();
     agentSection->addLayout(form);
     auto sessionSection = section(layout, "Session");
@@ -568,7 +622,7 @@ void Window::showAgentSession() {
         return mcpService && dialog->grant && mcpService->grantSerial() == dialog->grant &&
                !mcpService->authorizedProject().isEmpty();
     };
-    auto refresh = [this, dialog, ours, choose, projectHint, outputToggle, form, choice] {
+    auto refresh = [this, dialog, ours, choose, recheck, projectHint, outputToggle, form, choice] {
         const auto state = dialog->session ? dialog->session->state() : acp::Session::State::Idle;
         const bool live = state == acp::Session::State::Starting || state == acp::Session::State::Ready ||
                           state == acp::Session::State::Prompting;
@@ -604,8 +658,9 @@ void Window::showAgentSession() {
         dialog->agentPicker->setEnabled(configuring);
         dialog->program->setEnabled(configuring);
         dialog->arguments->setEnabled(configuring);
-        form->setRowVisible(dialog->arguments, configuring && choice().command.isEmpty());
+        form->setRowVisible(dialog->arguments, configuring && choice().commands.isEmpty());
         choose->setEnabled(configuring);
+        recheck->setEnabled(configuring);
         dialog->edit->setEnabled(live && ours() && !dialog->editing && mcpService->clientConnected());
         dialog->revoke->setEnabled(ours());
         dialog->stop->setEnabled(live);
@@ -741,7 +796,7 @@ void Window::showAgentSession() {
     connect(dialog->start, &QPushButton::clicked, dialog, [this, dialog, begin, choice] {
         const auto executable = QDir::toNativeSeparators(dialog->program->text().trimmed());
         const auto &selected = choice();
-        const auto args = selected.command.isEmpty() ? QProcess::splitCommand(dialog->arguments->text()) : selected.arguments;
+        const auto args = selected.commands.isEmpty() ? QProcess::splitCommand(dialog->arguments->text()) : selected.arguments;
         QString problem;
         const auto program = acp::resolveAgentProgram(executable, args, &problem);
         if (program.executable.isEmpty())
