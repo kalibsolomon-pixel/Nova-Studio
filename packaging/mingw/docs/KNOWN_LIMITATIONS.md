@@ -72,8 +72,7 @@
 
 ## Licensing
 
-- Nova Studio is licensed under GPL-3.0-or-later (`LICENSE.txt`). Qt, the selected compiler runtime
-  and the Gradle wrapper keep their own licenses (`licenses\THIRD_PARTY_NOTICES.md`). The GCC
-  candidate ships GCC/MinGW notices and a separate GCC source sidecar; MSVC packages instead carry
-  Microsoft runtime terms in `licenses\MICROSOFT-VC-RUNTIME-TERMS.txt`.
+- Nova Studio is licensed under GPL-3.0-or-later (`LICENSE.txt`). Qt, the GCC/MinGW runtime
+  and the Gradle wrapper keep their own licenses (`licenses\THIRD_PARTY_NOTICES.md`). The release
+  includes GCC/MinGW notices and provides matching runtime source sidecars alongside the downloads.
 - Nova Studio uses a private Qt API, so replacement Qt libraries must be Qt 6.12.0 builds.
