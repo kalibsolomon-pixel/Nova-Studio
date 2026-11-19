@@ -1,17 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Phase 4-G: install, upgrade and uninstall acceptance for the NSIS release candidate.
 
-Runs on the development PC, which already has the owner's Phase 3-E (Inno Setup) copy of
-Nova Studio in %LOCALAPPDATA%\\Programs\\Nova Studio and real data in %LOCALAPPDATA%\\Nova Studio.
-Both are hashed before and after and must not change. Test installations go into folders under
-build/phase4g-evidence/installer/<run>. Launched applications use --settings and environment
-variables inside that run folder, so no real settings, recovery data or AI agent configuration
-is read or written. The real Start menu and HKCU uninstall entry ARE used while a test install
-exists (that is what is being tested) and are removed by the uninstall steps.
+Runs on the development PC without replacing an existing Nova installation. The test-only installer
+uses an isolated registry key, shortcut and default folder; those production paths are not tested.
+Existing installation files, registration, shortcut and user data are checked for changes. Test
+installations and application settings are contained under build/phase4g-evidence/installer/<run>.
 
 Usage: python scripts/verify-phase4g-installer.py --candidate <label> [--build studio-phase4g-Release]
        [--distribution phase4g-distribution]
-Phase 4-I.1: an experimental GCC/MinGW-w64 package is tested the same way with
+The GCC/MinGW-w64 package is tested with
 --distribution phase4i-distribution --build mingw-ucrt64-source-Release; it must additionally load
 no Visual C++ runtime module at all.
 """
