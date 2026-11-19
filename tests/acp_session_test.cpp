@@ -10,6 +10,7 @@
 #include "theme.h"
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDirIterator>
@@ -295,6 +296,41 @@ class AcpSessionTest : public QObject {
         write(shim, "  SET \"_prog=python\"\r\n"
                     "\"%_prog%\" \"%dp0%\\node_modules\\@zed-industries\\claude-code-acp\\dist\\index.js\" %*\r\n");
         QVERIFY(nova::acp::resolveAgentProgram(shim, {}).executable.isEmpty());
+    }
+
+    // A launcher from a retired adapter package is flagged with the uninstall and install commands that
+    // replace it; Check again finds the current package without reopening the window.
+    void retiredAdapterNeedsUpdate() {
+        const auto npm = root + "/npm prefix";
+        const auto shim = npm + "/codex-acp.cmd";
+        const auto install = [&](const QString &package) {
+            const auto script = "node_modules/" + package + "/dist/index.js";
+            write(npm + '/' + script, "// fixture only");
+            write(shim, ("@node \"%~dp0\\" + QDir::toNativeSeparators(script) + "\" %*\r\n").toUtf8());
+        };
+        install("@zed-industries/codex-acp");
+        QVERIFY(QFile::copy(agent(), npm + "/node.exe"));
+        const auto oldPath = qgetenv("PATH");
+        const auto restore = qScopeGuard([oldPath] { qputenv("PATH", oldPath); });
+        qputenv("PATH", QDir::toNativeSeparators(npm).toLocal8Bit() + ';' + oldPath);
+        open();
+        auto picker = dialog->findChild<QComboBox *>("acpAgentPicker");
+        picker->setCurrentIndex(picker->findData("codex"));
+        QCOMPARE(picker->currentText(), "Codex · Update needed");
+        auto hint = dialog->findChild<QLabel *>("acpSetupHint");
+        QVERIFY(hint->isVisible());
+        QVERIFY(hint->text().contains("@agentclientprotocol/codex-acp"));
+        QCOMPARE(button("acpCopyInstall")->text(), "Copy update commands");
+        button("acpCopyInstall")->click();
+        QCOMPARE(QApplication::clipboard()->text(),
+                 "npm uninstall -g @zed-industries/codex-acp\nnpm install -g @agentclientprotocol/codex-acp");
+        // The path stays usable: an outdated adapter still starts if the user chooses to.
+        QCOMPARE(dialog->findChild<QLineEdit *>("acpAgentPath")->text(), QDir::toNativeSeparators(shim));
+
+        install("@agentclientprotocol/codex-acp");
+        button("acpCheckAgain")->click();
+        QCOMPARE(picker->currentText(), "Codex · Detected");
+        QVERIFY(!hint->isVisible());
     }
 
     // Read-only tools work; editing and saving are refused; nothing in the pack changes.

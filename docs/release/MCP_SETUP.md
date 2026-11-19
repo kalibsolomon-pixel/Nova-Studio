@@ -92,10 +92,26 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
 Open **Resources › Agent Session (Experimental)…**, search for **Agent Session**, or choose
 **Open Agent Session…** from **MCP Integration**. Open a resource pack before starting a session.
 
-The agent picker detects OpenCode (`opencode acp`), the Claude Code and Codex ACP adapters,
-and Gemini CLI (`gemini --experimental-acp`). If an agent is missing, copy its install command
-from the picker and run it in your terminal. Restart Nova Studio if the install changed your
-PATH. Sign in with the agent’s advertised method or follow the login command shown by Nova.
+The agent picker detects these agents on your PATH:
+
+| Agent | Install (requires Node.js and npm) | Nova runs |
+| --- | --- | --- |
+| OpenCode | `npm install -g opencode-ai` | `opencode acp` |
+| Claude Code | `npm install -g @agentclientprotocol/claude-agent-acp` | `claude-agent-acp` |
+| Codex | `npm install -g @agentclientprotocol/codex-acp` | `codex-acp` |
+| Gemini CLI | `npm install -g @google/gemini-cli` | `gemini --acp` |
+
+If an agent is missing, choose **Copy install command**, run it in a terminal, then choose
+**Check again**. Restart Nova Studio instead if you just installed Node.js, because the install
+changed your PATH. Sign in with the agent’s advertised method or follow the login command shown
+by Nova.
+
+The Claude Code and Codex adapters moved from `@zed-industries` to `@agentclientprotocol` on npm;
+the old packages no longer receive updates. If Nova finds an old adapter, the picker shows
+**Update needed** and **Copy update commands** copies an `npm uninstall` for the old package
+followed by the `npm install` for its replacement. The old adapter still starts if you need it.
+Gemini CLI releases before 0.33 do not accept `--acp`; update Gemini CLI or use **Custom** with
+`--experimental-acp`.
 
 **Custom** accepts an absolute path to an `.exe` or a standard npm `.cmd` launcher. Put arguments
 containing spaces in double quotes. Nova resolves npm launchers to `node.exe` and their package
