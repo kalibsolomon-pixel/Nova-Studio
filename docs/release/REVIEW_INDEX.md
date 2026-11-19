@@ -38,8 +38,10 @@ threshold, not a new candidate measurement. Visual/physical screening is deferre
 The pristine Windows guest test was not performed; the accepted composite dependency-isolation
 substitute has only been exercised on the development host.
 
-ACP remains experimental and off by default. OpenCode startup/bridge attachment was exercised,
-but no real provider conversation was performed. Claude Code and Codex ACP adapters are untested.
+ACP was experimental and off by default at review time; the 2026-11-19 owner decisions removed
+the experimental labels while keeping the session user-initiated. OpenCode startup/bridge
+attachment was exercised, but no real provider conversation was performed. Claude Code and Codex
+ACP adapters are untested.
 The owner must still review Phase 1 visual evidence and accept changed Ctrl+S behavior unless a
 newer explicit acceptance is recorded. Known editor-gui, tool-placement, texture-pixels,
 save-drafts, ACP and Fabric incidents must remain disclosed.
@@ -50,6 +52,8 @@ qualification report; a portable launch is not installer acceptance.
 
 Before public preview: owner approval of the [licensing/source/signing checklist](RELEASE_CHECKLIST.md),
 the [source-sync review](SOURCE_SYNC.md), visual/compatibility review and an explicit decision on
-experimental labels/filenames. The existing GitHub repository is the verified source destination;
-final public visibility is checked separately from this preparation record. No binary download URL
-is claimed.
+experimental labels/filenames — all recorded as granted or decided on 2026-11-19 in
+[the checklist](RELEASE_CHECKLIST.md). The existing GitHub repository is the verified source
+destination and, by the same decision, hosts the release binaries and sidecars; final public
+visibility is checked separately from this preparation record. No binary download URL is
+claimed here.

@@ -15,7 +15,8 @@ of Mojang AB and Microsoft Corporation. Nova Studio contains no Minecraft game a
 - Test a pack in a managed Minecraft Java 1.21.11 Fabric runtime, reload changes and compare icons.
 - Search commands and assets with Ctrl+K. Nova saves atomically and offers recovery after a crash.
 - Connect an AI agent through MCP to inspect or edit a pack with your permission. Agent Session
-  (ACP) remains experimental and off by default; real provider conversations remain unverified.
+  (ACP) starts only when you open it; automated tests use a scripted agent and real provider
+  conversations remain unverified.
 
 ## Requirements and installation
 

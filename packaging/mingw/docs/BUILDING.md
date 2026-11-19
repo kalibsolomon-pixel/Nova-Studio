@@ -51,7 +51,7 @@ documented fixtures; see the source tree and legacy test-prerequisite documentat
 
 When a local commit is not authorized, `scripts/phase4i2-source-snapshot.py` records an immutable
 Git tree without changing the real index or making a commit. Build with `-SourceSnapshot <tree>`;
-package using `python scripts/package-mingw-experimental.py --source-tree <tree> --label <label>`.
+package using `python scripts/package-mingw.py --source-tree <tree> --label <label>`.
 The executable identity contains both HEAD and the complete snapshot tree. The packager verifies
 working source bytes against the tree and verifies each corresponding-source ZIP member against
 the archived blobs. `clean_source=false` truthfully distinguishes this from a committed build.

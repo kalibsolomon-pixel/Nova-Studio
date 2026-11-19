@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Phase 4-I (experimental): dependency policy check for a GCC/MinGW-w64 release payload.
+"""Phase 4-I: dependency policy check for a GCC/MinGW-w64 release payload.
 
 Pure Python, like scripts/check-release-payload.py (whose PE reader it reuses); runs no build tool.
 

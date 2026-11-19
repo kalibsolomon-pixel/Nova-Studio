@@ -373,9 +373,6 @@ void Window::showAgentSession() {
     layout->setContentsMargins(ui::PanelPadding, ui::PanelPadding, ui::PanelPadding, ui::PanelPadding);
     layout->setSpacing(ui::PanelPadding);
     auto agentSection = section(layout, "Agent");
-    auto experimental = new QLabel("Experimental", dialog);
-    experimental->setObjectName("acpExperimental");
-    experimental->setProperty("role", "badge");
     auto form = new QFormLayout;
     form->setHorizontalSpacing(ui::SpaceL);
     form->setVerticalSpacing(ui::SpaceM);
@@ -395,11 +392,7 @@ void Window::showAgentSession() {
     };
     detectAll();
     dialog->agentPicker->setCurrentIndex(qMax(0, dialog->agentPicker->findData(preferences.acpAgent)));
-    auto pickerRow = new QHBoxLayout;
-    pickerRow->setSpacing(ui::SpaceL);
-    pickerRow->addWidget(dialog->agentPicker, 1);
-    pickerRow->addWidget(experimental, 0, Qt::AlignVCenter); // a pill, not a combo-height block
-    form->addRow("Agent type", pickerRow);
+    form->addRow("Agent type", dialog->agentPicker);
     dialog->program = ui::pathField({}, dialog);
     dialog->program->setObjectName("acpAgentPath");
     dialog->program->setPlaceholderText("Full path to a program or npm launcher");

@@ -15,7 +15,7 @@ param(
     [string]$ReleaseDependencies = $env:NOVA_RELEASE_DEPENDENCIES,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$CTestArgs = @()
 )
-# Phase 4-I (experimental): configure and build Nova Studio with the pinned GCC/MinGW-w64 toolchain
+# Phase 4-I: configure and build Nova Studio with the pinned GCC/MinGW-w64 toolchain
 # in build\mingw-ucrt64-<variant>-<config>, then optionally run all CTest suites.
 # Uses no Visual Studio, Build Tools, Windows SDK or MSVC component: the process PATH is reduced
 # to the toolchain, Qt and Windows, and the script stops if cl.exe is still reachable.

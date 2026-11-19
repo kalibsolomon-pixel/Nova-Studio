@@ -5,7 +5,7 @@ param(
     [string]$Root = '',
     [string]$Downloads = 'C:\Dev\nova-toolchains\downloads'
 )
-# Phase 4-I (experimental): isolated installation of the pinned MSYS2 UCRT64 toolchain.
+# Phase 4-I: isolated installation of the pinned MSYS2 UCRT64 toolchain.
 #
 # THIS INSTALLS SOFTWARE. It runs only with -OwnerApproved, which the owner passes after approving
 # the request in docs/phase-4i/MINGW_BUILD_GUIDE.md. Without it the script prints the plan and exits.

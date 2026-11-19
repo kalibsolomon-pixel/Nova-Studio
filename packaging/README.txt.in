@@ -1,10 +1,10 @@
-Nova Studio @NOVA_DISPLAY_VERSION@ (preview)
+Nova Studio @NOVA_DISPLAY_VERSION@
 ==========================================
 
 Nova Studio is a native Windows editor for Minecraft Java Edition resource packs: textures,
 animations, models and UVs, with a managed test runtime for Minecraft Java Edition 1.21.11.
 
-This is a PREVIEW release. Keep backups of resource packs you care about.
+Keep backups of resource packs you care about.
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 Nova Studio is developed and published by the Nova Studio contributors, who are solely

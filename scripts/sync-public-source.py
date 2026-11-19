@@ -47,7 +47,7 @@ EXCLUDED = [
     'logs', '.nova', '*.log',  # never tracked, listed for defence in depth
 ]
 # Published although inside an excluded folder: the GCC build guide is part of the corresponding
-# source (scripts/package-mingw-experimental.py ships it in the source archive).
+# source (scripts/package-mingw.py ships it in the source archive).
 INCLUDED = ['docs/phase-4i/MINGW_BUILD_GUIDE.md']
 # Files the build, licence and corresponding-source obligations need, for every supported
 # toolchain. A sync that would drop any of them stops.
@@ -71,7 +71,7 @@ REQUIRED_GCC = ['packaging/mingw/THIRD_PARTY_NOTICES.md', 'packaging/mingw/READM
                 'scripts/nova-mingw-toolchain.ps1', 'scripts/install-mingw-toolchain.ps1',
                 'scripts/build-qtbase-mingw.ps1', 'scripts/nova-qt-build-record.ps1', 'scripts/build-mingw.ps1',
                 'scripts/check-mingw-toolchain.ps1', 'scripts/check-mingw-payload.py', 'scripts/msys2-resolve-lock.py',
-                'scripts/package-mingw-experimental.py']
+                'scripts/package-mingw.py']
 REQUIRED = REQUIRED_COMMON + REQUIRED_MSVC + REQUIRED_GCC
 # Generated files that must come from a build, never from the source tree. The Gradle wrapper jar is
 # a pinned upstream file that the Fabric runtime needs (COPYRIGHT.md, THIRD_PARTY_NOTICES.md).

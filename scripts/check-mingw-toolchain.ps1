@@ -4,7 +4,7 @@ param(
     [string]$McpSdkPython = '',
     [string]$Report = ''
 )
-# Phase 4-I (experimental): read-only preflight for the GCC/MinGW-w64 build. Runs only version
+# Phase 4-I: read-only preflight for the GCC/MinGW-w64 build. Runs only version
 # queries of tools inside the toolchain folder; installs, downloads and changes nothing.
 # Exit code 0 when the toolchain is complete, 1 otherwise (with the installation request).
 $ErrorActionPreference = 'Stop'

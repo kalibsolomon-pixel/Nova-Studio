@@ -1,8 +1,8 @@
-# Building Nova Studio with GCC/MinGW-w64 (Phase 4-I, experimental)
+# Building Nova Studio with GCC/MinGW-w64 (Phase 4-I)
 
 Status: **executed in Phase 4-I.1** (owner approval of §1 given; historical raw results remain
 private; see the [public qualification summary](../release/PUBLIC_SOURCE_PREPARATION.md)). The toolchain is installed in
-`C:\Dev\nova-toolchains`; §7 is the complete, repeatable procedure that produced the experimental
+`C:\Dev\nova-toolchains`; §7 is the complete, repeatable procedure that produced the release
 candidate. §1 is kept as the approved request. The MSVC build (`docs/release/BUILDING.md`,
 `scripts/build-studio.ps1`) is unchanged and unaffected.
 
@@ -74,7 +74,7 @@ Equivalent with presets (after setting `NOVA_MSYS2_ROOT` and `NOVA_MINGW_QT` in 
 
 The build records its toolchain in `build\<dir>\nova-mingw-toolchain.json`.
 
-## 4. Experimental payload and packages
+## 4. Payload and packages
 
 ```powershell
 $b = 'build\mingw-ucrt64-source-Release'
@@ -85,13 +85,13 @@ cpack --config $b\CPackConfig.cmake -G ZIP  -D NOVA_PAYLOAD="build\mingw-payload
 cpack --config $b\CPackConfig.cmake -G NSIS -D NOVA_PAYLOAD="build\mingw-payload\Nova Studio"
 ```
 
-Package names end in `-windows-x64-mingw-experimental` so they cannot be confused with an MSVC
-candidate. They are not for publication. Phase 4-I.1 added `scripts/package-mingw-experimental.py`,
-which does all of the above plus the corresponding-source archive (checked blob by blob against
+Package names end in `-windows-x64-mingw` so they cannot be confused with an MSVC
+build. `scripts/package-mingw.py`
+does all of the above plus the corresponding-source archive (checked blob by blob against
 Git), notice and manifest checks, the bridge self-test with only Windows on PATH, and SHA256SUMS
 (§7, step 5). Use it instead of the manual commands.
 
-## 5. What changed in the repository (experimental branch only)
+## 5. What changed in the repository (GCC build only)
 
 | File | Change |
 | --- | --- |
@@ -99,7 +99,7 @@ Git), notice and manifest checks, the bridge self-test with only Windows on PATH
 | `src/CMakeLists.txt` | `Psapi` for `nova-workspace` on `WIN32`; GCC warning/charset flags under `MINGW`; MinGW builds embed `packaging/mingw/THIRD_PARTY_NOTICES.md` |
 | `tests/CMakeLists.txt` | `Psapi`/`Dbghelp` for 7 benches and probes on `WIN32` instead of `MSVC` |
 | `tests/phase4g1_licensing_test.cpp` | GCC builds assert the GCC/MinGW notices; MSVC assertions unchanged |
-| `cmake/NovaPackagingMinGW.cmake`, `cmake/NovaMingwHelpers.cmake` | experimental payload and CPack configuration |
+| `cmake/NovaPackagingMinGW.cmake`, `cmake/NovaMingwHelpers.cmake` | GCC payload and CPack configuration |
 | `packaging/mingw/*` | notices, README, installer licence page, package locks |
 | `scripts/*mingw*`, `scripts/msys2-resolve-lock.py`, `scripts/check-mingw-payload.py` | toolchain, build, install, Qt build, lock and payload tools |
 | `CMakePresets.json` | one MinGW preset (MSVC scripts do not use presets) |
@@ -119,7 +119,7 @@ lock before installing anything from it.
 
 ## 7. Clean, repeatable build (Phase 4-I.1)
 
-Everything below runs from a normal (non-elevated) Windows PowerShell 5.1 in the experimental
+Everything below runs from a normal (non-elevated) Windows PowerShell 5.1 in the GCC
 checkout. No step changes PATH, the registry, services or any setting outside the folders named;
 every tool is called by its full path with a process-local PATH, and Visual Studio folders are
 removed from that PATH (the scripts stop if `cl.exe` is reachable).
@@ -130,7 +130,7 @@ removed from that PATH (the scripts stop if `cl.exe` is reachable).
 | 2. Qt Base | `.\scripts\build-qtbase-mingw.ps1 -OwnerApproved -Jobs 16` | Qt 6.12.0 from the shipped, unmodified tarball (SHA-256 checked) into `C:\Dev\nova-toolchains\qt-6.12.0-ucrt64-gcc16-r2`, installed with `--strip`; writes `nova-qtbase-build.json` (options, compiler, the 136 MSYS2 packages as plain strings) and Qt's SPDX SBOM | 8.9 min |
 | 3. Preflight | `.\scripts\check-mingw-toolchain.ps1` (set `NOVA_MCP_SDK_PYTHON` first) | GCC 16.2.0, CMake 4.4.5, Ninja 1.13.2, `x86_64-w64-mingw32`, UCRT runtime, Qt 6.12.0 with private modules, `Qt6Core.dll` imports `libstdc++-6.dll` and no `msvcrt.dll`/Visual C++ DLL | seconds |
 | 4. Build + 43 suites | `.\scripts\build-mingw.ps1 -Test -Makensis <makensis.exe> -ReleaseDependencies <dir with qtbase tarball, qt-source.json, qt-notices>` | `build\mingw-ucrt64-source-Release`; compiler jobs default to min(logical CPUs, RAM GB / 2) (`-BuildJobs`) | ≈6 min |
-| 5. Packages | commit first, rebuild (step 4 without `-Test`), then `python -I scripts\package-mingw-experimental.py` | `build\phase4i-distribution\…-mingw-experimental-<rev>\`: payload, ZIP (= payload byte for byte), NSIS installer, source ZIP, `payload-check.json` (13 checks), `release-manifest.json`, `SHA256SUMS.txt` | ≈2 min |
+| 5. Packages | commit first, rebuild (step 4 without `-Test`), then `python -I scripts\package-mingw.py` | `build\phase4i-distribution\…-mingw-<rev>\`: payload, ZIP (= payload byte for byte), NSIS installer, source ZIP, `payload-check.json` (13 checks), `release-manifest.json`, `SHA256SUMS.txt` | ≈2 min |
 | 6. Installer acceptance | `python -I scripts\verify-phase4g-installer.py --distribution phase4i-distribution --candidate <label> --build mingw-ucrt64-source-Release` (Qt and toolchain `bin` on PATH for the UI-automation client only) | 47 checks, including the owner's existing installation and data unchanged | ≈8 min |
 
 Notes from the first execution:

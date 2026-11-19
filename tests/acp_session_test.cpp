@@ -180,7 +180,7 @@ class AcpSessionTest : public QObject {
         window.reset();
     }
 
-    void experimentalSessionIsDiscoverableWithoutAProject() {
+    void agentSessionIsDiscoverableWithoutAProject() {
         QElapsedTimer timer;
         timer.start();
         window = std::make_unique<nova::Window>(QString{}, QString{}, timer);
@@ -205,7 +205,7 @@ class AcpSessionTest : public QObject {
         dialog = window->findChild<QDialog *>("acpSessionDialog");
         QVERIFY(dialog);
         QVERIFY(!dialog->isModal());
-        QCOMPARE(dialog->findChild<QLabel *>("acpExperimental")->text(), "Experimental");
+        QVERIFY(!dialog->findChild<QLabel *>("acpExperimental"));
         QVERIFY(dialog->findChild<QLabel *>("acpProjectHint")->isVisible());
         QVERIFY(!button("acpStart")->isEnabled());
         QVERIFY(!session());

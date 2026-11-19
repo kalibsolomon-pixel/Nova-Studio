@@ -43,7 +43,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Concurrent Network Test CorePrivate GuiPrivate)
-# Phase 4-I (experimental): GCC/MinGW-w64 builds target the Windows 10 API level explicitly, so
+# Phase 4-I: GCC/MinGW-w64 builds target the Windows 10 API level explicitly, so
 # FILE_ID_INFO, SetDefaultDllDirectories etc. never depend on the headers' default.
 if(MINGW)
   add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
@@ -52,7 +52,7 @@ enable_testing()
 add_subdirectory(src)
 add_subdirectory(tests)
 if(WIN32 AND MINGW)
-  # Phase 4-I experimental payload (GCC runtime instead of the Visual C++ runtime).
+  # Phase 4-I payload (GCC runtime instead of the Visual C++ runtime).
   include(cmake/NovaPackagingMinGW.cmake)
 elseif(WIN32)
   include(cmake/NovaPackaging.cmake)

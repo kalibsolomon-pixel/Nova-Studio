@@ -33,8 +33,8 @@ Version `0.1.0` is the first full release. Keep backups of resource packs you ca
 - **Search (Ctrl+K):** commands, tools, settings, workspaces, panels and textures.
 - **AI agents (MCP):** `nova-mcp.exe` is a local Model Context Protocol server. Agents get no
   access until you allow it for one session and one project.
-- **Agent Session (ACP):** experimental and off by default. Enable it in Preferences to attach a
-  local agent; provider conversations and adapter compatibility remain limited (see MCP setup).
+- **Agent Session (ACP):** attach a local agent from the Agent Session dialog; provider
+  conversations and adapter compatibility remain limited (see MCP setup).
 - **File safety:** atomic saves, undo history, external-change review and crash recovery.
 
 ## Documentation

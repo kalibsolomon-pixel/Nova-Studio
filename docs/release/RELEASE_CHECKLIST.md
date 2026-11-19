@@ -25,9 +25,24 @@ Engineering evidence for review; no legal conclusion or approval is recorded.
 - Owner review: Phase 1 visuals, physical presentation, Ctrl+S behavior, compatibility limitations,
   recorded intermittent incidents and the temporary 50k performance exception remain explicit gates.
 
-The owner-selected labels are unchanged. An actual public preview needs an explicit decision on:
-`packaging/mingw/README.txt.in`'s NOT FOR PUBLICATION line; `CPACK_PACKAGE_FILE_NAME` in
-`cmake/NovaPackagingMinGW.cmake`; the packager's default output label; experimental manifest fields;
-the notice's experimental comment; experimental source comments; and the experimental packaging
-script name referenced by the build guide. Changing them requires a new package and qualification.
-ACP's separate experimental/off-by-default status is not implied to change with those labels.
+## Decisions recorded 2026-11-19
+
+The owner reviewed this checklist and decided:
+
+- The licensing/source verification items above (GPL, Qt/LGPL, GCC/MinGW, MSVC-relevance,
+  Minecraft disclaimer and contact) are confirmed; work proceeded on that basis.
+- Hosting: source, binaries and source sidecars all live on GitHub
+  (`https://github.com/kalibsolomon-pixel/Nova-Studio`) for now; a separate project website may
+  come later. Continued availability means keeping the release's assets, `SHA256SUMS.txt` and
+  sidecars attached to that repository.
+- Signing: no signing policy is wanted. The release ships unsigned; free/open-source Authenticode
+  signing is not available, so nothing was purchased or ruled out for the future.
+- Owner testing and acceptance are granted, including the Phase 1 visuals, physical presentation,
+  Ctrl+S behavior, compatibility limitations, the disclosed intermittent incidents and the
+  temporary 50k performance exception.
+- All experimental / not-for-publication labels are removed for release: the packaging README,
+  `CPACK_PACKAGE_FILE_NAME`, the packager's default output label and manifest fields were already
+  final; the experimental wording in sources, scripts, docs and the ACP UI badge was removed
+  (`scripts/package-mingw-experimental.py` is now `scripts/package-mingw.py`). The ACP session
+  stays user-initiated and its real-provider-testing disclosure stays in the limitations doc.
+  Changing any of this again requires a new package and qualification.

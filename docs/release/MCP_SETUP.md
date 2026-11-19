@@ -87,9 +87,9 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   (theme, audience, palette, things to preserve) in `.nova/project.json`. Agents can read it but not
   change it, and it is not exported with the pack.
 
-## Agent Session (ACP, experimental)
+## Agent Session (ACP)
 
-Open **Resources › Agent Session (Experimental)…**, search for **Agent Session**, or choose
+Open **Resources › Agent Session…**, search for **Agent Session**, or choose
 **Open Agent Session…** from **MCP Integration**. Open a resource pack before starting a session.
 
 The agent picker detects these agents on your PATH:

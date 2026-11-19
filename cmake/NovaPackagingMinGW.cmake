@@ -32,7 +32,7 @@ install(IMPORTED_RUNTIME_ARTIFACTS Qt6::QWindowsIntegrationPlugin RUNTIME_DEPEND
         LIBRARY DESTINATION plugins/platforms RUNTIME DESTINATION plugins/platforms COMPONENT runtime)
 # Deviation from the MSVC payload (Phase 4-I finding): Qt 6 loads TLS backends as plugins, and the
 # Fabric/Temurin/Modrinth downloads use HTTPS through QNetworkAccessManager. The MSVC payload ships
-# no plugins/tls folder; the experimental payload ships Qt's Schannel backend (Windows' own TLS).
+# no plugins/tls folder; the payload ships Qt's Schannel backend (Windows' own TLS).
 if(TARGET Qt6::QSchannelBackendPlugin)
   install(IMPORTED_RUNTIME_ARTIFACTS Qt6::QSchannelBackendPlugin RUNTIME_DEPENDENCY_SET nova_runtime
           LIBRARY DESTINATION plugins/tls RUNTIME DESTINATION plugins/tls COMPONENT runtime)

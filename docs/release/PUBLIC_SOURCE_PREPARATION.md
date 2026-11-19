@@ -104,8 +104,11 @@ approximately 150-second 50k validation exception remains. Known intermittent ed
 tool-placement, texture-pixels, save-drafts, MCP, ACP and Fabric incidents remain disclosed.
 
 Visual and physical-presentation review, changed Ctrl+S behavior, binary release/experimental-label
-decisions, signing and compatibility acceptance remain pending. ACP remains experimental and off
-by default; real provider conversations and Claude Code/Codex ACP adapters remain untested.
+decisions, signing and compatibility acceptance were decided or granted by the owner on
+2026-11-19 (see [the checklist](RELEASE_CHECKLIST.md)); the release is unsigned by choice. The ACP
+experimental labels were removed; the session stays user-initiated and its limitations stay
+disclosed.
+Real provider conversations and the Claude Code/Codex ACP adapters remain untested.
 GPL source arrangement, Qt/LGPL notices and replacement/build information, GCC/MinGW source hosting,
 NSIS notice placement, Microsoft Build Tools terms, trademark/contact wording and other legal
 questions remain for the owner/qualified counsel. No legal conclusion is made.

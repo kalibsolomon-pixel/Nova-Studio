@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Phase 4-I (experimental): shared selection of the open-source GCC/MinGW-w64 toolchain, dot-sourced
+# Phase 4-I: shared selection of the open-source GCC/MinGW-w64 toolchain, dot-sourced
 # by check-mingw-toolchain.ps1, build-qtbase-mingw.ps1, build-mingw.ps1 and install-mingw-toolchain.ps1.
 #
 # The toolchain lives in its own folder, outside every repository, and is used only through

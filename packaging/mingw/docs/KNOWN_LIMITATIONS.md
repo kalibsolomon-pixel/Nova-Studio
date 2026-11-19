@@ -53,7 +53,7 @@
 - One agent is connected at a time. An authorization stays on until you revoke it, switch
   projects or close Nova Studio; a disconnected agent reconnects with a freshly offered code.
 - Uninstalling Nova Studio does not remove agents' `nova-studio` entries.
-- **Agent Session (ACP) is experimental.** Automated tests use a scripted agent. A previous
+- **Agent Session (ACP).** Automated tests use a scripted agent. A previous
   smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
   Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
   tool details, and permission options depend on what the agent reports. Its built-in file,

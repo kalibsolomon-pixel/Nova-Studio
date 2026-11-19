@@ -41,8 +41,8 @@ void Window::buildResourceTools(QMenu *view) {
     action("Process Model Textures…", "processModelTextures", [this] { modelBatch(); });
     action("Related Assets…", "relatedAssets", [this] { showRelatedAssets(); });
     action("MCP Integration…", "mcpAccess", [this] { showMcpAccess(); });
-    // Experimental and off by default: shown only when Preferences › Experimental turns it on.
-    action("Agent Session (Experimental)…", "acpSession", [this] { showAgentSession(); });
+    // Agent Session is user-initiated: nothing runs until it is started from this action.
+    action("Agent Session…", "acpSession", [this] { showAgentSession(); });
     menu->addSeparator();
     auto test = action("Test in Minecraft…", "testInMinecraft", [this] { minecraftTesting(false); });
     test->setShortcut(QKeySequence("Ctrl+Shift+M"));
