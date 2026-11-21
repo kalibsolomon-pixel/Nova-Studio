@@ -1,4 +1,4 @@
-# Known limitations (0.1.0)
+# Known limitations (0.1.1)
 
 ## Platform
 
@@ -58,7 +58,9 @@
   Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
   tool details, and permission options depend on what the agent reports. Its built-in file,
   shell, and web tools follow that agent’s configuration. Changing from read-only to editing
-  restarts the agent session.
+  restarts the agent; an agent that supports loading sessions continues the same conversation,
+  other agents start a new one. Modes, settings, commands, and usage appear only when the agent
+  reports them.
 - With editing permission, `nova.pack.bootstrap` can initialize a folder with Java 1.21.11 metadata and standard
   Minecraft texture folders. Other asset creation requires the destination folder to exist.
 
