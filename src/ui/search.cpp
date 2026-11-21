@@ -31,7 +31,7 @@ const QHash<QString, QStringList> &aliases() {
         {"validateResources", {"problems", "errors", "warnings", "validate", "check", "lint"}},
         {"mcpAccess", {"mcp", "ai", "agent", "claude", "codex", "integration", "permissions", "access",
                        "model context protocol", "assistant"}},
-        {"acpSession", {"acp", "agent client protocol", "agent session", "opencode", "claude", "codex", "gemini",
+        {"acpSession", {"acp", "agent client protocol", "agent session", "opencode", "claude", "codex", "gemini", "antigravity",
                         "chat", "ai", "assistant"}},
         {"commandPaletteCommand", {"search", "find", "commands", "palette"}},
         {"licensesCommand", {"license", "gpl", "copyright", "legal", "notices", "source code", "third party"}},

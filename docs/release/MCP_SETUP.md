@@ -105,12 +105,12 @@ Open **Resources › Agent Session…**, search for **Agent Session**, or choose
 
 The agent picker detects these agents on your PATH:
 
-| Agent | Install (requires Node.js and npm) | Nova runs |
+| Agent | Install | Nova runs |
 | --- | --- | --- |
-| OpenCode | `npm install -g opencode-ai` | `opencode acp` |
-| Claude Code | `npm install -g @agentclientprotocol/claude-agent-acp` | `claude-agent-acp` |
-| Codex | `npm install -g @agentclientprotocol/codex-acp` | `codex-acp` |
-| Gemini CLI | `npm install -g @google/gemini-cli` | `gemini --acp` |
+| OpenCode | `npm install -g opencode-ai` (Node.js and npm) | `opencode acp` |
+| Claude Code | `npm install -g @agentclientprotocol/claude-agent-acp` (Node.js and npm) | `claude-agent-acp` |
+| Codex | `npm install -g @agentclientprotocol/codex-acp` (Node.js and npm) | `codex-acp` |
+| Google Antigravity | `winget install Google.AntigravityCLI` | `agy acp` |
 
 If an agent is missing, choose **Copy install command**, run it in a terminal, then choose
 **Check again**. Restart Nova Studio instead if you just installed Node.js, because the install
@@ -121,8 +121,12 @@ The Claude Code and Codex adapters moved from `@zed-industries` to `@agentclient
 the old packages no longer receive updates. If Nova finds an old adapter, the picker shows
 **Update needed** and **Copy update commands** copies an `npm uninstall` for the old package
 followed by the `npm install` for its replacement. The old adapter still starts if you need it.
-Gemini CLI releases before 0.33 do not accept `--acp`; update Gemini CLI or use **Custom** with
-`--experimental-acp`.
+Google replaced Gemini CLI with Antigravity CLI for individual accounts in June 2026; Gemini CLI
+now answers them with "migrate to the Antigravity suite of products". Nova offers **Google
+Antigravity** instead. If it finds only `gemini`, the picker shows **Update needed** and the
+Antigravity install command. Sign in once with `agy acp --login` or the sign-in method Nova offers.
+Gemini CLI still works with a paid Gemini Code Assist license or API key: choose **Custom**, the
+`gemini` launcher, and the argument `--acp`.
 
 **Custom** accepts an absolute path to an `.exe` or a standard npm `.cmd` launcher. Put arguments
 containing spaces in double quotes. Nova resolves npm launchers to `node.exe` and their package

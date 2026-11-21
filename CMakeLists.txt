@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 cmake_minimum_required(VERSION 3.24)
-project(NovaStudio VERSION 0.1.1 LANGUAGES CXX)
+project(NovaStudio VERSION 0.1.2 LANGUAGES CXX)
 set(NOVA_DISPLAY_VERSION "${PROJECT_VERSION}")
 # Product license and copyright notice, used by the executables, the About and Licenses screens,
 # the installer and the package README. Keep in step with COPYRIGHT.md.

@@ -1,4 +1,4 @@
-# Nova Studio 0.1.1 — release notes
+# Nova Studio 0.1.2 — release notes
 
 Nova Studio is a Windows editor for Minecraft Java Edition resource packs. Keep backups of packs
 you care about. See [known limitations](KNOWN_LIMITATIONS.md) for the supported scope and test coverage.
@@ -6,6 +6,20 @@ you care about. See [known limitations](KNOWN_LIMITATIONS.md) for the supported 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 Nova Studio is developed and published by the Nova Studio contributors. Minecraft is a trademark
 of Mojang AB and Microsoft Corporation. Nova Studio contains no Minecraft game assets.
+
+## What's new in 0.1.2
+
+Agent Session (ACP)
+- Google Antigravity replaces Gemini CLI in the agent picker. Google replaced Gemini CLI with
+  Antigravity CLI for individual accounts, and Gemini CLI now turns them away with "migrate to the
+  Antigravity suite of products". Nova runs `agy acp`; **Copy install command** copies
+  `winget install Google.AntigravityCLI`, and sign-in uses `agy acp --login` or the method the
+  agent offers. If only Gemini CLI is installed, the picker shows **Update needed** and explains
+  the change. Gemini CLI with a paid license still works through **Custom** with `--acp`.
+- A saved Gemini CLI choice opens as Google Antigravity.
+- Claude Code (`@agentclientprotocol/claude-agent-acp`) and Codex
+  (`@agentclientprotocol/codex-acp`) remain on their current packages; old `@zed-industries`
+  adapters are still flagged with update commands.
 
 ## What's new in 0.1.1
 
