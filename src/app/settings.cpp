@@ -75,6 +75,7 @@ Preferences Settings::load() const {
     if (p.animationView.size() > 4096) p.animationView.clear();
     p.workspacePreset = s.value("workspace/preset", "essentials").toString().left(32);
     p.showTips = s.value("appearance/showTips", true).toBool();
+    p.checkUpdates = s.value("updates/checkAtStartup", true).toBool();
     p.minecraftTestTarget = s.value("testing/target").toString().left(64);
     p.fabricMinecraftVersion = s.value("fabric/minecraftVersion", "1.21.11").toString().left(32);
     p.fabricGameJava = s.value("fabric/gameJava").toString().left(1024);
@@ -128,6 +129,7 @@ bool Settings::save(const Preferences &p) const {
     s.setValue("animation/view", p.animationView);
     s.setValue("workspace/preset", p.workspacePreset);
     s.setValue("appearance/showTips", p.showTips);
+    s.setValue("updates/checkAtStartup", p.checkUpdates);
     s.setValue("testing/target", p.minecraftTestTarget);
     s.setValue("fabric/minecraftVersion", p.fabricMinecraftVersion);
     s.setValue("fabric/gameJava", p.fabricGameJava);

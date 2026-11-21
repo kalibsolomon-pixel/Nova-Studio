@@ -28,6 +28,7 @@ struct Preferences {
     QByteArray animationView;
     QString workspacePreset = "essentials"; // Phase 3-B task workspace
     bool showTips = true;                   // inspector usage hints
+    bool checkUpdates = true;               // look for a newer GitHub release at startup
     QString minecraftTestTarget;            // Phase 3-D launcher target key (no credentials)
     // Phase 3-D.1 Fabric development runtime.
     QString fabricMinecraftVersion = "1.21.11";

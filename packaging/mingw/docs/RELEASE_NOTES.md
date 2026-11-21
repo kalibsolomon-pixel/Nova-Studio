@@ -1,4 +1,4 @@
-# Nova Studio 0.1.2 — release notes
+# Nova Studio 0.1.3 — release notes
 
 Nova Studio is a Windows editor for Minecraft Java Edition resource packs. Keep backups of packs
 you care about. See [known limitations](KNOWN_LIMITATIONS.md) for the supported scope and test coverage.
@@ -6,6 +6,26 @@ you care about. See [known limitations](KNOWN_LIMITATIONS.md) for the supported 
 **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 Nova Studio is developed and published by the Nova Studio contributors. Minecraft is a trademark
 of Mojang AB and Microsoft Corporation. Nova Studio contains no Minecraft game assets.
+
+## What's new in 0.1.3
+
+Updates
+- Nova Studio checks GitHub for a new release shortly after it starts. When one is available, an
+  installed copy downloads the installer to `%LOCALAPPDATA%\Nova Studio\updates`, checks it against
+  the release's `SHA256SUMS.txt` and asks: **Install and Restart**, **Release Notes**, **Later** or
+  **Skip This Version**. Installing closes Nova Studio (asking about unsaved work first), updates
+  it silently and starts it again. If the update does not finish, the next start says so and
+  offers to run the installer normally.
+- **Help › Check for Updates…** checks on demand. **Preferences › Startup › Check for updates at
+  startup** turns the startup check off. The portable ZIP and source builds only link to the
+  release page.
+- This is the first version with an updater; install 0.1.3 by hand once.
+
+Agent Session (ACP)
+- Permission requests offer **Allow … for this session** (for example, "Allow file edits for this
+  session"). It allows the request and any waiting requests of the same kind, and later requests
+  of that kind are allowed once each until the agent session ends. Other kinds still ask, and a
+  new session asks again.
 
 ## What's new in 0.1.2
 

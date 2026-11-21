@@ -611,6 +611,12 @@ void Window::preferencesDialog(const QString &focus) {
     reopen->setObjectName("preferenceReopen");
     reopen->setChecked(preferences.reopenLast);
     startup->addRow(reopen);
+    auto updates = new QCheckBox("Check for updates at startup");
+    updates->setObjectName("preferenceCheckUpdates");
+    updates->setToolTip("Look for a newer Nova Studio release on GitHub at startup. Nothing is installed "
+                        "until you choose to.");
+    updates->setChecked(preferences.checkUpdates);
+    startup->addRow(updates);
     auto workspace = form("Workspace");
     auto reset = new QPushButton("Reset Workspace");
     reset->setObjectName("preferenceResetWorkspace");
@@ -648,6 +654,7 @@ void Window::preferencesDialog(const QString &focus) {
     if (dialog.exec() != QDialog::Accepted)
         return;
     preferences.reopenLast = reopen->isChecked();
+    preferences.checkUpdates = updates->isChecked();
     preferences.showTips = tips->isChecked();
     if (preferences.historyMiB != history->value()) {
         preferences.historyMiB = history->value();

@@ -85,6 +85,13 @@ int main(int argc, char **argv) {
         window.qa(arg("--qa-dir"));
     if (args.contains("--exercise"))
         window.startExercise();
+    // Scripted and test runs (their own settings file, a time limit or an automation mode) never
+    // reach the network on their own.
+    const bool scripted = !arg("--settings").isEmpty() || args.contains("--smoke-seconds") ||
+        args.contains("--cycle-project") || args.contains("--qa-dir") || args.contains("--exercise") ||
+        args.contains("--telemetry") || qEnvironmentVariableIsSet("NOVA_NO_UPDATE_CHECK");
+    if (!scripted)
+        window.startUpdates();
     if (args.contains("--smoke-seconds"))
         QTimer::singleShot(int(arg("--smoke-seconds").toDouble() * 1000), &window, &QWidget::close);
     return app.exec();

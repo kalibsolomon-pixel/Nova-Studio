@@ -141,8 +141,11 @@ script. Nova saves the agent choice, custom path, and arguments in its settings.
   projects, or the agent exiting ends the agent session and its Nova access.
 - The agent starts in an empty temporary folder. Its file, shell, and web tools follow its
   settings. When the agent requests permission, Nova presents its choices in order, including
-  any always-allow or always-reject options the agent supplies. A request the agent withdraws
-  disappears.
+  any always-allow or always-reject options the agent supplies. Nova adds **Allow … for this
+  session** (for example *Allow file edits for this session*): it allows the request, and Nova
+  answers later requests of the same kind (file edits, commands, web fetches, and so on; an
+  unclassified tool by its title) with the agent's allow-once option until the session ends. Other
+  kinds still ask, and a new session asks again. A request the agent withdraws disappears.
 - When the agent offers modes or settings (such as its model), pickers appear beside the
   session status. Choosing a mode that lets the agent act without asking (for example,
   bypass permissions, full access, or auto-approve) asks you first. Modes change only the

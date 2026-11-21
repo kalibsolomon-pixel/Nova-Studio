@@ -627,6 +627,7 @@ SearchIndex Window::searchIndex() {
     setting("Pixel grid at high zoom", "Editing", "preferencePixelGrid", {"editor", "grid", "pixels"});
     setting("Undo history per document", "Editing", "preferenceHistory", {"editor", "undo", "history", "memory"});
     setting("Reopen the last project at startup", "Startup", "preferenceReopen", {"startup", "restore", "session", "recent"});
+    setting("Check for updates at startup", "Startup", "preferenceCheckUpdates", {"startup", "update", "upgrade", "version", "release"});
     setting("Reset workspace layout", "Workspace", "preferenceResetWorkspace", {"workspace", "panels", "layout", "reset"});
     setting("Vanilla texture cache location", "Vanilla textures", "preferenceBaselineLocation", {"vanilla", "baseline", "cache", "folder", "location"});
     setting("Manage cached vanilla textures", "Vanilla textures", "preferenceBaselineManage", {"vanilla", "baseline", "cache", "disk space", "remove", "verify"});

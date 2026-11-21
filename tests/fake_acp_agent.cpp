@@ -3,7 +3,9 @@
 // session/new, as real agents do, and obeys prompts:
 //   call <tool> <json>  MCP tools/call (generation/projectId added from nova.project.info); first
 //                       reports any failed MCP initialize/tools/list from session start
-//   ask                 session/request_permission, then reports the outcome
+//   ask                 session/request_permission (an edit), then reports the outcome
+//   ask-queue           two edit permission requests at once
+//   ask-command         an execute permission request
 //   wait                waits for session/cancel and ends the turn "cancelled"
 //   spawn               starts a long-lived child process (this program with --sleep)
 //   crash               exits at once with code 3, leaving its children behind
@@ -279,8 +281,9 @@ int main(int argc, char **argv) {
                 // A code block, so the window's Markdown rendering keeps the JSON as written.
                 say(session, QString("RESULT %1\n\n```\n%2\n```\n").arg(failed ? "error" : "ok",
                     QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact)).left(4000)));
-            } else if (text == "ask" || text == "ask-queue" || text == "Review local notes before updating the draft.") {
-                const int count = text == "ask" ? 1 : 2;
+            } else if (text == "ask" || text == "ask-queue" || text == "ask-command" ||
+                       text == "Review local notes before updating the draft.") {
+                const int count = text == "ask-queue" || text.startsWith("Review") ? 2 : 1;
                 const QJsonArray options{
                     QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}},
                     QJsonObject{{"optionId", "no"}, {"name", "Reject"}, {"kind", "reject_once"}},
@@ -291,10 +294,13 @@ int main(int argc, char **argv) {
                     const auto id = QString("perm-%1").arg(i);
                     unanswered.append(id);
                     const QString path = i == 1 ? "notes.txt" : "draft.txt";
+                    const bool command = text == "ask-command";
                     send({{"jsonrpc", "2.0"}, {"id", id}, {"method", "session/request_permission"},
                           {"params", QJsonObject{{"sessionId", session},
-                              {"toolCall", QJsonObject{{"toolCallId", id}, {"title", "Write " + path}, {"kind", "edit"},
-                                                       {"rawInput", QJsonObject{{"path", path}}}}},
+                              {"toolCall", QJsonObject{{"toolCallId", id}, {"title", command ? "Run build" : "Write " + path},
+                                                       {"kind", command ? "execute" : "edit"},
+                                                       {"rawInput", command ? QJsonObject{{"command", "build"}}
+                                                                            : QJsonObject{{"path", path}}}}},
                               {"options", options}}}});
                 }
                 while (!unanswered.isEmpty()) {

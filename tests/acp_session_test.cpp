@@ -740,6 +740,52 @@ class AcpSessionTest : public QObject {
         QCOMPARE(service()->permission(), "Read-only");
     }
 
+    // "Allow for this session" answers "allow once" for that tool kind until the session ends.
+    void permissionAllowedForSession() {
+        open();
+        startReadOnly();
+        composer()->setPlainText("ask-queue");
+        button("acpSend")->click();
+        const auto card = dialog->findChild<QWidget *>("acpPermissionCard");
+        QTRY_COMPARE(dialog->findChild<QLabel *>("acpPermissionCount")->text(), "2 pending");
+        QTRY_VERIFY2(button("acpPermissionAllowSession") && button("acpPermissionAllowSession")->isVisible(),
+                     qPrintable([card] {
+                         QStringList names;
+                         for (auto b : card->findChildren<QPushButton *>())
+                             names << b->objectName() + '=' + b->text() + (b->isVisible() ? "" : " (hidden)");
+                         return names.join(" | ");
+                     }()));
+        const auto allowSession = button("acpPermissionAllowSession");
+        QCOMPARE(allowSession->text(), "Allow file edits for this session");
+        allowSession->click();
+        // The queued edit is answered as well.
+        QTRY_VERIFY_WITH_TIMEOUT(transcript().contains("PERMISSION selected yes perm-1"), 10000);
+        QTRY_VERIFY(transcript().contains("PERMISSION selected yes perm-2"));
+        QVERIFY(!card->isVisible());
+        composer()->setPlainText("ask");
+        QTRY_VERIFY(button("acpSend")->isEnabled()); // the previous turn has ended
+        button("acpSend")->click();
+        QTRY_COMPARE_WITH_TIMEOUT(transcript().count("PERMISSION selected yes perm-1"), 2, 10000);
+        QVERIFY(!card->isVisible());
+        // Another kind still asks.
+        composer()->setPlainText("ask-command");
+        QTRY_VERIFY(button("acpSend")->isEnabled()); // the previous turn has ended
+        button("acpSend")->click();
+        QTRY_VERIFY(card->isVisible());
+        QTRY_VERIFY(button("acpPermissionAllowSession") &&
+                    button("acpPermissionAllowSession")->text() == "Allow commands for this session");
+        button("acpPermissionReject")->click();
+        QTRY_VERIFY_WITH_TIMEOUT(transcript().contains("PERMISSION selected no perm-1"), 10000);
+        // A new session asks again.
+        button("acpStop")->click();
+        QTRY_VERIFY_WITH_TIMEOUT(status().startsWith("Ended"), 10000);
+        startReadOnly();
+        composer()->setPlainText("ask");
+        button("acpSend")->click();
+        QTRY_VERIFY(card->isVisible() && button("acpPermissionAllowSession"));
+        button("acpPermissionReject")->click();
+    }
+
     // Stop ends the agent and everything it started, and revokes the grant.
     void stopEndsTree() {
         open();

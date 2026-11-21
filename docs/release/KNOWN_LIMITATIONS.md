@@ -1,4 +1,4 @@
-# Known limitations (0.1.2)
+# Known limitations (0.1.3)
 
 ## Platform
 
@@ -8,6 +8,10 @@
 - The installer program itself is a 32-bit (x86) NSIS executable; everything it installs is 64-bit.
 - The installation folder path can be at most 160 characters, because some license files have long
   names and the installer does not use Windows long paths.
+- Updates start with 0.1.3: earlier versions have no updater, so 0.1.3 is installed by hand. The
+  update installer was tested with stand-in builds; an update between two published releases has
+  not happened yet. `SHA256SUMS.txt` comes from the same release as the installer, so it catches a
+  damaged download, not a tampered release.
 - Screen readers (Narrator, NVDA) have not been tested end to end.
 
 ## Editing and Minecraft
