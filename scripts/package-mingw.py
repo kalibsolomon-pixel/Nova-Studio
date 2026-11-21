@@ -263,7 +263,7 @@ bare = {k: v for k, v in os.environ.items() if k.upper() not in ('PATH', 'QT_PLU
 bare['PATH'] = os.pathsep.join([str(system), os.environ['SystemRoot'], str(system / 'Wbem')])
 bridge_version = run([str(payload / 'nova-mcp.exe'), '--version'], env=bare).stdout.strip()
 self_test = json.loads(run([str(payload / 'nova-mcp.exe'), '--self-test'], env=bare).stdout)
-if f' {version} ' not in f' {bridge_version} ' or self_test['tools'] != 44 or self_test['version'] != version:
+if f' {version} ' not in f' {bridge_version} ' or self_test['tools'] != 45 or self_test['version'] != version:
     raise SystemExit(f'Bridge identity mismatch: {bridge_version} / {self_test}')
 bridge_license = run([str(payload / 'nova-mcp.exe'), '--license'], env=bare).stdout
 if 'GPL-3.0-or-later' not in bridge_license or 'NO WARRANTY' not in bridge_license:
