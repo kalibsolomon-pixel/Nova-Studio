@@ -351,6 +351,37 @@ class AcpSessionTest : public QObject {
         QVERIFY(!hint->isVisible());
     }
 
+    // Gemini CLI alone is not offered as the Google agent: Google replaced it with Antigravity CLI,
+    // and Nova says so with Antigravity's install command until `agy` is found.
+    void geminiCliPointsToAntigravity() {
+        const auto bin = root + "/gemini prefix";
+        const auto script = QString("node_modules/@google/gemini-cli/dist/index.js");
+        write(bin + '/' + script, "// fixture only");
+        write(bin + "/gemini.cmd", ("@node \"%~dp0\\" + QDir::toNativeSeparators(script) + "\" %*\r\n").toUtf8());
+        QVERIFY(QFile::copy(agent(), bin + "/node.exe"));
+        const auto oldPath = qgetenv("PATH");
+        const auto restore = qScopeGuard([oldPath] { qputenv("PATH", oldPath); });
+        qputenv("PATH", QDir::toNativeSeparators(bin).toLocal8Bit()); // without any installed agy
+        open();
+        auto picker = dialog->findChild<QComboBox *>("acpAgentPicker");
+        QCOMPARE(picker->findData("gemini"), -1);
+        picker->setCurrentIndex(picker->findData("antigravity"));
+        QCOMPARE(picker->currentText(), "Google Antigravity · Update needed");
+        auto hint = dialog->findChild<QLabel *>("acpSetupHint");
+        QVERIFY(hint->isVisible());
+        QVERIFY(hint->text().startsWith("Gemini CLI was found, but Google replaced it with Antigravity CLI"));
+        QVERIFY(hint->text().contains("agy acp --login"));
+        QVERIFY(!hint->text().contains("npm"));
+        button("acpCopyInstall")->click();
+        QCOMPARE(QApplication::clipboard()->text(), "winget install Google.AntigravityCLI");
+
+        QVERIFY(QFile::copy(agent(), bin + "/agy.exe"));
+        button("acpCheckAgain")->click();
+        QCOMPARE(picker->currentText(), "Google Antigravity · Detected");
+        QCOMPARE(dialog->findChild<QLineEdit *>("acpAgentPath")->text(), QDir::toNativeSeparators(bin + "/agy.exe"));
+        QVERIFY(!hint->isVisible());
+    }
+
     // Read-only tools work; editing and saving are refused; nothing in the pack changes.
     void readOnlySession() {
         open();

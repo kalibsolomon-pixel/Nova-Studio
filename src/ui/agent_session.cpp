@@ -51,19 +51,27 @@ struct AgentChoice {
     QString id, name;
     QStringList commands; // the current adapter's command first, then commands of retired packages
     QStringList arguments;
-    QString package, signIn;
+    QString package, install, signIn; // package: what `install` installs, as the user knows it
     QStringList retired; // npm packages replaced by `package`; they no longer receive updates
+    QString replaced, replacedName; // a predecessor's command, found only to explain the replacement
 };
 const QList<AgentChoice> agentChoices{
-    {"opencode", "OpenCode", {"opencode"}, {"acp"}, "opencode-ai", "opencode auth login", {}},
+    {"opencode", "OpenCode", {"opencode"}, {"acp"}, "opencode-ai", "npm install -g opencode-ai", "opencode auth login", {}},
     {"claude", "Claude Code", {"claude-agent-acp", "claude-code-acp"}, {}, "@agentclientprotocol/claude-agent-acp",
-     "claude, then /login", {"@zed-industries/claude-agent-acp", "@zed-industries/claude-code-acp"}},
-    {"codex", "Codex", {"codex-acp"}, {}, "@agentclientprotocol/codex-acp", "codex login", {"@zed-industries/codex-acp"}},
-    {"gemini", "Gemini CLI", {"gemini"}, {"--acp"}, "@google/gemini-cli", "gemini", {}},
-    {"custom", "Custom", {}, {}, {}, {}, {}},
+     "npm install -g @agentclientprotocol/claude-agent-acp", "claude, then /login",
+     {"@zed-industries/claude-agent-acp", "@zed-industries/claude-code-acp"}},
+    {"codex", "Codex", {"codex-acp"}, {}, "@agentclientprotocol/codex-acp", "npm install -g @agentclientprotocol/codex-acp",
+     "codex login", {"@zed-industries/codex-acp"}},
+    // Google replaced Gemini CLI with Antigravity CLI for individual accounts; Gemini CLI now refuses them.
+    {"antigravity", "Google Antigravity", {"agy"}, {"acp"}, "Antigravity CLI", "winget install Google.AntigravityCLI",
+     "agy acp --login", {}, "gemini", "Gemini CLI"},
+    {"custom", "Custom", {}, {}, {}, {}, {}, {}},
 };
+// Earlier releases saved these agent ids.
+QString currentAgentId(const QString &id) { return id == "gemini" ? "antigravity" : id; }
 struct Detection {
     QString path, retired; // retired: the replaced npm package this launcher still runs
+    QString replaced;      // the predecessor's launcher, when the agent itself is missing
 };
 Detection detect(const AgentChoice &choice) {
     for (const auto &command : choice.commands) {
@@ -73,16 +81,32 @@ Detection detect(const AgentChoice &choice) {
         const auto script = QDir::fromNativeSeparators(acp::resolveAgentProgram(path, {}).arguments.value(0));
         for (const auto &package : choice.retired)
             if (script.contains("/node_modules/" + package + '/', Qt::CaseInsensitive))
-                return {path, package};
-        return {path, {}};
+                return {path, package, {}};
+        return {path, {}, {}};
     }
+    if (!choice.replaced.isEmpty())
+        return {{}, {}, acp::findAgentExecutable(choice.replaced)};
     return {};
 }
 // One command per line, so pasting into cmd or PowerShell runs each. The retired package goes first:
 // it may own the same command name, which npm refuses to overwrite.
 QString installCommand(const AgentChoice &choice, const Detection &found) {
-    const auto install = "npm install -g " + choice.package;
-    return found.retired.isEmpty() ? install : "npm uninstall -g " + found.retired + '\n' + install;
+    return found.retired.isEmpty() ? choice.install : "npm uninstall -g " + found.retired + '\n' + choice.install;
+}
+QString setupText(const AgentChoice &choice, const Detection &found) {
+    const auto commands = installCommand(choice, found);
+    if (!found.retired.isEmpty())
+        return QString("This launcher runs %1, which no longer receives updates. It has been replaced by %2. "
+                       "Run these in a terminal, then choose Check again:\n%3")
+            .arg(found.retired, choice.package, commands);
+    const auto steps = QString("Run this in a terminal%1:\n%2\nSign in with %3, then choose Check again.")
+                           .arg(commands.startsWith("npm ") ? " (requires Node.js and npm)" : QString{}, commands,
+                                choice.signIn);
+    if (!found.replaced.isEmpty())
+        return QString("%1 was found, but Google replaced it with %2 for individual accounts, and %1 no longer "
+                       "signs them in. To use Gemini with a paid license, choose Custom instead. %3")
+            .arg(choice.replacedName, choice.package, steps);
+    return "Not installed. " + steps;
 }
 QString bridgePath() {
     const auto configured = qApp->property("mcpBridgePath").toString(); // tests supply the build's bridge
@@ -502,11 +526,12 @@ void Window::showAgentSession() {
             const auto found = detect(choice);
             dialog->detected << found;
             dialog->agentPicker->setItemText(i, choice.name + (choice.commands.isEmpty() ? QString{} :
-                found.path.isEmpty() ? " · Not found" : !found.retired.isEmpty() ? " · Update needed" : " · Detected"));
+                !found.replaced.isEmpty() || !found.retired.isEmpty() ? " · Update needed"
+                : found.path.isEmpty() ? " · Not found" : " · Detected"));
         }
     };
     detectAll();
-    dialog->agentPicker->setCurrentIndex(qMax(0, dialog->agentPicker->findData(preferences.acpAgent)));
+    dialog->agentPicker->setCurrentIndex(qMax(0, dialog->agentPicker->findData(currentAgentId(preferences.acpAgent))));
     form->addRow("Agent type", dialog->agentPicker);
     dialog->program = ui::pathField({}, dialog);
     dialog->program->setObjectName("acpAgentPath");
@@ -555,13 +580,7 @@ void Window::showAgentSession() {
         form->setRowVisible(dialog->arguments, custom);
         form->setRowVisible(setupRow, !custom && (agent.path.isEmpty() || !agent.retired.isEmpty()));
         copyInstall->setText(agent.retired.isEmpty() ? "Copy install command" : "Copy update commands");
-        const auto commands = installCommand(selected, agent);
-        setupHint->setText(agent.retired.isEmpty()
-            ? QString("Not installed. Run this in a terminal (requires Node.js and npm):\n%1\nSign in with %2, "
-                      "then choose Check again.").arg(commands, selected.signIn)
-            : QString("This launcher runs %1, which no longer receives updates. It has been replaced by %2. "
-                      "Run these in a terminal, then choose Check again:\n%3")
-                  .arg(agent.retired, selected.package, commands));
+        setupHint->setText(setupText(selected, agent));
     };
     connect(dialog->agentPicker, &QComboBox::currentIndexChanged, dialog, [this, choice, configure] {
         preferences.acpAgent = choice().id;

@@ -1,4 +1,4 @@
-# Known limitations (0.1.1)
+# Known limitations (0.1.2)
 
 ## Platform
 
@@ -55,6 +55,8 @@
 - Uninstalling Nova Studio does not remove agents' `nova-studio` entries.
 - **Agent Session (ACP).** Automated tests use a scripted agent. A previous
   smoke test verified OpenCode 1.19.5 startup and MCP attachment with an isolated configuration.
+  Antigravity CLI 1.5.13 (`agy acp`) answered Nova's ACP handshake; a signed-in session with it
+  was not tested.
   Live conversations and sign-in with real agents remain unverified. Plans, reasoning,
   tool details, and permission options depend on what the agent reports. Its built-in file,
   shell, and web tools follow that agent’s configuration. Changing from read-only to editing
