@@ -65,6 +65,17 @@ in `%LOCALAPPDATA%\Nova Studio\Nova Studio\mcp\client-backups`.
   Edit using the current revision, opening the texture with `nova.asset.open` if needed. Use
   `nova.asset.preview_image` with `compare` to review the edit and `nova.texture.analyze` to check
   contrast, seams and layout. Request `returnPreview` during an edit to get an enlarged image immediately.
+  An agent sees and sets the selection that limits its edits (`select_rect`, `select_color`, `deselect`
+  and others), chooses the layer it paints with `layer_select`, and has Nova's image operations
+  (blurs, curves, flips, rotation, crop, trim, canvas resize, alpha cleanup, normal maps and more).
+  `nova.edit.undo` and `nova.edit.redo` move up to 32 of its own steps in one call.
+- **Documents.** `nova.asset.open` opens pack textures and pack models; `nova.asset.close` closes a
+  document that has no unsaved changes and refuses one that has (Nova never discards edits for an agent).
+- **Agent efficiency.** An agent may send several calls at once: Nova runs them one at a time, in order,
+  and refuses only a sixth outstanding call (`busy`). Long bulk and workflow edits report progress when
+  the client asks for it. Every tool carries MCP annotations (a title, read-only, destructive — only the
+  two saves — and idempotent hints). Nova also offers workflow-starter prompts (`retexture`, `audit-pack`,
+  `recolor-set`) and completes guide versions and topics for `nova://rules/{version}/{topic}`.
 - **Response size.** Edits accept `include: "summary"` to omit editor state. Clients that read only
   text can pass `verbosity: "full"` for the complete JSON result. The default text summary keeps
   essential handles and revisions.
@@ -119,14 +130,27 @@ script. Nova saves the agent choice, custom path, and arguments in its settings.
 
 - **Start read-only…** asks you to approve the program, project, and access. Only a bridge
   from that agent’s process tree can use the grant. **Allow editing…** asks separately and
-  restarts the agent with access to edit and save in the pack.
+  restarts the agent with access to edit and save in the pack. If the agent can load sessions,
+  it continues the same conversation in the same folder; otherwise the new session does not
+  remember earlier messages, and the confirmation says so.
 - **Revoke access** leaves the agent running. **Stop session**, closing the window, switching
   projects, or the agent exiting ends the agent session and its Nova access.
 - The agent starts in an empty temporary folder. Its file, shell, and web tools follow its
   settings. When the agent requests permission, Nova presents its choices in order, including
-  any always-allow or always-reject options the agent supplies.
+  any always-allow or always-reject options the agent supplies. A request the agent withdraws
+  disappears.
+- When the agent offers modes or settings (such as its model), pickers appear beside the
+  session status. Choosing a mode that lets the agent act without asking (for example,
+  bypass permissions, full access, or auto-approve) asks you first. Modes change only the
+  agent’s own tools; Nova’s read-only or editing access stays as you granted it.
+- The session status also shows the conversation title and, when the agent reports them,
+  context use and cost.
 - The conversation shows plans, collapsible reasoning and tool cards, and formatted replies.
-  Enter sends, Shift+Enter inserts a line break, and Up recalls previous prompts.
+  Tool cards name the kind of action and the files involved. Links the agent sends are shown
+  but not opened or fetched; images and audio appear as a short note.
+  Enter sends, Shift+Enter inserts a line break, and Up recalls previous prompts. Type `/` to
+  list the agent’s commands. **Mention the open asset** adds the pack path of the document
+  open in Nova to your next message, so the agent can inspect it with Nova’s tools.
   **Cancel turn** asks the agent to stop its current response. Edits through Nova appear in
   **MCP Integration › Review changes**.
 - **Show agent output** displays the last 16 KB of the agent’s standard error. Nova keeps that

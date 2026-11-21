@@ -4,9 +4,11 @@
 #include "metrics.h"
 #include "models.h"
 #include <QOpenGLBuffer>
+#include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLWidget>
+#include <map>
 #include <memory>
 class QLabel;
 namespace nova {
@@ -15,6 +17,29 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     std::unique_ptr<QOpenGLShaderProgram> program;
     void cleanup();
     QOpenGLBuffer buffer, lineBuffer, guideBuffer;
+    // Attribute and uniform locations, looked up once after the program links so painting
+    // never goes through string lookups.
+    struct Locations {
+        int position = -1, texcoord = -1, normal = -1, shade = -1, worldShade = -1;
+        int mvp = -1, tex = -1, solid = -1, direction = -1, ambient = -1, neutral = -1,
+            light0 = -1, light1 = -1, lightingMode = -1, twoSided = -1, alphaCutoff = -1,
+            uvOrigin = -1, textureAlpha = -1, tintColor = -1, solidColor = -1;
+    } loc;
+    // How each face of the current mesh is drawn; depends only on the mesh and the preview
+    // block, so it is classified once instead of on every frame.
+    struct FacePass {
+        bool blockSprite = false, blended = false;
+        float cutoff = 0;
+    };
+    QVector<FacePass> passes;
+    std::shared_ptr<const mc::Mesh> passOwner; // keeps passScene's address from being reused
+    const mc::Mesh *passScene = nullptr;
+    QString passBlock;
+    bool passPlaced = false;
+    void classifyFaces();
+    // Capture targets by edge length, reused between captures (Explorer takes hundreds of
+    // identical 64 px icons).
+    std::map<int, std::unique_ptr<QOpenGLFramebufferObject>> captureTargets;
     GLuint texture = 0;
     QSize textureSize;
     bool fullUpload = true;
@@ -28,6 +53,7 @@ class Cube : public QOpenGLWidget, protected QOpenGLFunctions {
     QMap<QString, QImage> materialImages;
     QMap<QString, GLuint> materialTextures;
     QMap<QString, QSize> materialSizes;
+    QMap<QString, qint64> materialCacheKeys;
     QSet<QString> dirtyMaterials;
     bool materialPreview = false;
     bool geometryDirty = true, materialsDirty = true;

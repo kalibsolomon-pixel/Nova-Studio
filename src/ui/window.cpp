@@ -339,7 +339,20 @@ Window::Window(QString p, QString output, QElapsedTimer time)
     }
     setObjectName("novaWorkspace");
     connect(&session, &DocumentSession::changed, this, [this](QUuid id) {
-        refresh();
+        // A brush drag reports every pointer event. The first event of a stroke (and any event
+        // that is not an open stroke on the current document: finish, undo, auto-split commit)
+        // refreshes everything; the events in between only need the canvas and cube texture.
+        auto active = current();
+        if (active && active->document->id() == id && active->document->strokeOpen() &&
+            strokeRefreshDocument == id) {
+            cube->setDocument(active->document);
+            active->update();
+        } else {
+            strokeRefreshDocument = active && active->document->id() == id && active->document->strokeOpen()
+                                        ? id
+                                        : QUuid{};
+            refresh();
+        }
         for (int i = 0; i < tabs->count(); ++i) {
             auto canvas = dynamic_cast<Canvas *>(tabs->widget(i));
             if (!canvas)
@@ -1369,7 +1382,18 @@ void Window::refreshDockTitles() {
     });
 }
 void Window::applyTheme() {
-    ui::apply(ui::tokens(dark, preferences.accent));
+    // Re-installing the stylesheet restyles every widget; skip it when nothing it depends on
+    // changed (preferences closed unchanged, repeated toggles). Icons still refresh: widgets
+    // created since the last call carry no themed icon yet.
+    const auto wanted = ui::tokens(dark, preferences.accent);
+    if (!themeApplied || appliedDark != dark || appliedAccent != preferences.accent ||
+        ui::current().dark != wanted.dark || ui::current().accent != wanted.accent ||
+        qApp->styleSheet().isEmpty()) {
+        ui::apply(wanted);
+        themeApplied = true;
+        appliedDark = dark;
+        appliedAccent = preferences.accent;
+    }
     if (themeAction && themeAction->isChecked() != dark) {
         QSignalBlocker block(themeAction);
         themeAction->setChecked(dark);
@@ -1849,6 +1873,20 @@ void Window::persist() {
                                                           {"tolerance", toolState.tolerance},
                                                           {"smooth_shapes", toolState.smoothShape},
                                                           {"symmetry", int(toolState.symmetry)},
+                                                          {"lock_alpha", toolState.lockAlpha},
+                                                          {"palette_lock", toolState.paletteLock},
+                                                          {"wrap", toolState.wrap},
+                                                          {"pixel_perfect", toolState.pixelPerfect},
+                                                          {"metric", int(toolState.metric)},
+                                                          {"include_alpha", toolState.includeAlpha},
+                                                          {"replace_tolerance", toolState.replaceTolerance},
+                                                          {"fill_opacity", toolState.fillOpacity},
+                                                          {"shape", int(toolState.shape)},
+                                                          {"shape_filled", toolState.filled},
+                                                          {"shape_thickness", toolState.thickness},
+                                                          {"gradient_type", toolState.gradientType},
+                                                          {"gradient_steps", toolState.gradientSteps},
+                                                          {"gradient_dither", toolState.gradientDither},
                                                           {"brushes", brushes}})
                                     .toJson(QJsonDocument::Compact);
     }

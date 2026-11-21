@@ -41,6 +41,8 @@ class ToolState : public QObject {
     ops::Symmetry symmetry = ops::Symmetry::None;
     int radial = 6, smoothing = 0;
     bool paletteLock = false, lockAlpha = false;
+    bool wrap = false;         // tile painting: strokes continue across the opposite edge
+    bool pixelPerfect = false; // 1 px pencil: drop L-shaped corner pixels from freehand strokes
     std::vector<QRgb> palette;
     // selection / colour matching
     ops::Combine selectMode = ops::Combine::Replace;

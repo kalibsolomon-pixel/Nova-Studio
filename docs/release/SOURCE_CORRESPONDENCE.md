@@ -1,6 +1,6 @@
 # Source corresponding to the reviewed preview candidate
 
-This is a historical record of the preview candidate, not the source identity of 0.1.0.
+This is a historical record of the preview candidate, not the source identity of 0.1.0 or any later release.
 For any release, use the source revision and hashes in that release's manifest and the source
 archive distributed with its binaries. Source home: https://github.com/kalibsolomon-pixel/Nova-Studio.
 The earlier home-repository consolidation itself created no binary downloads or tags.
@@ -93,7 +93,7 @@ correspondence and signature validity, not a reproducible rebuild or legal suffi
 Installed users can open **Help > Licenses and Source Code** for embedded notices and local-source
 instructions. The candidate installs `LICENSE.txt`, `licenses/COPYRIGHT.md`,
 `licenses/THIRD_PARTY_NOTICES.md`, component license texts, `docs/BUILDING.md` and `source/`.
-The 0.1.0 build compiles `NOVA_SOURCE_URL` to this repository; the preview candidate predating
+Builds from 0.1.0 on compile `NOVA_SOURCE_URL` to this repository; the preview candidate predating
 that change left it empty.
 
 The bundled/dynamically linked inventory is in the GCC notices: Nova GPL-3.0-or-later; Qt/LGPL

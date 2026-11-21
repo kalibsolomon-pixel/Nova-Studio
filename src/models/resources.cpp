@@ -6,7 +6,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
+#include <QMutex>
+#include <QMutexLocker>
 namespace nova::mc {
 namespace {
 QString officialHash(const QString &version) {
@@ -76,13 +79,29 @@ ResourceSource ResourceSource::fromBaseline(const vanilla::BaselineEntry &entry)
         s.hashes.insert(it.key(), it->sha256);
     return s;
 }
+bool ResourceStack::FallbackLayer::matches(const QVector<ResourceSource> &other,
+                                           const QString &target) const {
+    if (version != target || sources.size() != other.size())
+        return false;
+    // Same buffers (the layer pins ours) means the Library handed the same snapshots again.
+    for (qsizetype i = 0; i < sources.size(); ++i) {
+        const auto &a = sources[i], &b = other[i];
+        if (a.root != b.root || a.label != b.label || a.version != b.version ||
+            a.vanilla != b.vanilla || a.index.files.constData() != b.index.files.constData() ||
+            a.index.files.size() != b.index.files.size() ||
+            a.index.records.size() != b.index.records.size() || a.hashes.size() != b.hashes.size())
+            return false;
+    }
+    return true;
+}
 void ResourceStack::build(const QString &root, const Index &editable,
                           const QVector<ResourceSource> &fallbacks, const QString &version) {
     candidates.clear();
     combined = {};
     diagnostics.clear();
-    auto add = [&](const QString &base, const QString &label, const Index &index, bool writable,
-                   const QJsonObject &hashes) {
+    auto add = [](QMap<QString, QVector<ResourceCandidate>> &into, Index &out, const QString &base,
+                  const QString &label, const Index &index, bool writable,
+                  const QJsonObject &hashes) {
         for (auto i = index.records.cbegin(); i != index.records.cend(); ++i) {
             if (!i.key().startsWith("assets/"))
                 continue;
@@ -94,48 +113,131 @@ void ResourceStack::build(const QString &root, const Index &editable,
                 continue;
             if (!hashes.isEmpty() && !hashes.contains(i.key()))
                 continue;
-            candidates[i.key()].append(
+            into[i.key()].append(
                 {full, label, writable, base,
                  hashes.isEmpty() ? QByteArray{}
                                   : QByteArray::fromHex(hashes[i.key()].toString().toLatin1())});
-            if (!combined.records.contains(i.key())) {
+            if (!out.records.contains(i.key())) {
                 auto record = i.value();
                 record.filesystemPath = full;
                 record.projectRoot = base;
-                combined.records[i.key()] = record;
-                combined.files << i.key();
+                out.records[i.key()] = record;
+                out.files << i.key();
             }
         }
     };
-    add(QFileInfo(root).canonicalFilePath(), "Editable pack", editable, true, {});
-    for (const auto &s : fallbacks) {
-        if (!s.version.isEmpty() && s.version != version) {
-            diagnostics << "Skipped resource source for different target: " + s.label;
-            continue;
+    if (fallbacks.isEmpty())
+        fallbackLayer.reset();
+    else if (!fallbackLayer || !fallbackLayer->matches(fallbacks, version)) {
+        auto layer = std::make_shared<FallbackLayer>();
+        layer->sources = fallbacks;
+        layer->version = version;
+        for (const auto &s : fallbacks) {
+            if (!s.version.isEmpty() && s.version != version) {
+                layer->diagnostics << "Skipped resource source for different target: " + s.label;
+                continue;
+            }
+            add(layer->candidates, layer->combined, s.root, s.label, s.index, false, s.hashes);
         }
-        add(s.root, s.label, s.index, false, s.hashes);
+        fallbackLayer = std::move(layer);
     }
+    // Editable records are first in priority; fallback records fill in the keys they miss.
+    Index local;
+    add(candidates, local, QFileInfo(root).canonicalFilePath(), "Editable pack", editable, true, {});
+    if (fallbackLayer) {
+        diagnostics = fallbackLayer->diagnostics;
+        const auto &lower = fallbackLayer->combined;
+        combined = lower; // shared until the editable records below need merging in
+        if (!local.records.isEmpty()) {
+            for (auto i = local.records.cbegin(); i != local.records.cend(); ++i)
+                combined.records[i.key()] = i.value();
+            combined.files = local.files;
+            for (const auto &file : lower.files)
+                if (!local.records.contains(file))
+                    combined.files << file;
+        }
+    } else
+        combined = std::move(local);
 }
-QString ResourceStack::path(const QString &asset, int provider) const {
-    const auto list = candidates.value(asset);
-    if (provider < 0 || provider >= list.size())
-        return {};
-    const auto &candidate = list[provider];
-    const auto canonical = QFileInfo(candidate.path).canonicalFilePath();
-    if (!safe(candidate.root, canonical))
-        return {};
-    if (!candidate.sha256.isEmpty()) {
-        QFile f(canonical);
-        if (!f.open(QIODevice::ReadOnly))
-            return {};
-        QCryptographicHash hash(QCryptographicHash::Sha256);
-        if (!hash.addData(&f) || hash.result() != candidate.sha256)
-            return {};
+const ResourceCandidate *ResourceStack::candidate(const QString &asset, int provider) const {
+    if (provider < 0)
+        return nullptr;
+    const auto editableList = candidates.constFind(asset);
+    const qsizetype own = editableList == candidates.cend() ? 0 : editableList->size();
+    if (provider < own)
+        return &(*editableList)[provider];
+    if (!fallbackLayer)
+        return nullptr;
+    const auto lower = fallbackLayer->candidates.constFind(asset);
+    if (lower == fallbackLayer->candidates.cend() || provider - own >= lower->size())
+        return nullptr;
+    return &(*lower)[provider - own];
+}
+QVector<ResourceCandidate> ResourceStack::providers(const QString &asset) const {
+    auto list = candidates.value(asset);
+    if (fallbackLayer)
+        list += fallbackLayer->candidates.value(asset);
+    return list;
+}
+bool ResourceStack::hasAsset(const QString &asset) const {
+    return candidates.contains(asset) ||
+           (fallbackLayer && fallbackLayer->candidates.contains(asset));
+}
+namespace {
+// Files already hashed against their expected SHA-256, keyed by canonical path. An entry is
+// only trusted while size, modification time and digest all match what was verified, so a
+// changed, replaced or tampered file is hashed (and rejected) again.
+struct VerifiedFile {
+    qint64 size = 0, modified = 0;
+    QByteArray sha256;
+};
+constexpr qsizetype MaxVerifiedFiles = 32768;
+QMutex verifiedLock;
+QHash<QString, VerifiedFile> &verifiedFiles() {
+    static QHash<QString, VerifiedFile> files;
+    return files;
+}
+bool verified(const QString &canonical, const QByteArray &expected) {
+    const QFileInfo info(canonical);
+    if (!info.isFile())
+        return false;
+    const qint64 size = info.size(), modified = info.lastModified().toMSecsSinceEpoch();
+    {
+        QMutexLocker lock(&verifiedLock);
+        const auto hit = verifiedFiles().constFind(canonical);
+        if (hit != verifiedFiles().cend() && hit->size == size && hit->modified == modified &&
+            hit->sha256 == expected)
+            return true;
     }
+    QFile f(canonical);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&f) || hash.result() != expected) {
+        QMutexLocker lock(&verifiedLock);
+        verifiedFiles().remove(canonical);
+        return false;
+    }
+    QMutexLocker lock(&verifiedLock);
+    auto &files = verifiedFiles();
+    if (files.size() >= MaxVerifiedFiles)
+        files.clear();
+    files.insert(canonical, VerifiedFile{size, modified, expected});
+    return true;
+}
+} // namespace
+QString ResourceStack::path(const QString &asset, int provider) const {
+    const auto *found = candidate(asset, provider);
+    if (!found)
+        return {};
+    const auto canonical = QFileInfo(found->path).canonicalFilePath();
+    if (!safe(found->root, canonical))
+        return {};
+    if (!found->sha256.isEmpty() && !verified(canonical, found->sha256))
+        return {};
     return canonical;
 }
 bool ResourceStack::editable(const QString &asset) const {
-    const auto list = candidates.value(asset);
-    return !list.isEmpty() && list[0].editable;
+    return candidates.contains(asset);
 }
 } // namespace nova::mc

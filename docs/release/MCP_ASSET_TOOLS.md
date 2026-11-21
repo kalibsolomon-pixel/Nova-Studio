@@ -16,9 +16,14 @@ project-scoped call uses `generation` and, where the tool requires it, `projectI
 
 ## Preparing assets for edits
 
-- `nova.asset.open` takes `generation`, `projectId` and a pack texture `assetId`. With editing
-  permission, it opens the texture in a background tab and returns the current revision. Repeated
-  calls reuse the same open document.
+- `nova.asset.open` takes `generation`, `projectId` and a pack texture or pack model
+  (`assets/<namespace>/models/…json`) `assetId`. With editing permission, it opens the texture or
+  model in a background tab and returns the current revision. Repeated calls reuse the same open
+  document. A model that is not a project-local file returns `invalid_asset_type`.
+- `nova.asset.close` takes the same fields and closes the asset's editor tab when it has no unsaved
+  changes, freeing one of the 32 texture slots (or one of the 16 model slots). A document with unsaved
+  changes, or a new unsaved asset, returns `document_dirty` and stays open: save it with
+  `nova.drafts.save` or ask the user. Nova never discards edits for an agent.
 - `nova.asset.create_preview` and `nova.asset.create` accept a `source` in place of `parameters`.
   Use an indexed texture ID or a verified cache path such as `vanilla:block/water_still.png`. Copy
   uses the open draft when available and otherwise reads the saved PNG and its animation metadata.
@@ -114,7 +119,14 @@ Example (trimmed):
 ### `nova.vanilla.texture`
 
 Arguments: `generation`, `projectId`, `version`, `path` (a cached `.png` path) required; `identity`; `include`:
-`image` (default) or `metadata`.
+`image` (default) or `metadata`; `maxEdge` (16–512) and `pixelGrid` for a copy sized for vision models.
+
+Without `maxEdge` and `pixelGrid` the image block is the verified cached file, byte for byte. With them, Nova
+returns a copy fitted to `maxEdge` on its longest edge (256 when only `pixelGrid` is set), enlarged by nearest
+neighbour so a 16 × 16 texture stays sharp, and with lines between source texels when `pixelGrid` is true and each
+texel covers at least 4 × 4 pixels. `preview` then gives the copy's `width`, `height`, `bytes` and `pixelGrid`;
+`width`, `height`, `bytes` and `sha256` still describe the cached file. The inline limit below applies to the copy,
+so a reduced `maxEdge` also returns textures whose original is too large.
 
 Nova reads the file and checks its SHA-256 against the manifest before returning anything. With `include: image`
 the PNG is returned as an MCP **image content block** (`type: image`, `mimeType: image/png`, base64 data) after the
@@ -379,10 +391,11 @@ argument at fault.
 | `vanilla_cache_invalid` | vanilla | Entries exist but every one is incomplete or failed verification; `details.entries`, `details.damaged` |
 | `texture_not_in_cache` | `nova.vanilla.texture` | The path is not in the selected entry |
 | `vanilla_integrity_failed` | `nova.vanilla.texture` | The cached file failed its SHA-256 check; nothing is returned or changed |
-| `texture_too_large` | `nova.vanilla.texture` | Larger than 262,144 bytes inline; use `include: "metadata"` |
+| `texture_too_large` | `nova.vanilla.texture` | Larger than 262,144 bytes inline; use `include: "metadata"` or a `maxEdge` copy |
+| `document_dirty` | `nova.asset.close` | The document has unsaved changes; save it or ask the user |
 | `version_unavailable` | `nova.asset.relationships` | A `version` other than the project's target |
 | `operation_canceled` | all | Canceled or past the deadline (30 s; 60 s for validation) |
-| `busy`, `validation_unavailable` | all | Another request is running, or the index is updating: retry |
+| `busy`, `validation_unavailable` | all | One request is running and four more wait (calls queue in order), or the index is updating: retry |
 
 ## Privacy and licensing
 
@@ -404,7 +417,8 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
   "description": "List textures in Nova's verified local vanilla texture cache for one Minecraft version: path, size, SHA-256 and dimensions. Textures only (no models). Never downloads; reports vanilla_not_cached instead.",
   "annotations": {
     "openWorldHint": false,
-    "readOnlyHint": true
+    "readOnlyHint": true,
+    "title": "List vanilla textures"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -551,7 +565,8 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
   "description": "Return one texture from Nova's verified local vanilla texture cache as a PNG image block, with its SHA-256 (checked on read), dimensions, animation metadata and provenance. Never downloads.",
   "annotations": {
     "openWorldHint": false,
-    "readOnlyHint": true
+    "readOnlyHint": true,
+    "title": "Vanilla texture image"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -576,11 +591,21 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
         ],
         "type": "string"
       },
+      "maxEdge": {
+        "description": "Return a copy fitted to this longest edge (nearest neighbour, so 16 px textures stay sharp) instead of the cached file.",
+        "maximum": 512,
+        "minimum": 16,
+        "type": "integer"
+      },
       "path": {
         "description": "A cached texture path from nova.vanilla.list, such as assets/minecraft/textures/block/stone.png.",
         "maxLength": 256,
         "pattern": "^assets/minecraft/textures/[a-z0-9_./-]+\\.png$",
         "type": "string"
+      },
+      "pixelGrid": {
+        "description": "Draw texel boundaries on an enlarged copy (maxEdge defaults to 256).",
+        "type": "boolean"
       },
       "projectId": {
         "description": "The projectId from nova.project.info.",
@@ -654,6 +679,9 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
       "path": {
         "type": "string"
       },
+      "preview": {
+        "type": "object"
+      },
       "projectId": {
         "type": "string"
       },
@@ -721,7 +749,8 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
   "description": "Explain how one resource-pack asset is selected and used: item definitions and blockstates, model parent chains, texture variables, faces and UVs, display contexts, animation metadata and companion assets, each with its source (project, open draft, resource stack) and evidence. Unresolvable links are reported, never guessed.",
   "annotations": {
     "openWorldHint": false,
-    "readOnlyHint": true
+    "readOnlyHint": true,
+    "title": "Explain asset use"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -835,7 +864,8 @@ publishes their input schemas exactly as shown and omits the spec-optional `outp
   "description": "Run read-only validation of saved files and open unsaved drafts. References resolve through the project, the resource stack the user configured, and Nova's verified vanilla baseline (textures, plus vanilla models when the baseline holds them); each finding has a rule, source, evidence and next step. Never downloads.",
   "annotations": {
     "openWorldHint": false,
-    "readOnlyHint": true
+    "readOnlyHint": true,
+    "title": "Validate pack"
   },
   "inputSchema": {
     "additionalProperties": false,

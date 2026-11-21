@@ -4,10 +4,27 @@
 #include "tools.h"
 #include <QPainter>
 #include <QSet>
+#include <algorithm>
 #include <cmath>
 namespace nova {
 namespace {
 constexpr qint64 WorkingBudget = 128LL * 1024 * 1024;
+// `source` over `area` with the lifted selection removed; hidden RGB is cleared once the
+// alpha reaches zero (rows outside the mask are plain copies).
+void liftRows(QImage &out, const QImage &source, const QImage &lift, const QRect &area) {
+    for (int y = area.top(); y <= area.bottom(); ++y) {
+        auto s = source.constScanLine(y);
+        auto row = out.scanLine(y);
+        auto mask = lift.constScanLine(y);
+        std::copy_n(s + area.left() * 4, area.width() * 4, row + area.left() * 4);
+        for (int x = area.left(); x <= area.right(); ++x)
+            if (mask[x]) {
+                row[x * 4 + 3] = uchar(row[x * 4 + 3] * (255 - mask[x]) / 255);
+                if (!row[x * 4 + 3])
+                    row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = 0;
+            }
+    }
+}
 }
 bool Canvas::beginLayerTransform(const QVector<QUuid> &requested, bool includeHidden) {
     cancelFloating();
@@ -54,7 +71,7 @@ bool Canvas::beginLayerTransform(const QVector<QUuid> &requested, bool includeHi
                          .arg(ids.size())
                          .arg(includeHidden ? " (including hidden)" : " (visible only)");
     for (auto id : ids)
-        floating.layers.append({id, document->selectedPixels(id).copy(bounds), {}});
+        floating.layers.append({id, document->selectedPixels(id).copy(bounds), {}, {}});
     refreshLayerFloating();
     return floating.valid;
 }
@@ -113,32 +130,26 @@ void Canvas::refreshLayerFloating() {
     floating.placed = QPoint(int(std::lround(center.x() - out.width() / 2.)),
                              int(std::lround(center.y() - out.height() / 2.)));
     floating.cached = floating.layers[0].cached;
-    floating.replacements.clear();
-    for (const auto &item : floating.layers) {
+    for (auto &item : floating.layers) {
         const auto target = document->layer(item.id);
         if (!target) {
             fail("A transform layer was removed");
             return;
         }
-        auto base = target->pixels.copy();
-        for (int y = 0; y < base.height(); ++y) {
-            auto row = base.scanLine(y);
-            auto mask = floating.lift.constScanLine(y);
-            for (int x = 0; x < base.width(); ++x)
-                if (mask[x]) {
-                    row[x * 4 + 3] = uchar(row[x * 4 + 3] * (255 - mask[x]) / 255);
-                    if (!row[x * 4 + 3])
-                        row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = 0;
-                }
+        // The lifted layer is constant for the session (the serial check above guards it): build
+        // it once, then per move only rewind the previous stamp and place the new one.
+        auto &base = floating.replacements[item.id];
+        if (base.isNull() || base.size() != target->pixels.size() ||
+            base.format() != target->pixels.format()) {
+            base = QImage(target->pixels.size(), target->pixels.format());
+            item.stamped = {};
+            if (!base.isNull())
+                liftRows(base, target->pixels, floating.lift, base.rect());
+        } else if (!item.stamped.isEmpty()) {
+            liftRows(base, target->pixels, floating.lift, item.stamped);
         }
-        for (int y = 0; y < item.cached.height(); ++y)
-            for (int x = 0; x < item.cached.width(); ++x) {
-                const auto q = floating.placed + QPoint(x, y);
-                const auto pixel = item.cached.pixel(x, y);
-                if (base.rect().contains(q) && qAlpha(pixel))
-                    base.setPixel(q, ops::blend(base.pixel(q), pixel, 255));
-            }
-        floating.replacements[item.id] = std::move(base);
+        blendPlaced(base, item.cached, floating.placed);
+        item.stamped = QRect(floating.placed, item.cached.size()).intersected(base.rect());
     }
     floating.valid = true;
     preview = document->compositeWith(floating.replacements);

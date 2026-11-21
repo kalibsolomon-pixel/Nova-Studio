@@ -6,6 +6,7 @@
 #include "project.h"
 #include "render_layers.h"
 #include "settings.h"
+#include "texture_preview.h"
 #include "theme.h"
 #include "tints.h"
 #include "vanilla/cache.h"
@@ -127,7 +128,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
                     materialDocuments[path] = doc;
                     materialPlayback->updateDocument(path, doc);
                 }
-                if (contextModel.generated)
+                if (contextModel.generated || target == "preview:item_extruded")
                     rebuild();
             }
     });
@@ -259,7 +260,7 @@ ModelPanel::ModelPanel(Cube *c, DocumentSession *s, QWidget *parent)
     source->setToolTip("Read-only snapshot of the selected model's source JSON");
     modelRow->addWidget(source, 1);
     connect(source, &QPushButton::clicked, this, [this] {
-        if (!library || target.isEmpty() || target == "cube:")
+        if (!library || target.isEmpty() || target == "cube:" || target.startsWith("preview:"))
             return;
         const auto path = target.startsWith("model:")
                               ? mc::Location::parse(target.mid(6)).asset("models")
@@ -668,7 +669,44 @@ void ModelPanel::savePreviewState() {
                                    {"uv", uv->isChecked()},
                                    {"camera", cube->viewSettings()}});
 }
+namespace {
+// Bulk population of a widget repaints once when this goes out of scope, not per item.
+struct UpdatesPaused {
+    QWidget *widget;
+    bool was;
+    explicit UpdatesPaused(QWidget *w) : widget(w), was(w->updatesEnabled()) { w->setUpdatesEnabled(false); }
+    ~UpdatesPaused() { widget->setUpdatesEnabled(was); }
+    UpdatesPaused(const UpdatesPaused &) = delete;
+    UpdatesPaused &operator=(const UpdatesPaused &) = delete;
+};
+} // namespace
+const ModelPanel::TargetCatalog &ModelPanel::targetCatalog() {
+    const auto same = [](const std::weak_ptr<mc::Library> &a, const std::shared_ptr<mc::Library> &b) {
+        return !a.owner_before(b) && !b.owner_before(a);
+    };
+    if (targetsKnown && same(targetOwner, library) && targetRevision == library->revision())
+        return targetLists;
+    targetLists = {};
+    constexpr int skippable = 256; // associated ids the picker leaves out of its own lists
+    const int modelLimit[2] = {2048, 1024}, definitionLimit[2] = {512, 256};
+    for (const auto &id : library->modelIds()) {
+        const int bucket = library->editable(mc::Location::parse(id).asset("models")) ? 0 : 1;
+        if (targetLists.models[bucket].size() < modelLimit[bucket] + skippable)
+            targetLists.models[bucket] << id;
+    }
+    for (const auto &path : library->definitionPaths()) {
+        const int bucket = library->editable(path) ? 0 : 1;
+        if (targetLists.definitions[bucket].size() < definitionLimit[bucket])
+            targetLists.definitions[bucket] << path;
+    }
+    targetOwner = library;
+    targetRevision = library->revision();
+    targetsKnown = true;
+    return targetLists;
+}
 void ModelPanel::choices() {
+    // Thousands of items are added one by one; repaint once at the end.
+    const UpdatesPaused repaint(targets);
     syncing = true;
     targets->clear();
     targets->addItem("No model · texture only", QString());
@@ -678,33 +716,56 @@ void ModelPanel::choices() {
         fallbackReason = "No texture is open";
     else if (!library)
         fallbackReason = "No resource pack is open";
+    const auto builtin = activeAsset.isEmpty() ? mc::TexturePreviewSpec{}
+                                               : mc::detectTexturePreview(activeAsset);
     if (library) {
         // The model named like the texture first, then other valid models using it.
         const auto choice = activeAsset.isEmpty() ? mc::PreviewChoice{} : mc::previewModelFor(*library, activeAsset);
         const auto associated = choice.candidates.mid(0, 256);
+        const QSet<QString> listed(associated.cbegin(), associated.cend());
         for (const auto &id : associated)
             targets->addItem("Using texture · " + id, "model:" + id);
+        if (!builtin.id.isEmpty())
+            targets->addItem("Minecraft 3D · " + builtin.label, "preview:" + builtin.id);
         if (document)
             fallbackReason = choice.reason;
         if (!pinned) {
-            target = choice.model.isEmpty() ? QString() : "model:" + choice.model;
+            if (!choice.model.isEmpty())
+                target = "model:" + choice.model;
+            else if (!builtin.id.isEmpty())
+                target = "preview:" + builtin.id;
+            else
+                target.clear();
         }
-        const auto all = library->modelIds();
-        const auto definitions = library->definitionPaths();
+        const auto &catalog = targetCatalog();
         // Editable resources and definitions must remain reachable even when a
         // vanilla catalog supplies thousands of lower-priority model names.
         for (bool editable : {true, false}) {
+            const int bucket = editable ? 0 : 1;
             int models = 0, dispatches = 0;
             const int modelLimit = editable ? 2048 : 1024, definitionLimit = editable ? 512 : 256;
-            for (const auto &id : all)
-                if (!associated.contains(id) &&
-                    library->editable(mc::Location::parse(id).asset("models")) == editable &&
-                    models++ < modelLimit)
-                    targets->addItem(id, "model:" + id);
-            for (const auto &path : definitions)
-                if (library->editable(path) == editable && dispatches++ < definitionLimit)
-                    targets->addItem(path, "definition:" + path);
+            for (const auto &id : catalog.models[bucket]) {
+                if (models >= modelLimit)
+                    break;
+                if (listed.contains(id))
+                    continue;
+                ++models;
+                targets->addItem(id, "model:" + id);
+            }
+            for (const auto &path : catalog.definitions[bucket]) {
+                if (dispatches++ >= definitionLimit)
+                    break;
+                targets->addItem(path, "definition:" + path);
+            }
         }
+    } else if (!builtin.id.isEmpty()) {
+        targets->addItem("Minecraft 3D · " + builtin.label, "preview:" + builtin.id);
+        if (!pinned)
+            target = "preview:" + builtin.id;
+    }
+    for (const auto &spec : mc::manualTexturePreviews()) {
+        if (spec.id != builtin.id)
+            targets->addItem("Minecraft 3D · " + spec.label, "preview:" + spec.id);
     }
     int index = targets->findData(target);
     if (index < 0 && library && target.startsWith("model:") &&
@@ -749,7 +810,7 @@ void ModelPanel::setDocument(std::shared_ptr<Document> doc, Canvas *view) {
     activeAsset = document ? QDir(root).relativeFilePath(document->path) : QString();
     const auto previous = target;
     choices();
-    if (previous == target && mesh) {
+    if (previous == target && mesh && !target.startsWith("preview:")) {
         cube->setModel(mesh, activeAsset, materials);
         for (const auto &path : materials.keys()) {
             const auto image = materialPlayback->image(path);
@@ -814,6 +875,83 @@ void ModelPanel::rebuild() {
     contextModel = {};
     mesh.reset();
     materials.clear();
+    if (target.startsWith("preview:")) {
+        materialPlayback->setMaterials({});
+        cube->setMaterialPreview(false);
+        if (uvControls)
+            uvControls->hide();
+        if (canvas)
+            canvas->uvEditing = false;
+        if (!document) {
+            cube->setModel({});
+            cube->setNotice({});
+            diagnostics->setText("Open a texture to preview it in 3D.");
+            diagnostics->setToolTip({});
+            overlay();
+            updateDisplayControls();
+            return;
+        }
+        const QString previewId = target.mid(8);
+        const auto preview =
+            mc::buildTexturePreview(activeAsset, document->image, library.get(), previewId);
+        if (!preview.valid()) {
+            cube->setModel({});
+            showFallback("Built-in 3D preview unavailable.", {});
+            overlay();
+            updateDisplayControls();
+            return;
+        }
+        cube->setNotice({});
+        mesh = std::make_shared<mc::Mesh>(preview.mesh);
+        if (!activeAsset.isEmpty() && !document->image.isNull())
+            materials[activeAsset] = document->image;
+        for (auto it = preview.syntheticTextures.cbegin(); it != preview.syntheticTextures.cend();
+             ++it)
+            materials[it.key()] = it.value();
+        QStringList messages;
+        qint64 bytes = 0;
+        if (library) {
+            for (const auto &path : preview.referencedAssets) {
+                if (materials.contains(path) || materials.size() >= 64)
+                    continue;
+                auto image = loadMaterial(path, messages);
+                if (!image.isNull() && bytes + image.sizeInBytes() <= 64 * 1024 * 1024) {
+                    bytes += image.sizeInBytes();
+                    materials[path] = image;
+                }
+            }
+        }
+        cube->setModel(mesh, activeAsset, materials);
+        cube->fitModel();
+        syncing = true;
+        {
+            const UpdatesPaused repaint(faces);
+            for (const auto &face : mesh->faces) {
+                auto item = new QListWidgetItem(
+                    QString("%1  ·  %2").arg(face.name, face.element));
+                item->setToolTip(face.element + " · " + face.name + " · " + face.texture);
+                faces->addItem(item);
+            }
+        }
+        syncing = false;
+        diagnostics->setText(
+            QString("%1 faces · Minecraft 3D preview · %2")
+                .arg(mesh->faces.size())
+                .arg(preview.label) +
+            (messages.isEmpty() ? QString() : "\n" + messages.mid(0, 10).join('\n')));
+        diagnostics->setToolTip(preview.label);
+        overlay();
+        if (previousFace >= 0 && previousFace < mesh->faces.size()) {
+            cube->selectedFace = previousFace;
+            QSignalBlocker block(faces);
+            faces->setCurrentRow(previousFace);
+            if (canvas)
+                canvas->uvFace = previousFace;
+        }
+        updateUvControls();
+        updateDisplayControls();
+        return;
+    }
     if (!library || target.isEmpty() || target == "cube:") {
         materialPlayback->setMaterials({});
         cube->setMaterialPreview(false);
@@ -977,15 +1115,18 @@ void ModelPanel::rebuild() {
         cube->setMaterialPreview(false);
     cube->setContextTransform(mc::displayContextPose(contextName, mesh->minimum.y()));
     syncing = true;
-    for (const auto &face : mesh->faces)
-        {
-            // Face first; the element names the part and the model path is shared, so it is shown once.
-            const auto element = face.element.section(" / ", -1);
-            auto item = new QListWidgetItem(QString("%1  ·  %2%3").arg(face.name, element,
-                                                face.rotation ? QString("  ·  %1°").arg(face.rotation) : QString()));
-            item->setToolTip(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
-            faces->addItem(item);
-        }
+    {
+        const UpdatesPaused repaint(faces);
+        for (const auto &face : mesh->faces)
+            {
+                // Face first; the element names the part and the model path is shared, so it is shown once.
+                const auto element = face.element.section(" / ", -1);
+                auto item = new QListWidgetItem(QString("%1  ·  %2%3").arg(face.name, element,
+                                                    face.rotation ? QString("  ·  %1°").arg(face.rotation) : QString()));
+                item->setToolTip(face.element + " · " + face.name + QString(" · %1°").arg(face.rotation));
+                faces->addItem(item);
+            }
+    }
     syncing = false;
     QStringList paths = library->dependencies(asset) + library->dependents(asset) +
                         library->dependents(activeAsset);
@@ -996,16 +1137,20 @@ void ModelPanel::rebuild() {
         paths << p;
     paths.removeDuplicates();
     paths.sort();
-    for (const auto &path : paths.mid(0, 512)) {
-        const auto providers = library->providers(path);
-        QStringList names;
-        for (const auto &provider : providers)
-            names << provider.label;
-        auto item = new QListWidgetItem(
-            (library->assetPath(path).isEmpty() ? "Missing · " : names.value(0) + " · ") + path,
-            dependencies);
-        item->setData(Qt::UserRole, path);
-        item->setToolTip(path + "\nPriority: " + names.join(" > "));
+    {
+        const UpdatesPaused repaint(dependencies);
+        for (const auto &path : paths.mid(0, 512)) {
+            const auto providers = library->providers(path);
+            QStringList names;
+            for (const auto &provider : providers)
+                names << provider.label;
+            // Presence is enough for the badge; it needs no file access per row.
+            auto item = new QListWidgetItem(
+                (library->hasAsset(path) ? names.value(0) + " · " : QString("Missing · ")) + path,
+                dependencies);
+            item->setData(Qt::UserRole, path);
+            item->setToolTip(path + "\nPriority: " + names.join(" > "));
+        }
     }
     messages.removeDuplicates();
     diagnostics->setText(

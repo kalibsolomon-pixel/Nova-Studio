@@ -699,7 +699,7 @@ class TexturePixelsTest : public QObject {
     // Phase 1 tool definitions stay compatible outside the intentional validation and preview changes.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 44);
+        QCOMPARE(definitions.size(), 45);
         const auto phase1 = parse(bytes(QString::fromUtf8(NOVA_PHASE1_TOOLS)));
         QCOMPARE(phase1.size(), 32);
         const QSet<QString> previewEdits{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
@@ -709,28 +709,57 @@ class TexturePixelsTest : public QObject {
             runtime.insert(value.toObject()["name"].toString(), canonical(value.toObject()));
         for (auto it = phase1.begin(); it != phase1.end(); ++it) {
             auto now = runtime.value(it.key()), then = canonical(it.value().toObject());
+            // Later additions: complete annotations, the selection in document states, history steps.
+            auto annotations = now["annotations"].toObject();
+            QCOMPARE(annotations.take("title").toString().isEmpty(), false);
+            if (!annotations["readOnlyHint"].toBool()) {
+                QCOMPARE(annotations.take("destructiveHint").toBool(), it.key().startsWith("nova.drafts.save"));
+                QVERIFY(annotations.take("idempotentHint").isBool());
+            }
+            now["annotations"] = annotations;
+            auto output = now.value("outputSchema").toObject();
+            auto results = output.value("properties").toObject();
+            if (results.contains("revision") && results.contains("transactionId")) {
+                QCOMPARE(results.take("selection").toObject()["type"].toString(), "object");
+                if (it.key() == "nova.edit.undo" || it.key() == "nova.edit.redo")
+                    QCOMPARE(results.take("stepsApplied").toObject()["type"].toString(), "integer");
+            } else if (it.key() == "nova.edit.capabilities") {
+                auto document = results["document"].toObject();
+                auto state = document["properties"].toObject();
+                QCOMPARE(state.take("selection").toObject()["type"].toString(), "object");
+                document["properties"] = state;
+                results["document"] = document;
+            }
+            if (!output.isEmpty()) {
+                output["properties"] = results;
+                now["outputSchema"] = output;
+            }
             auto input = now["inputSchema"].toObject();
             const auto defs = input.take("$defs").toObject();
             input = expandSchema(input, defs).toObject();
             auto fields = input["properties"].toObject();
             QVERIFY(!fields.take("verbosity").isUndefined());
             fields.remove("include");
+            if (it.key() == "nova.edit.undo" || it.key() == "nova.edit.redo")
+                QCOMPARE(fields.take("steps").toObject()["maximum"].toInt(), 32);
             if (it.key() == "nova.vanilla.texture") // The legacy include controls image data.
                 fields["include"] = then["inputSchema"].toObject()["properties"].toObject()["include"];
             input["properties"] = fields;
             now["inputSchema"] = input;
             auto oldCommands = [](QJsonObject variants) {
+                static const QSet<QString> later{"select_rect", "select_ellipse", "select_polygon", "select_color",
+                                                 "select_all", "deselect", "invert_selection", "layer_select"};
                 QJsonArray commands;
                 for (const QJsonValue &variant : variants["oneOf"].toArray()) {
                     const auto name = variant["properties"]["command"]["enum"].toArray().at(0).toString();
-                    if (!nativeTextureCommand(name) && !nova::texture::compactCommand(name))
+                    if (!nativeTextureCommand(name) && !nova::texture::compactCommand(name) && !later.contains(name))
                         commands.append(variant);
                 }
                 variants["oneOf"] = commands;
                 return variants;
             };
             if (it.key() == "nova.texture.edit" || it.key() == "nova.edit.preview" || it.key() == "nova.edit.batch" ||
-                it.key() == "nova.workflow.plan" || it.key() == "nova.workflow.execute") {
+                it.key() == "nova.workflow.plan" || it.key() == "nova.workflow.execute" || it.key() == "nova.layer.edit") {
                 auto input = now["inputSchema"].toObject();
                 auto fields = input["properties"].toObject();
                 auto stripBatch = [&](QJsonObject &properties) {
@@ -909,13 +938,13 @@ class TexturePixelsTest : public QObject {
             }
             QVERIFY2(commands.size() > 0 && commands == fullCommands, qPrintable(name));
             if (name == "nova.edit.preview" || name.startsWith("nova.workflow."))
-                QVERIFY2(commands.size() == 48 && commands.contains("put_pixels") &&
+                QVERIFY2(commands.size() == 82 && commands.contains("put_pixels") &&
                          commands.contains("hue_saturation") && commands.contains("uv_rotate"), qPrintable(name));
             if (name == "nova.texture.edit")
-                QVERIFY2(commands.size() == 21 && commands.contains("fill_rect") && commands.contains("gen_noise") &&
+                QVERIFY2(commands.size() == 54 && commands.contains("fill_rect") && commands.contains("gen_noise") &&
                          !commands.contains("layer_add") && !commands.contains("put_pixels"), qPrintable(name));
             if (name == "nova.texture.adjust_bulk")
-                QVERIFY2(commands.size() == 7 && commands.contains("palette_remap") && commands.contains("colorize") &&
+                QVERIFY2(commands.size() == 16 && commands.contains("palette_remap") && commands.contains("colorize") &&
                          !commands.contains("fill_rect"), qPrintable(name));
             if (name == "nova.asset.create_preview")
                 QVERIFY2(commands.size() == 3 && commands.contains("texture") && commands.contains("model"),
@@ -1359,7 +1388,7 @@ class TexturePixelsTest : public QObject {
         QVERIFY2(client.exitCode() == 0, client.readAllStandardError().constData());
         const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
         QCOMPARE(summary["saved"].toString(), plain);
-        QCOMPARE(summary["tools"].toInt(), 44);
+        QCOMPARE(summary["tools"].toInt(), 45);
         QCOMPARE(summary["opened"].toString(), second);
         QCOMPARE(window.documents().all().size(), size_t(12));
         QCOMPARE(nova::EditorTestAccess::active(window), doc);

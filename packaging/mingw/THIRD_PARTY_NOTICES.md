@@ -124,12 +124,17 @@ included in this build.
 
 ## Material Symbols Outlined
 
-`nova-studio.exe` embeds the unmodified Material Symbols Outlined variable font, copyright 2026
-Google LLC, from the Google Material Design Icons project at commit
-`10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7` (SHA-256
-`f7837ba8573d9a7a74931618ced8307bc81f96d49af296bf6c8052c772ed5282`). It supplies command and
-editor-tool glyphs under the Apache License 2.0 (`MaterialSymbolsOutlined-LICENSE.txt`). The font
-and its license are also in the corresponding source archive under `assets/fonts/`.
+`nova-studio.exe` embeds a subset of the Material Symbols Outlined variable font, copyright 2026
+Google LLC, derived from the Google Material Design Icons project at commit
+`10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7` (upstream SHA-256
+`f7837ba8573d9a7a74931618ced8307bc81f96d49af296bf6c8052c772ed5282`). Per Apache License 2.0
+section 4(b), Nova Studio modified the font with `scripts/subset-material-font.py` (`fontTools`) to
+retain only the 73 unique glyph codepoints mapped in `src/ui/theme.cpp` while preserving all four
+variable axes (`FILL`, `GRAD`, `opsz`, `wght`) and upstream copyright/name tables (subset SHA-256
+`81cd837372f05491a2d8b163e9aa61f968fd178eb5d5dbb21043259cbd149778`). It supplies command and
+editor-tool glyphs under the Apache License 2.0 (`MaterialSymbolsOutlined-LICENSE.txt`). The font,
+modification notice (`assets/fonts/README.md`) and license are also in the corresponding source
+archive under `assets/fonts/`.
 
 ## Gradle wrapper 9.8.2
 

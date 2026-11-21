@@ -99,6 +99,60 @@ class Phase4i3ToolOptionsTests : public QObject {
         window.tools().setTool(nova::Tool::Brush);
         QCOMPARE(slider->value(), 67);
     }
+    // Controls on different pages that share one setting show its current value, shape
+    // values appear only for the shapes that use them, and [ / ] follow the active tool.
+    void optionsFollowSharedStateAndActiveTool() {
+        qApp->setProperty("settingsFile", temporary.filePath("options-state.ini"));
+        QElapsedTimer started;
+        started.start();
+        nova::Window window({}, {}, started);
+        window.findChild<nova::ToolOptionsBar *>("toolOptions")->show();
+        window.resize(1280, 800);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        waitForLazilyBuiltPages();
+        auto &tools = window.tools();
+        tools.setTool(nova::Tool::Fill);
+        auto fillOpacity = window.findChild<QSpinBox *>("fillOpacity");
+        QVERIFY(fillOpacity);
+        fillOpacity->setValue(128);
+        QCOMPARE(tools.fillOpacity, 128);
+        tools.setTool(nova::Tool::Gradient);
+        QCOMPARE(window.findChild<QSpinBox *>("gradientOpacity")->value(), 128);
+        tools.sampleComposite = true;
+        tools.setTool(nova::Tool::Eyedropper);
+        QVERIFY(window.findChild<QCheckBox *>("pickComposite")->isChecked());
+
+        tools.shape = nova::ops::ShapeKind::Rectangle;
+        tools.setTool(nova::Tool::Shape);
+        auto radius = window.findChild<QWidget *>("shapeRadius");
+        auto sides = window.findChild<QWidget *>("shapeSides");
+        auto inner = window.findChild<QWidget *>("shapeInner");
+        QVERIFY(radius && sides && inner);
+        QVERIFY(!radius->isVisible() && !sides->isVisible() && !inner->isVisible());
+        window.findChild<QComboBox *>("shapeKind")->setCurrentIndex(int(nova::ops::ShapeKind::Star));
+        QVERIFY(!radius->isVisible() && sides->isVisible() && inner->isVisible());
+        window.findChild<QComboBox *>("shapeKind")->setCurrentIndex(int(nova::ops::ShapeKind::RoundedRectangle));
+        QVERIFY(radius->isVisible() && !sides->isVisible() && !inner->isVisible());
+
+        const int thickness = tools.thickness;
+        window.findChild<QAction *>("brushLarger")->trigger();
+        QCOMPARE(tools.thickness, thickness + 1);
+        window.findChild<QAction *>("toolOpacity50")->trigger();
+        QCOMPARE(tools.shapeOpacity, 128);
+        tools.setTool(nova::Tool::Brush);
+        tools.brush(nova::Tool::Brush).size = 16;
+        window.findChild<QAction *>("brushLarger")->trigger();
+        QCOMPARE(tools.brush(nova::Tool::Brush).size, 18); // steps grow with the brush
+        window.findChild<QAction *>("toolOpacity100")->trigger();
+        QCOMPARE(tools.brush(nova::Tool::Brush).opacity, 255);
+        QVERIFY(!window.findChild<QCheckBox *>("pixelPerfect")->isVisible());
+        tools.setTool(nova::Tool::Pencil);
+        QVERIFY(window.findChild<QCheckBox *>("pixelPerfect")->isVisible());
+        QVERIFY(!window.findChild<QAction *>("repeatEffect")->isEnabled()); // nothing applied yet
+        auto hint = window.findChild<QLabel *>("statusToolHint");
+        QVERIFY(hint && hint->text().startsWith("Pencil (B)"));
+    }
     void pagesNeedingAScrollbarShowTheirControlsFully() {
         qApp->setProperty("settingsFile", temporary.filePath("studio.ini"));
         QElapsedTimer started;
@@ -110,6 +164,8 @@ class Phase4i3ToolOptionsTests : public QObject {
         QVERIFY(QTest::qWaitForWindowExposed(&window));
         QCOMPARE(window.size(), narrowWindow);
         waitForLazilyBuiltPages();
+        // Star shows every shape control (radius, sides and inner ratio hide for simpler shapes).
+        window.tools().shape = nova::ops::ShapeKind::Star;
         // Pencil was never clipped (it is the start-up page); shape and transform
         // were the clipped pages. The second round re-shows already-built pages.
         for (int round = 0; round < 2; ++round)
@@ -131,6 +187,8 @@ class Phase4i3ToolOptionsTests : public QObject {
         QVERIFY(QTest::qWaitForWindowExposed(&window));
         QCOMPARE(window.size(), narrowWindow);
         waitForLazilyBuiltPages();
+        // Star shows every shape control (radius, sides and inner ratio hide for simpler shapes).
+        window.tools().shape = nova::ops::ShapeKind::Star;
         // Every page except the start-up one is pre-built hidden; selecting it now
         // shows it for the first time already needing a scrollbar.
         for (auto tool : {nova::Tool::Shape, nova::Tool::Transform}) {

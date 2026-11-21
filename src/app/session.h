@@ -44,6 +44,7 @@ class DocumentSession : public QObject {
                 const StrokeStyle &style, bool finishStroke = false, QString *error = nullptr);
     void finishStroke(const std::shared_ptr<Document> &doc);
     void cancelStroke(const std::shared_ptr<Document> &doc);
+    bool revertStrokePixel(const std::shared_ptr<Document> &doc, QUuid layer, QPoint pixel, const StrokeStyle &style);
     bool select(const std::shared_ptr<Document> &doc, const QImage &shape, ops::Combine mode,
                 const QString &label = "Select", QString *error = nullptr);
     enum class SelectionCommand { All, None, Invert };

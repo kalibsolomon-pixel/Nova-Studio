@@ -7,12 +7,18 @@
 #include <QTemporaryDir>
 namespace nova {
 void Metrics::record(const QString &name, const QElapsedTimer &timer) {
-    auto &list = samples[name];
-    if (list.size() < 20000)
-        list.append(timer.nsecsElapsed() / 1e6);
+    // Read the clock first so the bookkeeping below is not part of the sample.
+    const double ms = timer.nsecsElapsed() / 1e6;
+    auto it = samples.find(name);
+    if (it == samples.end())
+        it = samples.insert(name, {});
+    // Full series stop growing: no append (and no QJsonArray detach) once at the cap.
+    if (it->size() < 20000)
+        it->append(ms);
 }
 void Metrics::count(const QString &name, qint64 value) {
-    counters[name] = counters.value(name).toDouble() + double(value);
+    auto it = counters.find(name);
+    counters.insert(name, (it == counters.end() ? 0.0 : it->toDouble()) + double(value));
 }
 bool Metrics::write(const QString &path) const {
     QJsonObject s;

@@ -522,7 +522,7 @@ tools = subprocess.run([str(sdk_python), str(root / 'tests/phase4g_sdk_tools.py'
                        env={**env, 'PATH': env['PATH']}, capture_output=True, text=True, timeout=120)
 listed = json.loads(tools.stdout) if tools.returncode == 0 else {}
 report['sdk'] = listed
-check('official MCP SDK lists 44 tools through the installed bridge', len(listed.get('tools', [])) == 44, tools.stderr[-400:])
+check('official MCP SDK lists 45 tools through the installed bridge', len(listed.get('tools', [])) == 45, tools.stderr[-400:])
 # Installer refuses to replace a running copy.
 before_running = tree(target)
 code = run_installer(target)

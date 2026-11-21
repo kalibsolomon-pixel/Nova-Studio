@@ -179,6 +179,7 @@ void Service::closeSocket() {
         stopReview("connection_closed");
     pendingEdit = false;
     workflow.reset();
+    queued.clear();
     ++editSequence;
     if (socket) {
         auto connection = std::exchange(socket, nullptr);
@@ -216,6 +217,25 @@ void Service::send(const QJsonObject &message) {
     if (socket->bytesToWrite() + line.size() > ResponseLimit * 2 || socket->write(line) < 0)
         dropConnection();
     emit responseQueued(queue);
+    // Every operation ends with a reply (or, when canceled, with its worker finishing), so a
+    // queued call is considered after each one.
+    scheduleDrain();
+}
+void Service::scheduleDrain() {
+    if (queued.isEmpty() || drainScheduled)
+        return;
+    drainScheduled = true;
+    QTimer::singleShot(0, this, &Service::drain);
+}
+void Service::drain() {
+    drainScheduled = false;
+    QScopedValueRollback scope(draining, true);
+    while (!pendingEdit && !worker && !queued.isEmpty() && socket && authenticated)
+        dispatch(queued.takeFirst());
+}
+void Service::sendProgress(const QJsonValue &token, int progress, int total, const QString &message) {
+    if (!token.isNull() && !token.isUndefined() && socket && authenticated)
+        send(progressNotification(token, progress, total, message));
 }
 void Service::receive() {
     // Yield after a small batch so malformed traffic cannot monopolize the GUI.
@@ -266,7 +286,12 @@ void Service::receive() {
         if (protocol.clientName() != previousClient)
             emit changed();
         if (!request.cancelId.isNull()) {
-            if (pendingEdit && request.cancelId == pendingId) {
+            const auto waiting = std::find_if(queued.begin(), queued.end(),
+                                              [&](const Request &item) { return item.id == request.cancelId; });
+            if (waiting != queued.end()) {
+                // Never started: drop it without a reply, as for a canceled read.
+                queued.erase(waiting);
+            } else if (pendingEdit && request.cancelId == pendingId) {
                 // Publication is synchronous and must report its actual outcome.
                 if (publishingEdit != editSequence) {
                     pendingEdit = false;
@@ -475,6 +500,8 @@ void Service::publishBulk(quint64 sequence, const std::shared_ptr<Workflow> &pro
             if (!path.isEmpty())
                 row["path"] = path;
             progress->results.append(row);
+            sendProgress(progress->progressToken, int(progress->results.size()), progress->total,
+                         QString("%1 %2").arg(rejected ? "Rejected" : "Committed", path.isEmpty() ? asset : path));
         }
     }
     if (!pendingEdit || sequence != editSequence)
@@ -535,6 +562,8 @@ void Service::publishWorkflow(quint64 sequence, const std::shared_ptr<Workflow> 
     if (!failed) {
         progress->results.append(result);
         updateReviewStage(index, "Committed", result);
+        sendProgress(progress->progressToken, int(progress->results.size()), progress->total,
+                     "Committed " + result["changeSummary"].toObject()["assetPath"].toString());
     }
     lastEdit = QString("Workflow · %1/%2 stages completed").arg(progress->results.size()).arg(progress->total);
     const auto path = result["changeSummary"].toObject()["assetPath"].toString();
@@ -596,13 +625,19 @@ void Service::dispatch(const Request &request) {
     if (request.tool != "nova.project.info" && request.arguments["generation"] != generation)
         return reject("stale_project", "The generation does not match this connection. Call nova.project.info "
                                        "and use its generation.");
-    if (pendingEdit || worker) {
-        if ((pendingEdit || !suppress) && request.id == pendingId) {
-            // A duplicate outstanding ID cannot be answered unambiguously.
+    // Waiting calls go first: a new call joins the queue until it is empty.
+    if (pendingEdit || worker || (!queued.isEmpty() && !draining)) {
+        // A duplicate outstanding ID, running or queued, cannot be answered unambiguously.
+        if (((pendingEdit || !suppress) && request.id == pendingId) ||
+            std::any_of(queued.cbegin(), queued.cend(), [&](const Request &item) { return item.id == request.id; })) {
             revoke();
             return;
         }
-        return reject("busy", "Another MCP operation is still running.");
+        if (queued.size() >= QueueLimit)
+            return reject("busy", QString("%1 earlier MCP operations of this connection are still running or "
+                                          "waiting; retry after one of them replies.").arg(queued.size() + 1));
+        queued.append(request);
+        return;
     }
     // Draft listing and adoption read live editor state synchronously, like capabilities.
     const bool adopt = request.tool == "nova.drafts.adopt";
@@ -616,6 +651,7 @@ void Service::dispatch(const Request &request) {
     const bool prepare = request.tool == "nova.workflow.prepare";
     const bool validate = request.tool == "nova.workflow.validate_changes";
     const bool mutation = execute || bulk || save || request.tool == "nova.asset.create" || request.tool == "nova.asset.open" ||
+        request.tool == "nova.asset.close" ||
         request.tool == "nova.pack.bootstrap" || request.tool.endsWith(".edit") ||
         !compactTextureCommand(request.tool).isEmpty() ||
         (request.tool.startsWith("nova.edit.") && !capability && !preview);
@@ -732,10 +768,22 @@ void Service::dispatch(const Request &request) {
                     stage.path = current.openAssetPaths.value(stage.assetId);
             try {
                 if (bulk) {
+                    // Fail before the first commit rather than at the target that finds no free tab.
+                    int opening = 0;
+                    for (const auto &value : request.arguments["targets"].toArray()) {
+                        const auto row = value.toObject();
+                        opening += row["expectedRevision"] == "current" && !current.openAssetPaths.contains(row["assetId"].toString());
+                    }
+                    if (current.freeDocumentSlots >= 0 && opening > current.freeDocumentSlots)
+                        return finish(toolError("open_limit", QString("%1 targets are not open, but only %2 more "
+                            "documents can be opened. Close documents without unsaved changes (nova.asset.close) or "
+                            "send fewer targets.").arg(opening).arg(current.freeDocumentSlots),
+                            {{"closedTargets", opening}, {"freeDocumentSlots", current.freeDocumentSlots}}));
                     const auto progress = std::make_shared<Workflow>();
                     progress->fullText = request.arguments["verbosity"] == "full";
                     progress->bulkTargets = request.arguments["targets"].toArray();
                     progress->total = int(progress->bulkTargets.size());
+                    progress->progressToken = request.progressToken;
                     progress->elapsed.start();
                     workflow = progress;
                     publishBulk(sequence, progress, std::make_shared<Snapshot>(std::move(current)),
@@ -788,6 +836,7 @@ void Service::dispatch(const Request &request) {
                     auto state = std::make_shared<Workflow>();
                     state->fullText = request.arguments["verbosity"] == "full";
                     state->total = int(stages.size());
+                    state->progressToken = request.progressToken;
                     workflow = state;
                     review.state = "Prepared";
                     lastEdit = QString("Workflow · %1 stages prepared").arg(state->total);
@@ -912,6 +961,7 @@ void Service::dispatch(const Request &request) {
             send(toolReply(pendingId, result, request.arguments["verbosity"] == "full"));
         }
         active->deleteLater();
+        scheduleDrain(); // a canceled read ends without a reply
     });
     // Relationship and cache requests may resolve a full vanilla resource stack (thousands of JSON files).
     const bool sourced = request.tool == "nova.asset.relationships" || request.tool == "nova.texture.analyze" ||

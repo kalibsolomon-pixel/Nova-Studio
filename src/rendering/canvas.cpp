@@ -45,6 +45,36 @@ QImage alphaMask(const QImage &rgba) {
 }
 } // namespace
 
+void blendPlaced(QImage &destination, const QImage &source, QPoint at) {
+    const QRect area = QRect(at, source.size()).intersected(destination.rect());
+    if (area.isEmpty())
+        return;
+    const bool direct = source.format() == QImage::Format_RGBA8888 &&
+                        destination.format() == QImage::Format_RGBA8888;
+    for (int y = area.top(); y <= area.bottom(); ++y) {
+        const int sy = y - at.y();
+        if (!direct) {
+            for (int x = area.left(); x <= area.right(); ++x) {
+                const QRgb s = source.pixel(x - at.x(), sy);
+                if (qAlpha(s))
+                    destination.setPixel(x, y, ops::blend(destination.pixel(x, y), s, 255));
+            }
+            continue;
+        }
+        const uchar *s = source.constScanLine(sy) + (area.left() - at.x()) * 4;
+        uchar *d = destination.scanLine(y) + area.left() * 4;
+        for (int x = area.left(); x <= area.right(); ++x, s += 4, d += 4) {
+            if (!s[3])
+                continue;
+            const QRgb out = ops::blend(qRgba(d[0], d[1], d[2], d[3]), qRgba(s[0], s[1], s[2], s[3]), 255);
+            d[0] = uchar(qRed(out));
+            d[1] = uchar(qGreen(out));
+            d[2] = uchar(qBlue(out));
+            d[3] = uchar(qAlpha(out));
+        }
+    }
+}
+
 Canvas::Canvas(std::shared_ptr<Document> doc, Metrics *m, QWidget *parent, ToolState *t)
     : QWidget(parent), document(std::move(doc)), metrics(m), tools(t) {
     if (!tools) {
@@ -188,12 +218,19 @@ void Canvas::paintEvent(QPaintEvent *) {
     // contains misleading checker subdivisions. Group whole pixels when tiny.
     // Colours come from the active theme (ui::Tokens::checkerDark/checkerLight).
     const auto &theme = ui::current();
-    QImage checker(2, 2, QImage::Format_RGB32);
-    checker.setPixel(0, 0, theme.checkerDark.rgb());
-    checker.setPixel(1, 1, theme.checkerDark.rgb());
-    checker.setPixel(1, 0, theme.checkerLight.rgb());
-    checker.setPixel(0, 1, theme.checkerLight.rgb());
-    QBrush transparency(checker);
+    if (!checkerValid || checkerDarkKey != theme.checkerDark.rgb() ||
+        checkerLightKey != theme.checkerLight.rgb()) {
+        QImage checker(2, 2, QImage::Format_RGB32);
+        checker.setPixel(0, 0, theme.checkerDark.rgb());
+        checker.setPixel(1, 1, theme.checkerDark.rgb());
+        checker.setPixel(1, 0, theme.checkerLight.rgb());
+        checker.setPixel(0, 1, theme.checkerLight.rgb());
+        checkerBrush = QBrush(checker);
+        checkerDarkKey = theme.checkerDark.rgb();
+        checkerLightKey = theme.checkerLight.rgb();
+        checkerValid = true;
+    }
+    QBrush transparency = checkerBrush;
     QTransform transform;
     const double cell = zoom * std::max(1.0, std::ceil(6.0 / zoom));
     transform.translate(target.left(), target.top());
@@ -370,6 +407,16 @@ void Canvas::paintEvent(QPaintEvent *) {
         p.drawLines(mapped);
         p.setPen(QPen(Qt::white, 1));
         p.drawLines(mapped);
+    } else if (hover && drag != Drag::Pan && document->image.rect().contains(*hover) &&
+               (tools->tool == Tool::Fill || tools->tool == Tool::Gradient || tools->tool == Tool::Eyedropper ||
+                tools->tool == Tool::MagicWand || tools->tool == Tool::ColorRange)) {
+        // Single-pixel tools outline the exact pixel they will sample or start from.
+        const QPointF at(*hover);
+        const QRectF target(widgetPosition(at), widgetPosition(at + QPointF(1, 1)));
+        p.setPen(QPen(Qt::black, 2));
+        p.drawRect(target);
+        p.setPen(QPen(Qt::white, 1));
+        p.drawRect(target);
     }
     QString status = QString("%1 × %2 RGBA  ·  %3%")
                          .arg(document->image.width())
@@ -383,8 +430,13 @@ void Canvas::paintEvent(QPaintEvent *) {
                       .arg(hover->y())
                       .arg(ops::colorName(document->image.pixel(*hover)));
     if (document->hasSelection() && !floating.active) {
-        const auto b = ops::maskBounds(document->selection());
-        status += QString("  ·  selection %1×%2").arg(b.width()).arg(b.height());
+        // Scanning the mask is O(pixels); the mask only changes with its cache key.
+        const qint64 selectionKey = document->selection().cacheKey();
+        if (selectionBoundsKey != selectionKey) {
+            selectionBoundsKey = selectionKey;
+            selectionBoundsCache = ops::maskBounds(document->selection());
+        }
+        status += QString("  ·  selection %1×%2").arg(selectionBoundsCache.width()).arg(selectionBoundsCache.height());
     }
     if (document->animated()) status += playbackPreview.isNull() ? " · Editing frame" : " · Playback preview (read only)";
     // The readout sits on its own translucent pill so it stays legible over any artwork.
@@ -430,6 +482,33 @@ void Canvas::paintAt(QPointF position, bool first) {
         return session ? session->stroke(document, layer(), from, pixel, style, false, e)
                        : document->stroke(layer(), from, pixel, style, e);
     });
+    // Pixel-perfect pencil: a Bresenham segment never has an L-shaped corner, so corners only
+    // form where segments join; the middle pixel of such a corner is put back.
+    const auto &b = style.brush;
+    if (tools->pixelPerfect && tools->tool == Tool::Pencil && b.size == 1 && b.height <= 1 &&
+        b.shape != ops::BrushShape::Custom) {
+        if (first)
+            perfectPath.clear();
+        for (const QPoint q : line(from, pixel)) {
+            if (!perfectPath.isEmpty() && perfectPath.last() == q)
+                continue;
+            perfectPath.append(q);
+            if (perfectPath.size() < 3)
+                continue;
+            const QPoint a = perfectPath[perfectPath.size() - 3], m = perfectPath[perfectPath.size() - 2];
+            const bool corner = (a.x() == m.x() || a.y() == m.y()) && (q.x() == m.x() || q.y() == m.y()) &&
+                                a.x() != q.x() && a.y() != q.y();
+            if (corner) {
+                if (session)
+                    session->revertStrokePixel(document, layer(), m, style);
+                else
+                    document->revertStrokePixel(layer(), m, style);
+                perfectPath.removeAt(perfectPath.size() - 2);
+            }
+            if (perfectPath.size() > 3)
+                perfectPath.removeFirst();
+        }
+    }
     lastPixel = pixel;
     metrics->record("brush_event_cpu", t);
 }
@@ -503,8 +582,8 @@ void Canvas::mousePressEvent(QMouseEvent *e) {
     if (e->button() != Qt::LeftButton || drag != Drag::None)
         return;
     const Tool t = tools->tool;
-    if ((isPaintTool(t) || t == Tool::Line || t == Tool::Shape) && (e->modifiers() & Qt::AltModifier) &&
-        !(e->modifiers() & Qt::ShiftModifier) && t != Tool::Shape) {
+    if ((isPaintTool(t) || t == Tool::Line || t == Tool::Fill || t == Tool::Gradient) &&
+        (e->modifiers() & Qt::AltModifier) && !(e->modifiers() & Qt::ShiftModifier)) {
         pickColor(pixel, false); // Alt-click: temporary eyedropper
         return;
     }
@@ -576,6 +655,7 @@ void Canvas::mousePressEvent(QMouseEvent *e) {
     }
     case Tool::Line:
         drag = Drag::Line;
+        lineScratch.reset();
         updateShapePreview();
         break;
     case Tool::Shape:
@@ -650,6 +730,7 @@ void Canvas::mouseMoveEvent(QMouseEvent *e) {
         e->accept();
         return;
     }
+    const auto previousHover = hover;
     hover = QPoint(int(std::floor(pos.x())), int(std::floor(pos.y())));
     if ((e->position() - pressMouse).manhattanLength() > 3)
         moved = true;
@@ -713,8 +794,17 @@ void Canvas::mouseMoveEvent(QMouseEvent *e) {
     }
     case Drag::Line:
     case Drag::Shape:
+        current = pos;
+        updateShapePreview();
+        break;
     case Drag::Gradient:
         current = pos;
+        if (e->modifiers() & Qt::ShiftModifier) {
+            // Snap the gradient direction to 0/45/90°, keeping its length.
+            const QPointF d = pos - anchor;
+            const double t = std::round(std::atan2(d.y(), d.x()) / (Pi / 4)) * (Pi / 4);
+            current = anchor + QPointF(std::cos(t), std::sin(t)) * std::hypot(d.x(), d.y());
+        }
         updateShapePreview();
         break;
     case Drag::None:
@@ -724,6 +814,9 @@ void Canvas::mouseMoveEvent(QMouseEvent *e) {
         break;
     }
     lastMouse = e->position();
+    // An idle hover repaints only when the pixel under the cursor (footprint, readout) changes.
+    if (drag == Drag::None && !polygonOpen && previousHover == hover)
+        return;
     update();
 }
 void Canvas::mouseReleaseEvent(QMouseEvent *e) {
@@ -765,6 +858,7 @@ void Canvas::mouseReleaseEvent(QMouseEvent *e) {
             end = a + QPoint(int(std::lround(std::cos(t) * len)), int(std::lround(std::sin(t) * len)));
         }
         preview = {};
+        lineScratch.reset();
         run([&](QString *err) {
             return session ? session->stroke(document, layer(), a, end, style, true, err)
                            : (document->stroke(layer(), a, end, style, err) ? (document->finish(), true) : false);
@@ -934,6 +1028,7 @@ void Canvas::cancelInteraction() {
     polygonOpen = false;
     path.clear();
     preview = {};
+    lineScratch.reset();
     if (floating.active)
         cancelFloating();
     notify();
@@ -1098,22 +1193,39 @@ void Canvas::refreshFloating() {
     const auto l = document->layer(layer());
     if (!l)
         return;
-    QImage base = l->pixels.copy();
-    if (!floating.lift.isNull())
-        for (int y = 0; y < base.height(); ++y) {
-            auto row = base.scanLine(y);
+    // The lifted hole is constant while the content moves: build it once per session (or when
+    // the document changed) and, per move, only rewind the previous stamp and place the new one.
+    const bool rebuild = floating.working.isNull() || floating.workingLayer != l->id ||
+                         floating.workingSerial != document->changeSerial() ||
+                         floating.working.size() != l->pixels.size() ||
+                         floating.working.format() != l->pixels.format();
+    // The layer's pixels over `area` with the lifted selection's alpha removed (RGB untouched).
+    auto lifted = [&](QImage &out, const QRect &area) {
+        const bool lifts = !floating.lift.isNull();
+        for (int y = area.top(); y <= area.bottom(); ++y) {
+            auto source = l->pixels.constScanLine(y);
+            auto row = out.scanLine(y);
+            std::copy_n(source + area.left() * 4, area.width() * 4, row + area.left() * 4);
+            if (!lifts)
+                continue;
             auto m = floating.lift.constScanLine(y);
-            for (int x = 0; x < base.width(); ++x)
+            for (int x = area.left(); x <= area.right(); ++x)
                 row[x * 4 + 3] = uchar(row[x * 4 + 3] * (255 - m[x]) / 255);
         }
-    for (int y = 0; y < floating.cached.height(); ++y)
-        for (int x = 0; x < floating.cached.width(); ++x) {
-            const QPoint q = floating.placed + QPoint(x, y);
-            const QRgb s = floating.cached.pixel(x, y);
-            if (qAlpha(s) && base.rect().contains(q))
-                base.setPixel(q, ops::blend(base.pixel(q), s, 255));
-        }
-    preview = document->compositeWith(layer(), base);
+    };
+    if (rebuild) {
+        floating.working = QImage(l->pixels.size(), l->pixels.format());
+        floating.workingLayer = l->id;
+        floating.workingSerial = document->changeSerial();
+        floating.workingStamp = {};
+        if (!floating.working.isNull())
+            lifted(floating.working, floating.working.rect());
+    } else if (!floating.workingStamp.isEmpty()) {
+        lifted(floating.working, floating.workingStamp);
+    }
+    blendPlaced(floating.working, floating.cached, floating.placed);
+    floating.workingStamp = QRect(floating.placed, floating.cached.size()).intersected(floating.working.rect());
+    preview = document->compositeWith(layer(), floating.working);
     update();
 }
 bool Canvas::commitFloating(bool asNewLayer) {
@@ -1129,12 +1241,20 @@ bool Canvas::commitFloating(bool asNewLayer) {
     }
     QImage placed(document->image.size(), QImage::Format_RGBA8888);
     placed.fill(Qt::transparent);
-    for (int y = 0; y < floating.cached.height(); ++y)
-        for (int x = 0; x < floating.cached.width(); ++x) {
-            const QPoint q = floating.placed + QPoint(x, y);
-            if (placed.rect().contains(q))
-                placed.setPixel(q, floating.cached.pixel(x, y));
-        }
+    if (floating.cached.format() == QImage::Format_RGBA8888) {
+        const QRect area = QRect(floating.placed, floating.cached.size()).intersected(placed.rect());
+        for (int y = area.top(); y <= area.bottom() && !area.isEmpty(); ++y)
+            std::copy_n(floating.cached.constScanLine(y - floating.placed.y()) +
+                            (area.left() - floating.placed.x()) * 4,
+                        area.width() * 4, placed.scanLine(y) + area.left() * 4);
+    } else {
+        for (int y = 0; y < floating.cached.height(); ++y)
+            for (int x = 0; x < floating.cached.width(); ++x) {
+                const QPoint q = floating.placed + QPoint(x, y);
+                if (placed.rect().contains(q))
+                    placed.setPixel(q, floating.cached.pixel(x, y));
+            }
+    }
     const QImage selection = alphaMask(placed);
     const QImage lift = floating.lift;
     const QString label = floating.label;
@@ -1213,10 +1333,22 @@ void Canvas::updateShapePreview() {
     const QImage *selection = document->hasSelection() ? &document->selection() : nullptr;
     QImage pixels;
     if (tools->tool == Tool::Line && drag == Drag::Line) {
-        // Preview the exact stroke engine result on a scratch document.
-        Document scratch(QString(), l->pixels);
-        if (selection)
-            scratch.setSelection(*selection);
+        // Preview the exact stroke engine result on a scratch document that lives for the
+        // drag: each move rewinds the previous preview stroke with undo instead of rebuilding
+        // (and re-hashing) a document. It is rebuilt if the source layer changed underneath.
+        if (!lineScratch || lineScratchSerial != document->changeSerial() || lineScratchLayer != l->id) {
+            lineScratch = std::make_unique<Document>(QString(), l->pixels);
+            // The scratch is rewound, never pruned: keep its single stroke inside the history.
+            lineScratch->setHistoryLimits(512LL * 1024 * 1024, 8);
+            if (selection)
+                lineScratch->setSelection(*selection);
+            lineScratchSerial = document->changeSerial();
+            lineScratchLayer = l->id;
+            lineScratchBase = lineScratch->historyCursor();
+        }
+        auto &scratch = *lineScratch;
+        while (scratch.historyCursor() > lineScratchBase)
+            scratch.undo();
         scratch.stroke(scratch.activeLayer(), clampPixel(anchor), clampPixel(current), tools->strokeStyle(Tool::Line));
         scratch.finish();
         pixels = scratch.layers()[0].pixels;

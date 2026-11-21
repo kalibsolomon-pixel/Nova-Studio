@@ -443,6 +443,27 @@ class RelationshipsTest : public QObject {
         QVERIFY(!flowing.contains("_pngImage"));
         QCOMPARE(flowing["imageIncluded"].toBool(), false);
         QCOMPARE(flowing["animationMetadata"].toObject()["json"].toObject()["animation"].toObject()["frametime"].toInt(), 2);
+        // Vision-sized copies: enlarged without blur, with texel lines on request; the metadata still
+        // describes the cached file.
+        auto enlarged = run(s, "nova.vanilla.texture", {{"version", "1.21.11"}, {"path", stone}, {"maxEdge", 128},
+                                                        {"pixelGrid", true}});
+        QVERIFY2(conforms("nova.vanilla.texture", enlarged, &why), qPrintable(why));
+        QCOMPARE(enlarged["width"].toInt(), 16);
+        QCOMPARE(enlarged["sha256"].toString(), sha(cacheFiles()[stone]));
+        QCOMPARE(enlarged["preview"].toObject()["width"].toInt(), 128);
+        QCOMPARE(enlarged["preview"].toObject()["pixelGrid"].toBool(), true);
+        const auto source = QImage::fromData(cacheFiles()[stone], "PNG").convertToFormat(QImage::Format_ARGB32);
+        const auto shown = QImage::fromData(QByteArray::fromBase64(enlarged["_pngImage"].toString().toLatin1()), "PNG")
+                               .convertToFormat(QImage::Format_ARGB32);
+        QCOMPARE(shown.size(), QSize(128, 128));
+        QCOMPARE(shown.pixel(3, 3), source.pixel(0, 0)); // inside the first texel, away from grid lines
+        QVERIFY(shown.pixel(8, 3) != source.pixel(1, 0) || source.pixel(1, 0) == qRgb(0, 0, 0)); // a grid line
+        const QString big = QString(T) + "gui/big.png";
+        auto reduced = run(s, "nova.vanilla.texture", {{"version", "1.21.11"}, {"path", big}, {"maxEdge", 64}});
+        QVERIFY2(!reduced.contains("error"), QJsonDocument(reduced).toJson().constData());
+        QCOMPARE(reduced["width"].toInt(), 320);
+        QCOMPARE(reduced["preview"].toObject()["width"].toInt(), 64);
+        QVERIFY(!run(s, "nova.vanilla.texture", {{"version", "1.21.11"}, {"path", stone}}).contains("preview"));
         // The cache was only read.
         QCOMPARE(fingerprint(cacheRoot), before);
         QVERIFY(!QFileInfo::exists(cacheRoot + "/cache.lock"));
@@ -1075,7 +1096,7 @@ class RelationshipsTest : public QObject {
     // Tool definitions, schema compliance of errors and the documentation's exact definitions.
     void schemas() {
         const auto definitions = toolDefinitions();
-        QCOMPARE(definitions.size(), 44);
+        QCOMPARE(definitions.size(), 45);
         QMap<QString, QJsonObject> runtime;
         for (const auto &value : definitions)
             runtime.insert(value.toObject()["name"].toString(), value.toObject());
@@ -1305,7 +1326,7 @@ class RelationshipsTest : public QObject {
             qInfo().noquote() << "SDK phase3" << output;
             QVERIFY2(sdk.exitCode() == 0, sdk.readAllStandardError().constData());
             const auto summary = QJsonDocument::fromJson(output.trimmed().split('\n').last()).object();
-            QCOMPARE(summary["tools"].toInt(), 44);
+            QCOMPARE(summary["tools"].toInt(), 45);
         } else {
             qInfo() << "NOVA_MCP_SDK_PYTHON is not set: official SDK part skipped";
         }

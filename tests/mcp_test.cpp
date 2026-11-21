@@ -201,17 +201,32 @@ class McpTest : public QObject {
             return QJsonDocument::fromJson(block["text"].toString().toUtf8()).object();
         };
         const auto list = result(protocol.receive(request(5, "tools/list")).response)["tools"].toArray();
-        QCOMPARE(list.size(), 44);
+        QCOMPARE(list.size(), 45);
         // The listing omits the spec-optional outputSchema (a size decision; structuredContent is
-        // unchanged). The full definitions still carry exactly 38 for the result-conformance
+        // unchanged). The full definitions still carry exactly 39 for the result-conformance
         // checks, so count them there.
         int schemas = 0;
         for (const auto &entry : toolDefinitions())
             schemas += entry.toObject().contains("outputSchema");
-        QCOMPARE(schemas, 38);
+        QCOMPARE(schemas, 39);
+        QSet<QString> titles;
         for (const auto &entry : list) {
             const auto tool = entry.toObject();
             QVERIFY2(!tool.contains("outputSchema"), qPrintable(tool["name"].toString()));
+            // Complete annotations: a distinct title; writes say whether they are destructive (only the
+            // saves overwrite pack files) and whether a repeated call changes anything more.
+            const auto name = tool["name"].toString();
+            const auto annotations = tool["annotations"].toObject();
+            const auto title = annotations["title"].toString();
+            QVERIFY2(!title.isEmpty() && title != name && !titles.contains(title), qPrintable(name));
+            titles.insert(title);
+            QCOMPARE(annotations["openWorldHint"].toBool(true), false);
+            if (annotations["readOnlyHint"].toBool()) {
+                QVERIFY2(!annotations.contains("destructiveHint") && !annotations.contains("idempotentHint"), qPrintable(name));
+            } else {
+                QCOMPARE(annotations["destructiveHint"].toBool(), name == "nova.drafts.save" || name == "nova.drafts.save_all");
+                QCOMPARE(annotations["idempotentHint"].toBool(), name != "nova.texture.adjust_bulk");
+            }
             const auto rejected = result(protocol.receive(call(6, tool["name"].toString(), {{"unexpected", 1}})).response);
             QVERIFY2(rejected["isError"].toBool() && !rejected.contains("structuredContent"),
                      qPrintable(tool["name"].toString()));
@@ -398,7 +413,7 @@ class McpTest : public QObject {
         QTRY_VERIFY(status->text().startsWith("Connected"));
         saveScreenshot(dialog, "connected");
         client.write(request(2, "tools/list"));
-        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 44);
+        QCOMPARE(receive(client)["result"].toObject()["tools"].toArray().size(), 45);
         client.write("broken\n");
         QCOMPARE(receive(client)["error"].toObject()["code"].toInt(), -32700);
 

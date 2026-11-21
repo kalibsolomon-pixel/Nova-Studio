@@ -153,6 +153,45 @@ QString statusWord(const QString &state) {
     return "Pending";
 }
 
+// ACP ToolKind as a word; "other" and unknown kinds add nothing.
+QString kindWord(const QString &kind) {
+    static const QHash<QString, QString> words{
+        {"read", "Read"}, {"edit", "Edit"}, {"delete", "Delete"}, {"move", "Move"}, {"search", "Search"},
+        {"execute", "Run"}, {"think", "Think"}, {"fetch", "Fetch"}, {"switch_mode", "Mode change"}};
+    return words.value(kind);
+}
+
+QString byteSize(qint64 bytes) {
+    return bytes >= 1024 * 1024 ? QString("%1 MB").arg(double(bytes) / (1024 * 1024), 0, 'f', 1)
+                                : QString("%1 KB").arg(qMax<qint64>(1, (bytes + 1023) / 1024));
+}
+
+// Markdown punctuation in agent-supplied names stays literal.
+QString markdownLiteral(QString text) {
+    static const QRegularExpression special(R"(([\\`*_{}\[\]()<>#+!|~-]))");
+    return text.replace(special, "\\\\1");
+}
+
+// One plain line for a non-text content block. Nothing is fetched, decoded or played.
+QString contentSummary(const QJsonObject &content) {
+    const auto type = content["type"].toString();
+    const auto mime = agentDisplayText(content["mimeType"].toString(), 60).simplified();
+    const auto bytes = qint64(content["data"].toString().size()) * 3 / 4; // base64
+    if (type == "resource_link") {
+        const auto name = agentDisplayText(content["title"].toString(content["name"].toString()), 160).simplified();
+        const auto uri = agentDisplayText(content["uri"].toString(), 400).simplified();
+        return name.isEmpty() || name == uri ? "Link: " + uri : "Link: " + name + " (" + uri + ')';
+    }
+    if (type == "image")
+        return QString("Image (%1, %2) not shown").arg(mime.isEmpty() ? "unknown type" : mime, byteSize(bytes));
+    if (type == "audio")
+        return QString("Audio (%1, %2) not played").arg(mime.isEmpty() ? "unknown type" : mime, byteSize(bytes));
+    if (type == "resource")
+        return "Attached resource: " +
+               agentDisplayText(content["resource"].toObject()["uri"].toString(), 400).simplified();
+    return {};
+}
+
 QString jsonText(const QJsonValue &value) {
     if (value.isObject() || value.isArray()) {
         const auto doc = value.isObject() ? QJsonDocument(value.toObject()) : QJsonDocument(value.toArray());
@@ -188,7 +227,8 @@ class AgentConversation::Message final : public QWidget {
 
 class AgentConversation::Tool final : public QFrame {
   public:
-    explicit Tool(QWidget *parent) : QFrame(parent) {
+    int turn;
+    Tool(int started, QWidget *parent) : QFrame(parent), turn(started) {
         setObjectName("acpToolCard");
         setProperty("role", "card");
         auto outer = new QVBoxLayout(this);
@@ -216,20 +256,38 @@ class AgentConversation::Tool final : public QFrame {
             title = agentDisplayText(update["title"].toString(), 44).simplified();
         if (update["status"].isString())
             state = update["status"].toString().left(32);
+        if (update["kind"].isString())
+            kind = kindWord(update["kind"].toString());
         // ACP v1 has no structured MCP-server field. This label describes the agent's
         // reported call and plays no part in authorization.
         static const QRegularExpression novaTool(R"(\bnova\.[a-z_][a-z0-9_]*\.[a-z0-9_.]+\b)");
         const auto source = novaTool.match(title).hasMatch() ? "Nova tool" : "Agent tool";
         toggle->setText(QString("%1 · %2").arg(source, title));
         icon->setStatus(state);
-        stateLabel->setText(statusWord(state));
-        if (update.contains("rawInput") && !update["rawInput"].isNull())
+        stateLabel->setText(kind.isEmpty() ? statusWord(state) : kind + " · " + statusWord(state));
+        bool changed = false;
+        if (update.contains("rawInput") && !update["rawInput"].isNull()) {
             input = "Input\n" + jsonText(update["rawInput"]);
-        if (update.contains("rawOutput") && !update["rawOutput"].isNull())
+            changed = true;
+        }
+        if (update.contains("rawOutput") && !update["rawOutput"].isNull()) {
             output = "Output\n" + jsonText(update["rawOutput"]);
-        if (update["content"].isArray())
+            changed = true;
+        }
+        if (update["content"].isArray()) {
             readContent(update["content"].toArray());
+            changed = true;
+        }
+        if (update["locations"].isArray()) {
+            readLocations(update["locations"].toArray());
+            changed = true;
+        }
+        // A status-only update leaves the details as they are.
+        if (!changed && !details->text().isEmpty())
+            return;
         QStringList lines;
+        if (!places.isEmpty())
+            lines << places;
         if (!input.isEmpty())
             lines << input;
         if (!output.isEmpty())
@@ -239,8 +297,22 @@ class AgentConversation::Tool final : public QFrame {
     }
 
   private:
-    QString title = "Tool call", state, input, output;
+    QString title = "Tool call", state, kind, input, output, places;
     QStringList contentLines;
+
+    void readLocations(const QJsonArray &items) {
+        QStringList paths;
+        for (qsizetype i = 0; i < qMin<qsizetype>(items.size(), 8); ++i) {
+            const auto item = items.at(i).toObject();
+            auto path = agentDisplayText(item["path"].toString(), 200).simplified();
+            if (path.isEmpty())
+                continue;
+            if (item["line"].isDouble())
+                path += ':' + QString::number(qint64(item["line"].toDouble()));
+            paths << path;
+        }
+        places = paths.isEmpty() ? QString{} : (paths.size() == 1 ? "Location\n" : "Locations\n") + paths.join('\n');
+    }
     ActivityIcon *icon;
     QLabel *details, *stateLabel;
     QToolButton *toggle;
@@ -252,6 +324,8 @@ class AgentConversation::Tool final : public QFrame {
             const auto content = item["content"].toObject();
             if (item["type"] == "content" && content["type"] == "text")
                 contentLines << agentDisplayText(content["text"].toString(), 1200);
+            else if (const auto summary = contentSummary(content); item["type"] == "content" && !summary.isEmpty())
+                contentLines << summary;
             else if (item["type"] == "diff")
                 contentLines << "Changes to " + agentDisplayText(item["path"].toString(), 200) +
                                 "\nBefore\n" + agentDisplayText(item["oldText"].toString(), 800) +
@@ -280,18 +354,28 @@ AgentConversation::AgentConversation(QWidget *parent) : QScrollArea(parent) {
         if (follow)
             bar->setValue(end);
     });
+    flushTimer.setSingleShot(true);
+    flushTimer.setInterval(FlushInterval);
+    connect(&flushTimer, &QTimer::timeout, this, &AgentConversation::flush);
 }
 
 void AgentConversation::append(QWidget *row) {
     rows->insertWidget(rows->count() - 1, row);
-    if (rows->count() <= RowLimit + 1)
-        return;
+    if (rows->count() > RowLimit + 1)
+        evictOldest();
+}
+
+void AgentConversation::evictOldest() {
     const auto oldest = rows->takeAt(0);
     auto widget = oldest->widget();
     if (widget == plan)
         plan = nullptr;
-    if (auto tool = dynamic_cast<Tool *>(widget))
+    if (widget == active)
+        active = nullptr;
+    if (auto tool = dynamic_cast<Tool *>(widget); tool && tools.value(tools.key(tool)) == tool)
         tools.remove(tools.key(tool));
+    if (auto message = dynamic_cast<Message *>(widget))
+        characters -= message->characters;
     delete widget;
     delete oldest;
 }
@@ -299,20 +383,65 @@ void AgentConversation::append(QWidget *row) {
 void AgentConversation::add(Speaker speaker, const QString &text) {
     if (text.isEmpty())
         return;
-    if (!active || active->speaker != speaker || speaker == Speaker::You) {
+    if (speaker == Speaker::You) {
+        finishMessage(); // your message always starts its own row, at once
+        pendingSpeaker = speaker;
+        pending = text;
+        return flush();
+    }
+    if (!pending.isEmpty() && pendingSpeaker != speaker)
+        flush();
+    pendingSpeaker = speaker;
+    pending += text;
+    // One insert and one relayout per frame, however many chunks the agent sent.
+    if (pending.size() >= 64 * 1024)
+        flush();
+    else if (!flushTimer.isActive())
+        flushTimer.start();
+}
+
+void AgentConversation::addContent(Speaker speaker, const QJsonObject &content) {
+    if (content["type"] == "resource_link" && speaker == Speaker::Agent) {
+        // Shown as a link; Nova does not open or fetch it (MessageBody loads no resources).
+        auto uri = agentDisplayText(content["uri"].toString(), 400).simplified();
+        uri.replace(' ', "%20").replace('<', "%3C").replace('>', "%3E");
+        const auto name = agentDisplayText(content["title"].toString(content["name"].toString()), 160).simplified();
+        if (uri.isEmpty())
+            return;
+        const auto label = name.isEmpty() ? uri : name;
+        auto link = QString("[%1](<%2>)").arg(markdownLiteral(label), uri);
+        if (label != uri)
+            link += " (" + markdownLiteral(uri) + ')';
+        return add(speaker, "\n\n" + link + "\n\n");
+    }
+    const auto summary = contentSummary(content);
+    if (!summary.isEmpty())
+        add(speaker, "\n\n" + (speaker == Speaker::Agent ? '*' + markdownLiteral(summary) + '*' : summary) + "\n\n");
+}
+
+void AgentConversation::flush() {
+    flushTimer.stop();
+    if (pending.isEmpty())
+        return;
+    const auto text = std::exchange(pending, {});
+    if (!active || active->speaker != pendingSpeaker) {
         finishMessage();
-        active = new Message(speaker, widget());
+        active = new Message(pendingSpeaker, widget());
         append(active);
     }
     const auto remaining = MessageLimit - active->characters;
-    if (remaining > 0) {
-        const auto chunk = agentDisplayText(text, remaining);
-        active->characters += int(chunk.size());
-        active->body->appendText(chunk);
-    }
+    if (remaining <= 0)
+        return;
+    const auto chunk = agentDisplayText(text, remaining);
+    active->characters += int(chunk.size());
+    characters += chunk.size();
+    active->body->appendText(chunk);
+    while (characters > CharacterBudget && rows->count() > 2)
+        evictOldest();
 }
 
 void AgentConversation::finishMessage() {
+    flush();
     if (active && active->speaker == Speaker::Agent)
         active->body->finishMarkdown();
     active = nullptr;
@@ -323,9 +452,11 @@ void AgentConversation::showTool(const QJsonObject &update) {
     if (id.isEmpty())
         return;
     auto tool = tools.value(id);
-    if (!tool) {
+    // A tool_call starts a call; an id an agent reuses in a later turn gets a new card. A late
+    // tool_call_update after the turn ended still finds the card it belongs to.
+    if (!tool || (update["sessionUpdate"] == "tool_call" && tool->turn != turn)) {
         finishMessage();
-        tool = new Tool(widget());
+        tool = new Tool(turn, widget());
         tools.insert(id, tool);
         append(tool);
     }
@@ -371,7 +502,7 @@ void AgentConversation::showPlan(const QJsonArray &entries) {
 
 void AgentConversation::finishTurn() {
     finishMessage();
-    tools.clear();
+    ++turn;
     plan = nullptr;
 }
 } // namespace nova

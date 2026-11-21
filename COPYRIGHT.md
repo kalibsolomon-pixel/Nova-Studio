@@ -33,7 +33,7 @@ These keep their own licenses. Nova Studio's license does not change them.
 | Material | Where | License / status |
 | --- | --- | --- |
 | Gradle wrapper 9.8.2 (unmodified jar, embedded in `nova-studio.exe`) | `assets/fabric-runtime/gradle-wrapper-9.8.2.jar` | Apache-2.0 (vendor: Gradle, Inc., per the jar manifest; license text inside the jar at `META-INF/LICENSE`) |
-| Material Symbols Outlined variable font (unmodified, embedded in `nova-studio.exe`), copyright 2026 Google LLC | `assets/fonts/MaterialSymbolsOutlined.ttf` | Apache-2.0 (`assets/fonts/MaterialSymbolsOutlined-LICENSE.txt`) |
+| Material Symbols Outlined variable font (subsetted to the 73 mapped glyphs via `scripts/subset-material-font.py`, embedded in `nova-studio.exe`; see `assets/fonts/README.md`), copyright 2026 Google LLC | `assets/fonts/MaterialSymbolsOutlined.ttf` | Apache-2.0 (`assets/fonts/MaterialSymbolsOutlined-LICENSE.txt`) |
 | Test fixture artwork and model JSON | `fixtures/phase-2c5-models/`, `fixtures/phase-2c6-models/`, `fixtures/phase-2c7-authoring/`, `fixtures/model-preview/` | CC0-1.0, as stated in each folder's `LICENSE.txt` |
 | Qt, compiler runtimes, and their third-party code | Not in this repository; selected components ship with each binary build | Their own licenses: GCC builds use `packaging/mingw/THIRD_PARTY_NOTICES.md`; legacy MSVC builds use `packaging/THIRD_PARTY_NOTICES.md` |
 | Screenshots of the Minecraft Java Edition client taken during development testing | Not in this repository or in any package. Kept only in the private development history | Contain Mojang's game artwork and interface. Not licensed by Nova Studio and not covered by the GPL |

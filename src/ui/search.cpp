@@ -8,6 +8,9 @@
 #include "window.h"
 #include <QtWidgets>
 #include <algorithm>
+#include <cstddef>
+#include <utility>
+#include <vector>
 
 namespace nova {
 namespace {
@@ -161,6 +164,9 @@ void SearchIndex::finish() {
         entry.haystack = QStringList{entry.title, entry.keywords.join(' '), entry.location, entry.category,
                                      entry.description}.join(' ').toLower();
     }
+    // A caller that already holds the lower-cased paths (cached per index generation) skips this.
+    if (assetsLower.size() == assets.size())
+        return;
     assetsLower.clear();
     assetsLower.reserve(assets.size());
     for (const auto &asset : assets)
@@ -178,7 +184,9 @@ QList<SearchIndex::Result> SearchIndex::query(const QString &text, int limit) co
     // Assets: only once a query is specific enough; file names rank above folders.
     if (q.size() >= 2 && !assets.isEmpty()) {
         const auto tokens = q.split(' ', Qt::SkipEmptyParts);
-        QList<Result> found;
+        // (score, position): only the best 25 are ever shown, so rank bare pairs and build the
+        // results for those. Position breaks ties, which is what a stable sort would keep.
+        std::vector<std::pair<int, qsizetype>> found;
         for (qsizetype i = 0; i < assetsLower.size(); ++i) {
             const auto &path = assetsLower[i];
             bool all = true;
@@ -189,12 +197,17 @@ QList<SearchIndex::Result> SearchIndex::query(const QString &text, int limit) co
                 }
             if (!all)
                 continue;
-            const auto name = path.mid(path.lastIndexOf('/') + 1);
+            const QStringView name = QStringView(path).mid(path.lastIndexOf('/') + 1);
             const int score = name.startsWith(q) ? 30 : name.contains(q) ? 20 : name.contains(tokens.first()) ? 14 : 8;
-            found.append({-1, assets[i], score});
+            found.emplace_back(score, i);
         }
-        std::stable_sort(found.begin(), found.end(), [](const Result &a, const Result &b) { return a.score > b.score; });
-        results += found.mid(0, 25);
+        const auto better = [](const auto &a, const auto &b) {
+            return a.first != b.first ? a.first > b.first : a.second < b.second;
+        };
+        const auto top = std::min<size_t>(found.size(), 25);
+        std::partial_sort(found.begin(), found.begin() + std::ptrdiff_t(top), found.end(), better);
+        for (size_t i = 0; i < top; ++i)
+            results.append({-1, assets[found[i].second], found[i].first});
     }
     std::stable_sort(results.begin(), results.end(), [this](const Result &a, const Result &b) {
         if (a.score != b.score)
@@ -379,6 +392,7 @@ void SearchDialog::filter() {
     results = index.query(query->text());
     const QSignalBlocker block(list);
     list->clear();
+    static const QRegularExpression nonEmpty(".");
     for (const auto &result : std::as_const(results)) {
         auto item = new QListWidgetItem;
         QString title, right, accessible;
@@ -390,7 +404,7 @@ void SearchDialog::filter() {
             right = (unavailable ? "Unavailable · " : "") + entry.category +
                     (entry.shortcut.isEmpty() ? QString{} : "    " + entry.shortcut);
             accessible = QStringList{title, entry.category, entry.shortcut, unavailable ? "unavailable" : ""}
-                             .filter(QRegularExpression(".")).join(", ");
+                             .filter(nonEmpty).join(", ");
         } else {
             title = QFileInfo(result.asset).fileName();
             right = "Asset";
@@ -657,9 +671,20 @@ SearchIndex Window::searchIndex() {
     index.entries << setup;
 
     // Assets from the in-memory index: textures and models that open in Nova.
-    for (const auto &file : std::as_const(collection.files))
-        if (file.endsWith(".png") || (file.endsWith(".json") && file.contains("/models/")))
-            index.assets << file;
+    // The filtered and lower-cased list only changes when the collection is replaced.
+    if (!searchAssetsBuilt || searchAssetsSerial != collectionSerial) {
+        searchAssets.clear();
+        searchAssetsLower.clear();
+        for (const auto &file : std::as_const(collection.files))
+            if (file.endsWith(".png") || (file.endsWith(".json") && file.contains("/models/"))) {
+                searchAssets << file;
+                searchAssetsLower << file.toLower();
+            }
+        searchAssetsSerial = collectionSerial;
+        searchAssetsBuilt = true;
+    }
+    index.assets = searchAssets;
+    index.assetsLower = searchAssetsLower;
     index.openAsset = [this](const QString &asset) { openRelatedAsset(asset); };
     index.finish();
     return index;

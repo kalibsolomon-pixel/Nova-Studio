@@ -9,10 +9,12 @@
 #include <QImage>
 #include <QJsonObject>
 #include <QMatrix4x4>
+#include <QMutex>
 #include <QSet>
 #include <QVector2D>
 #include <QVector3D>
 #include <array>
+#include <atomic>
 
 namespace nova::mc {
 enum class GuiLight { Side, Front };
@@ -63,6 +65,26 @@ class Library {
     QMap<QString, AssetIdentity> records;
     QMap<QString, QSet<QString>> forward, reverse;
     QHash<QString, Model> cache;
+    // Resolved models for the const, thread-safe modelConst(). Copies of a library share it
+    // only while they are in the same state: every mutator replaces it (never edits it).
+    struct SharedModels {
+        QMutex lock;
+        QHash<QString, Model> models;
+    };
+    std::shared_ptr<SharedModels> shared = std::make_shared<SharedModels>();
+    // Process-wide so that a revision names one state: it stays unique when a library is
+    // replaced by (or copied from) another.
+    static inline std::atomic<quint64> revisionCounter{0};
+    quint64 stateRevision = 0;
+    // Every mutator calls this first: drops modelConst()'s results and starts a new revision().
+    void invalidate() {
+        shared = std::make_shared<SharedModels>();
+        stateRevision = ++revisionCounter;
+    }
+    // What the catalog scan reported (invalid paths, budget) so an update that provably
+    // cannot change any definition can reuse it instead of rescanning every record.
+    QStringList scanDiagnostics;
+    bool scanned = false;
     // Assets touched since the library began tracking again: "" alone means everything
     // (project switch, version change, resource-stack change); otherwise the specific
     // paths passed to update()/previewed since, which icon caches key invalidation on.
@@ -70,7 +92,8 @@ class Library {
     Index editableSnapshot;
     QVector<ResourceSource> fallbacks;
     ResourceStack stack;
-    Model resolve(const QString &id, QSet<QString> &visiting, int depth);
+    struct ResolveState;
+    Model resolve(const QString &id, ResolveState &state, int depth) const;
     void replaceEdges(const QString &path);
 
   public:
@@ -92,6 +115,10 @@ class Library {
     QString assetPath(const QString &asset, int provider = 0) const {
         return stack.path(asset, provider);
     }
+    // Changes whenever anything the library answers with may have changed (any mutator).
+    quint64 revision() const { return stateRevision; }
+    // Presence in the resource stack only: no filesystem access, no integrity check.
+    bool hasAsset(const QString &asset) const { return stack.hasAsset(asset); }
     bool editable(const QString &asset) const { return provisionalSources.contains(asset) || stack.editable(asset); }
     QVector<ResourceCandidate> providers(const QString &asset) const {
         return stack.providers(asset);
@@ -101,6 +128,9 @@ class Library {
     void previewSource(const QString &asset, const QJsonObject &source);
     void refreshLocal(const QStringList &paths) { update(root, Index::refresh(root, editableSnapshot, paths), paths); }
     Model model(const QString &id);
+    // Same result as model() for a library that is not being mutated, callable from any
+    // number of threads at once (worker threads share one snapshot instead of copying it).
+    Model modelConst(const QString &id) const;
     QStringList modelsForTexture(const QString &asset);
     QStringList dependencies(const QString &asset) const;
     QStringList dependents(const QString &asset, bool transitive = true) const;
@@ -109,6 +139,8 @@ class Library {
     // (definitions, textures and previewed sources) accumulated since.
     QStringList lastUpdateChanged() const { return lastChanged; }
     QStringList modelIds() const;
+    // Same answer as !modelIds().isEmpty() without building the list.
+    bool hasModels() const;
     QStringList definitionPaths() const;
     QStringList texturePaths() const {
         QStringList paths;

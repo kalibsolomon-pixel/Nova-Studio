@@ -20,6 +20,13 @@ bool vector(const QJsonValue &value, QVector3D &out, float low = -1e4, float hig
     return true;
 }
 const QStringList directions{"down", "up", "north", "south", "west", "east"};
+// Allocation-free membership test for the small literal field lists below.
+bool oneOf(const QString &key, std::initializer_list<QLatin1String> names) {
+    for (const auto name : names)
+        if (key == name)
+            return true;
+    return false;
+}
 QVector3D normal(const QString &name) {
     static const QVector3D n[] = {{0, -1, 0}, {0, 1, 0},  {0, 0, -1},
                                   {0, 0, 1},  {-1, 0, 0}, {1, 0, 0}};
@@ -134,6 +141,7 @@ Mesh mesh(const Model &model) {
         return mesh;
     }
     const auto profile = Profile::forVersion(model.version);
+    const auto textures = model.resolved["textures"].toObject();
     int index = 0;
     for (const auto &value : model.resolved["elements"].toArray()) {
         const auto e = value.toObject();
@@ -167,9 +175,11 @@ Mesh mesh(const Model &model) {
             continue;
         }
         for (auto it = e.begin(); it != e.end(); ++it)
-            if (!QStringList{"from", "to", "faces", "rotation", "shade", "shade_direction_override",
-                             "name", "light_emission"}
-                     .contains(it.key()))
+            if (!oneOf(it.key(), {QLatin1String("from"), QLatin1String("to"),
+                                  QLatin1String("faces"), QLatin1String("rotation"),
+                                  QLatin1String("shade"),
+                                  QLatin1String("shade_direction_override"),
+                                  QLatin1String("name"), QLatin1String("light_emission")}))
                 fail("unsupported field retained: " + it.key());
         if (e["light_emission"].toInt() != 0)
             fail("light_emission retained; neutral preview omits emissive lighting");
@@ -187,12 +197,17 @@ Mesh mesh(const Model &model) {
                 continue;
             }
             for (auto it = r.begin(); it != r.end(); ++it)
-                if (!QStringList{"origin", "x", "y", "z", "axis", "angle", "rescale"}.contains(
-                        it.key()))
+                if (!oneOf(it.key(), {QLatin1String("origin"), QLatin1String("x"),
+                                      QLatin1String("y"), QLatin1String("z"),
+                                      QLatin1String("axis"), QLatin1String("angle"),
+                                      QLatin1String("rescale")}))
                     fail("unsupported rotation field retained: " + it.key());
             if (r.contains("axis") || r.contains("angle")) {
                 const auto axis = r["axis"].toString();
-                const int a = QStringList{"x", "y", "z"}.indexOf(axis);
+                const int a = axis == QLatin1String("x")   ? 0
+                              : axis == QLatin1String("y") ? 1
+                              : axis == QLatin1String("z") ? 2
+                                                           : -1;
                 if (a < 0 || !r["angle"].isDouble() || !std::isfinite(r["angle"].toDouble()) ||
                     std::abs(r["angle"].toDouble()) > 36000) {
                     fail("invalid legacy rotation");
@@ -261,8 +276,9 @@ Mesh mesh(const Model &model) {
             face.name = it.key();
             face.element = e["name"].toString(QString("Element %1").arg(index));
             for (auto field = o.begin(); field != o.end(); ++field)
-                if (!QStringList{"texture", "uv", "rotation", "tintindex", "cullface"}.contains(
-                        field.key()))
+                if (!oneOf(field.key(), {QLatin1String("texture"), QLatin1String("uv"),
+                                         QLatin1String("rotation"), QLatin1String("tintindex"),
+                                         QLatin1String("cullface")}))
                     fail("unsupported face field retained: " + field.key());
             if (o.contains("cullface") && !directions.contains(o["cullface"].toString())) {
                 fail("invalid cullface");
@@ -275,7 +291,6 @@ Mesh mesh(const Model &model) {
             face.texture = model.faceTexture(ref);
             if (face.texture.isEmpty())
                 fail("unresolved face texture: " + ref);
-            const auto textures = model.resolved["textures"].toObject();
             auto texValue = textures.value(ref.startsWith('#') ? ref.mid(1) : ref);
             QSet<QString> seen;
             while (texValue.isString() && texValue.toString().startsWith('#') &&

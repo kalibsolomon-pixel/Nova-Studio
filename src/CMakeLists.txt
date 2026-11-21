@@ -12,7 +12,7 @@ add_library(nova-asset-index STATIC assets/index.cpp assets/index.h assets/monit
 target_include_directories(nova-asset-index PUBLIC assets)
 target_link_libraries(nova-asset-index PUBLIC Qt6::Core)
 
-add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp models/render_layers.h models/render_layers.cpp models/tints.h models/tints.cpp models/special_models.h models/special_models.cpp)
+add_library(nova-models STATIC models/models.h models/models.cpp models/dispatch.cpp models/mesh.cpp models/resources.h models/resources.cpp models/item_transform.cpp models/generated.cpp models/edit.h models/edit.cpp models/authoring.cpp models/creation.h models/creation.cpp models/display.h models/display.cpp models/render_layers.h models/render_layers.cpp models/tints.h models/tints.cpp models/special_models.h models/special_models.cpp models/texture_preview.h models/texture_preview.cpp)
 target_sources(nova-models PRIVATE models/validation.h models/validation.cpp)
 target_include_directories(nova-models PUBLIC models)
 target_link_libraries(nova-models PUBLIC nova-core nova-asset-index Qt6::Gui)
@@ -143,15 +143,17 @@ qt_add_resources(nova-workspace "nova_branding"
   FILES
     "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-icon.ico"
     "${PROJECT_SOURCE_DIR}/assets/branding/nova-studio-mark.png")
-# Material Symbols Outlined: the unmodified, pinned font used by command and tool icons.
+# Material Symbols Outlined: subset variable font containing all mapped command and tool icons.
 qt_add_resources(nova-workspace "nova_material_symbols"
   PREFIX "/fonts"
   BASE "${PROJECT_SOURCE_DIR}/assets/fonts"
+  OPTIONS --compress 9 --threshold 0
   FILES "${PROJECT_SOURCE_DIR}/assets/fonts/MaterialSymbolsOutlined.ttf")
 # Phase 4-G.1: license texts shown by Help > Licenses and Source Code.
 qt_add_resources(nova-workspace "nova_legal"
   PREFIX "/legal"
   BASE "${PROJECT_SOURCE_DIR}"
+  OPTIONS --compress 9 --threshold 0
   FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/COPYRIGHT.md")
 # Phase 4-I: a GCC/MinGW-w64 build ships the GCC runtime instead of the Visual C++ runtime, so it
 # embeds the matching notices (same resource path, :/legal/THIRD_PARTY_NOTICES.md).
@@ -163,6 +165,7 @@ endif()
 qt_add_resources(nova-workspace "nova_legal_notices"
   PREFIX "/legal"
   BASE "${NOVA_NOTICES_DIR}"
+  OPTIONS --compress 9 --threshold 0
   FILES "${NOVA_NOTICES_DIR}/THIRD_PARTY_NOTICES.md")
 add_executable(nova-studio WIN32 app/main.cpp)
 if(WIN32)
@@ -176,19 +179,35 @@ target_link_libraries(nova-studio PRIVATE nova-workspace)
 if(WIN32)
   target_link_libraries(nova-workspace PRIVATE Psapi)
 endif()
+set(NOVA_HOT_TARGETS nova-core nova-models nova-asset-index nova-application nova-workspace nova-studio)
+set(NOVA_COLD_TARGETS nova-diagnostics nova-testing nova-vanilla nova-mcp-protocol nova-mcp-service
+                      nova-mcp-clients nova-acp nova-mcp)
 if(MSVC)
-  foreach(target nova-core nova-application nova-asset-index nova-testing nova-vanilla nova-workspace nova-studio
-                 nova-mcp-protocol nova-mcp-service nova-mcp-clients nova-mcp)
-    target_compile_options(${target} PRIVATE /W4 /utf-8)
+  foreach(target ${NOVA_HOT_TARGETS} ${NOVA_COLD_TARGETS})
+    target_compile_options(${target} PRIVATE /W4 /utf-8
+                           $<$<CONFIG:Release>:/Gy /Gw>)
+  endforeach()
+  foreach(exe nova-studio nova-mcp)
+    target_link_options(${exe} PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
   endforeach()
 elseif(MINGW)
   # Phase 4-I: GCC counterparts of /W4 /utf-8 (warnings only, UTF-8 source and
   # narrow execution character set). -Wmissing-field-initializers is the one -Wextra check left out:
   # Nova initialises command structs such as LayerEdit with their leading members only, relying on
   # C++'s value-initialisation of the rest (well-defined, and not a /W4 warning either).
-  foreach(target nova-core nova-application nova-asset-index nova-testing nova-vanilla nova-workspace nova-studio
-                 nova-mcp-protocol nova-mcp-service nova-mcp-clients nova-mcp)
+  # In Release builds, prefer -O2 on hot rendering/editing targets (avoids -O3 code bloat) and -Os
+  # on cold/protocol/I/O targets, paired with section garbage collection at link time.
+  foreach(target ${NOVA_HOT_TARGETS})
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers
-                           -finput-charset=UTF-8 -fexec-charset=UTF-8)
+                           -finput-charset=UTF-8 -fexec-charset=UTF-8
+                           $<$<CONFIG:Release>:-O2 -ffunction-sections -fdata-sections>)
+  endforeach()
+  foreach(target ${NOVA_COLD_TARGETS})
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers
+                           -finput-charset=UTF-8 -fexec-charset=UTF-8
+                           $<$<CONFIG:Release>:-Os -ffunction-sections -fdata-sections>)
+  endforeach()
+  foreach(exe nova-studio nova-mcp)
+    target_link_options(${exe} PRIVATE $<$<CONFIG:Release>:-Wl,--gc-sections>)
   endforeach()
 endif()

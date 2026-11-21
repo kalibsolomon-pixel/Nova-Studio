@@ -47,6 +47,7 @@ struct Snapshot {
     QMap<QString, QJsonObject> textures, animations, models;
     QJsonObject styleNotes;                 // nova.project.info, nova://project/style-notes
     int unsavedCount = 0;                   // open documents of this project not fully saved
+    int freeDocumentSlots = -1;             // nova.texture.adjust_bulk: texture tabs that may still open
     QMap<QString, DraftInfo> drafts;        // nova.pack.validate: open unsaved documents
     QMap<QString, QString> unavailableDrafts; // nova.pack.validate: path → why it could not be read
     // MCP Phase 3 (nova.vanilla.*, nova.asset.relationships, nova.pack.validate).

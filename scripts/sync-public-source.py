@@ -82,9 +82,8 @@ BUILD_OUTPUT_NAMES = {'cmakecache.txt', 'build.ninja', '.ninja_log', '.ninja_dep
 BUILD_OUTPUT = re.compile(r'(?i)\.(exe|dll|obj|o|a|lib|pdb|ilk|exp|idb|pch|pyc|pyo|so|dylib|msi|msix|nupkg|'
                           r'zip|7z|zst|xz|gz|tgz|tar|jar|class|qm)$')
 ALLOWED_BINARIES = {'assets/fabric-runtime/gradle-wrapper-9.8.2.jar'}
-# Files over 5 MB are refused unless they are exactly this content (Git blob id), the unmodified
-# Material Symbols font pinned in assets/fonts/README.md.
-LARGE_ALLOWED = {'assets/fonts/MaterialSymbolsOutlined.ttf': '0a161642346ecf953a515ac43c9fe0f20ce3be2f'}
+# Files over 5 MB are refused unless explicitly listed here by Git blob id.
+LARGE_ALLOWED = {}
 GPL3_SHA256 = '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
 SECRET = re.compile(rb'(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|'
                     rb'sk-[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|BEGIN [A-Z ]*PRIVATE KEY)')

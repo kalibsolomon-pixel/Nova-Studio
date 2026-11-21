@@ -16,7 +16,10 @@ struct Request {
     bool workflowStage = false;
     std::function<bool()> continuePreparation;
     QString resource; // a project resource read (resources/read) that the service must answer
+    QJsonValue progressToken; // tools/call params._meta.progressToken, for notifications/progress
 };
+// A notifications/progress message for a long tools/call that supplied a progress token.
+QJsonObject progressNotification(const QJsonValue &token, int progress, int total, const QString &message);
 class Protocol {
     enum class State { Initial, AwaitingNotification, Ready };
     State state = State::Initial;

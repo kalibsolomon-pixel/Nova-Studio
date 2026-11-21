@@ -41,6 +41,12 @@ struct SaveOutcome {
     QStringList written;
     bool ok() const { return code.isEmpty(); }
 };
+// Cheap identity of a document's file on disk, so the background check rehashes only on change.
+struct DiskProbe {
+    bool valid = false;
+    qint64 size = 0, modified = 0, born = 0, changed = 0, hashedAt = 0;
+    Revision revision;
+};
 class ColorPanel;
 struct SearchIndex;
 class HistoryPanel;
@@ -79,6 +85,7 @@ class Window : public QMainWindow {
     bool ioBusy = false;
     QMap<QUuid, qint64> recoveredKeys;
     QMap<QUuid, Revision> externalRevisions;
+    QMap<QUuid, DiskProbe> diskProbes;
     DirectoryMonitor monitor;
     QTimer *indexDebounce = nullptr;
     QTimer *reconciliationTimer = nullptr, *revisionTimer = nullptr;
@@ -120,6 +127,9 @@ class Window : public QMainWindow {
     Metrics metrics;
     Index collection;
     quint64 collectionSerial = 0; // bumped whenever `collection` is replaced
+    QStringList searchAssets, searchAssetsLower; // Ctrl+K asset candidates for searchAssetsSerial
+    quint64 searchAssetsSerial = 0;
+    bool searchAssetsBuilt = false;
     Navigation nav;
     // ---- Vanilla baseline (baseline_ui.cpp, docs/vanilla-baseline/DESIGN.md) ----
     // `collection` and workspaceIndex() stay project-only (MCP, search, validation, batch);
@@ -236,7 +246,10 @@ class Window : public QMainWindow {
     } clip;
     void buildEditor(QMenu *view);
     QMenu *operationMenu(const QString &title, const QString &category);
-    void openOperation(const QStringList &ids);
+    void openOperation(const QStringList &ids, const QJsonObject &params = {});
+    ops::Spec lastEffect; // Effects › Repeat (Ctrl+F) and Last Effect Again (Ctrl+Alt+F)
+    void rememberEffect(const ops::Spec &spec);
+    void repeatEffect();
     void documentOperation(const ops::Spec &spec);
     void layerOperation(const ops::Spec &spec);
     void copySelection(bool cut);
@@ -267,6 +280,9 @@ class Window : public QMainWindow {
     QByteArray welcomeEditorLayout;
     void syncWelcomeLayout(bool forceEditor = false);
     void applyTheme();
+    bool themeApplied = false, appliedDark = true;
+    QString appliedAccent;
+    QUuid strokeRefreshDocument; // document whose open stroke has already had its full refresh
     void refreshDockTitles();
     void buildSupportMenu();
     void persist();

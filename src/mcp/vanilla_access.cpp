@@ -4,12 +4,33 @@
 #include "protocol.h"
 #include "sources.h"
 #include "vanilla/cache.h"
+#include <QBuffer>
 #include <QFile>
 #include <QJsonArray>
+#include <QPainter>
 #include <QJsonDocument>
 #include <QtEndian>
 
 namespace nova::mcp {
+QImage rasterPreview(const QImage &image, int edge, bool grid) {
+    if (image.isNull())
+        return {};
+    auto result = image.scaled(edge, edge, Qt::KeepAspectRatio, Qt::FastTransformation);
+    if (grid && result.width() >= 4 * image.width() && result.height() >= 4 * image.height()) {
+        result = result.convertToFormat(QImage::Format_ARGB32);
+        QPainter painter(&result);
+        painter.setPen(QColor(0, 0, 0, 105));
+        for (int x = 1; x < image.width(); ++x) {
+            const int line = x * result.width() / image.width();
+            painter.drawLine(line, 0, line, result.height() - 1);
+        }
+        for (int y = 1; y < image.height(); ++y) {
+            const int line = y * result.height() / image.height();
+            painter.drawLine(0, line, result.width() - 1, line);
+        }
+    }
+    return result;
+}
 namespace {
 constexpr auto Prefix = "assets/minecraft/textures/";
 const QString Workflow = "Nova never downloads from an MCP request. Ask the user to add the version in Nova "
@@ -148,12 +169,31 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, VanillaTe
     const auto size = header(entry, path);
     const auto file = entry.files.value(path);
     const bool image = !data && args["include"].toString("image") == "image";
-    if (image && bytes.size() > VanillaImageLimit)
+    // maxEdge or pixelGrid return a resized copy; without them the verified file is returned as is.
+    QByteArray shown = bytes;
+    QJsonObject preview;
+    if (image && (args.contains("maxEdge") || args["pixelGrid"].toBool())) {
+        QImage source;
+        if (!size || size->width() > 4096 || size->height() > 4096 || !source.loadFromData(bytes, "PNG"))
+            return toolError("preview_unavailable", QString("Nova could not decode %1 for a resized preview; call "
+                             "again without maxEdge and pixelGrid for the original PNG.").arg(path), {{"pointer", "/maxEdge"}});
+        const auto scaled = rasterPreview(source, args["maxEdge"].toInt(256), args["pixelGrid"].toBool());
+        shown.clear();
+        QBuffer buffer(&shown);
+        buffer.open(QIODevice::WriteOnly);
+        if (!scaled.save(&buffer, "PNG"))
+            return toolError("preview_unavailable", "Nova could not encode the resized preview.");
+        preview = {{"width", scaled.width()}, {"height", scaled.height()}, {"bytes", qint64(shown.size())},
+                   {"pixelGrid", args["pixelGrid"].toBool()}};
+    }
+    if (image && shown.size() > VanillaImageLimit)
         return toolError("texture_too_large",
-            QString("%1 is %2 bytes; nova.vanilla.texture returns at most %3 bytes of PNG inline. Call it again "
-                    "with include \"metadata\" for its dimensions, hash and provenance without the image.")
-                .arg(path).arg(bytes.size()).arg(VanillaImageLimit),
-            {{"pointer", "/include"}, {"bytes", qint64(bytes.size())}, {"maxImageBytes", VanillaImageLimit},
+            QString("%1 is %2 bytes%4; nova.vanilla.texture returns at most %3 bytes of PNG inline. Call it again "
+                    "with include \"metadata\" for its dimensions, hash and provenance without the image%5.")
+                .arg(path).arg(shown.size()).arg(VanillaImageLimit)
+                .arg(preview.isEmpty() ? "" : " as a resized preview",
+                     preview.isEmpty() ? ", or with maxEdge for a resized preview" : ", or with a smaller maxEdge"),
+            {{"pointer", "/include"}, {"bytes", qint64(shown.size())}, {"maxImageBytes", VanillaImageLimit},
              {"width", dimension(size, true)}, {"height", dimension(size, false)}, {"alternative", "metadata"}});
     auto result = identity(s, cache, version);
     result["path"] = path;
@@ -189,8 +229,10 @@ QJsonObject vanillaTexture(const Snapshot &s, const QJsonObject &args, VanillaTe
         animation = row;
     }
     result["animationMetadata"] = animation;
+    if (!preview.isEmpty())
+        result["preview"] = preview; // the image block; width, height and sha256 describe the cached file
     if (image)
-        result["_pngImage"] = QString::fromLatin1(bytes.toBase64());
+        result["_pngImage"] = QString::fromLatin1(shown.toBase64());
     if (data)
         data->png = std::move(bytes);
     return result;

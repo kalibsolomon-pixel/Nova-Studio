@@ -65,6 +65,14 @@ class Service : public QObject {
     void fail(const QString &message);
     void dispatch(const Request &request);
     void readResource(const Request &request);
+    // Calls that arrive while another operation runs wait here and are dispatched in order when it
+    // finishes, so an agent's parallel calls are not refused. Beyond QueueLimit they get "busy".
+    static constexpr qsizetype QueueLimit = 4;
+    QList<Request> queued;
+    bool drainScheduled = false, draining = false;
+    void scheduleDrain();
+    void drain();
+    void sendProgress(const QJsonValue &token, int progress, int total, const QString &message);
     struct Workflow {
         QJsonArray results;
         int total = 0;
@@ -73,6 +81,7 @@ class Service : public QObject {
         QElapsedTimer elapsed;
         int committed = 0;
         bool fullText = false;
+        QJsonValue progressToken; // the call's _meta.progressToken; null when progress was not requested
     };
     std::shared_ptr<Workflow> workflow;
     QJsonObject workflowResult(const QString &status, const QJsonObject &failure = {}) const;

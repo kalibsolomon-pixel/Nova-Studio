@@ -8,10 +8,27 @@
 //   spawn               starts a long-lived child process (this program with --sleep)
 //   crash               exits at once with code 3, leaving its children behind
 //   env                 reports whether NOVA_MCP_CODE is in its environment
-// FAKE_ACP_SKIP_MCP=1 makes it ignore mcpServers. No network, no files outside the given folders.
+//   burst               2000 one-character message chunks
+//   flood               5000 message chunks in a single write
+//   mode                reports the current session mode and model setting
+//   remember <text>     keeps <text> for this session (in FAKE_ACP_STATE, so session/load restores it)
+//   recall              reports what the session remembers
+//   cwd                 reports the session's working directory
+//   usage               sends usage_update and session_info_update
+//   extras              resource_link and image chunks, an unknown update kind, and a tool call with
+//                       a kind and locations
+//   ask-withdraw        session/request_permission, then withdraws it with $/cancel_request
+//   late                starts a tool call and updates it after the turn ended
+//   attached            reports the prompt's content blocks after the first
+//   /review             a slash command (advertised with available_commands_update)
+// It advertises loadSession (not with --no-load), session modes (ask, code, bypassPermissions) and a
+// "model" select setting. FAKE_ACP_SKIP_MCP=1 makes it ignore mcpServers. No network, no files outside
+// the given folders.
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -109,6 +126,43 @@ struct Server {
         return {};
     }
 };
+
+// Starts every stdio MCP server in a session/new or session/load request, as real agents do.
+void startServers(const QJsonObject &params, std::vector<Server> &servers) {
+    if (qEnvironmentVariable("FAKE_ACP_SKIP_MCP") == "1")
+        return;
+    for (const auto &value : params["mcpServers"].toArray()) {
+        const auto entry = value.toObject();
+        if (entry.contains("type"))
+            continue;
+        Server server;
+        server.process = std::make_unique<QProcess>();
+        auto env = QProcessEnvironment::systemEnvironment();
+        for (const auto &pair : entry["env"].toArray())
+            env.insert(pair.toObject()["name"].toString(), pair.toObject()["value"].toString());
+        server.process->setProcessEnvironment(env);
+        QStringList args;
+        for (const auto &arg : entry["args"].toArray())
+            args << arg.toString();
+        server.process->start(entry["command"].toString(), args);
+        if (!server.process->waitForStarted())
+            continue;
+        server.setupCall("initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
+                                        {"clientInfo", QJsonObject{{"name", "fake-acp-agent"}, {"version", "1"}}}});
+        server.process->write(R"({"jsonrpc":"2.0","method":"notifications/initialized"})" "\n");
+        for (const auto &tool : server.setupCall("tools/list", {})["result"].toObject()["tools"].toArray())
+            server.properties.insert(tool.toObject()["name"].toString(),
+                                     tool.toObject()["inputSchema"].toObject()["properties"].toObject());
+        if (server.properties.isEmpty())
+            server.setupProblem += "tools/list returned no tools\n";
+        servers.push_back(std::move(server));
+    }
+}
+
+QString stateFile(const QString &session) {
+    const auto folder = qEnvironmentVariable("FAKE_ACP_STATE");
+    return folder.isEmpty() ? QString{} : folder + '/' + session + ".json";
+}
 } // namespace
 
 int main(int argc, char **argv) {
@@ -119,10 +173,28 @@ int main(int argc, char **argv) {
     }
     std::vector<Server> servers;
     std::vector<std::unique_ptr<QProcess>> children;
-    QString session;
+    QString session, workingDirectory, mode = "ask", model = "fast";
+    QStringList memory; // remember / recall, kept across session/load through FAKE_ACP_STATE
     const bool requireAuth = app.arguments().contains("--require-auth");
     bool authenticated = false;
     bool eof = false;
+    const auto modes = [&mode] {
+        return QJsonObject{{"currentModeId", mode}, {"availableModes", QJsonArray{
+            QJsonObject{{"id", "ask"}, {"name", "Ask"}, {"description", "Asks before changing anything"}},
+            QJsonObject{{"id", "code"}, {"name", "Code"}},
+            QJsonObject{{"id", "bypassPermissions"}, {"name", "Bypass permissions"}}}}};
+    };
+    const auto settings = [&model] {
+        return QJsonArray{QJsonObject{{"id", "model"}, {"name", "Model"}, {"category", "model"}, {"type", "select"},
+                                      {"currentValue", model}, {"options", QJsonArray{
+            QJsonObject{{"value", "fast"}, {"name", "Fast"}},
+            QJsonObject{{"value", "deep"}, {"name", "Deep"}, {"description", "Slower, more thorough"}}}}}};
+    };
+    const auto commands = [&session] {
+        update(session, {{"sessionUpdate", "available_commands_update"}, {"availableCommands", QJsonArray{
+            QJsonObject{{"name", "review"}, {"description", "Review the pack's textures"}},
+            QJsonObject{{"name", "plan"}, {"description", "Make a plan"}, {"input", QJsonObject{{"hint", "what to plan"}}}}}}});
+    };
     while (!eof) {
         const auto message = readMessage(&eof);
         const auto method = message["method"].toString();
@@ -132,49 +204,53 @@ int main(int argc, char **argv) {
             if (requireAuth)
                 methods.append(QJsonObject{{"id", "fake-sign-in"}, {"name", "Scripted sign-in"}});
             reply(message["id"], {{"protocolVersion", 1}, {"agentInfo", QJsonObject{{"name", "fake-acp-agent"}, {"version", "1"}}},
-                                  {"agentCapabilities", QJsonObject{{"sessionCapabilities", QJsonObject{{"close", QJsonObject{}}}}}},
+                                  {"agentCapabilities", QJsonObject{
+                                      {"loadSession", !app.arguments().contains("--no-load")},
+                                      {"promptCapabilities", QJsonObject{{"image", false}, {"embeddedContext", false}}},
+                                      {"sessionCapabilities", QJsonObject{{"close", QJsonObject{}}}}}},
                                   {"authMethods", methods}});
         } else if (method == "authenticate" && params["methodId"] == "fake-sign-in") {
             authenticated = true;
             reply(message["id"], {});
-        } else if (method == "session/new") {
+        } else if (method == "session/new" || method == "session/load") {
             if (requireAuth && !authenticated) {
                 send({{"jsonrpc", "2.0"}, {"id", message["id"]},
                       {"error", QJsonObject{{"code", -32000}, {"message", "Sign-in needed"}}}});
                 continue;
             }
-            session = "fake-session-1";
-            if (qEnvironmentVariable("FAKE_ACP_SKIP_MCP") != "1")
-                for (const auto &value : params["mcpServers"].toArray()) {
-                    const auto entry = value.toObject();
-                    if (entry.contains("type"))
-                        continue;
-                    Server server;
-                    server.process = std::make_unique<QProcess>();
-                    auto env = QProcessEnvironment::systemEnvironment();
-                    for (const auto &pair : entry["env"].toArray())
-                        env.insert(pair.toObject()["name"].toString(), pair.toObject()["value"].toString());
-                    server.process->setProcessEnvironment(env);
-                    QStringList args;
-                    for (const auto &arg : entry["args"].toArray())
-                        args << arg.toString();
-                    server.process->start(entry["command"].toString(), args);
-                    if (!server.process->waitForStarted())
-                        continue;
-                    server.setupCall("initialize", {{"protocolVersion", "2025-11-25"}, {"capabilities", QJsonObject{}},
-                                                    {"clientInfo", QJsonObject{{"name", "fake-acp-agent"}, {"version", "1"}}}});
-                    server.process->write(R"({"jsonrpc":"2.0","method":"notifications/initialized"})" "\n");
-                    for (const auto &tool : server.setupCall("tools/list", {})["result"].toObject()["tools"].toArray())
-                        server.properties.insert(tool.toObject()["name"].toString(),
-                                                 tool.toObject()["inputSchema"].toObject()["properties"].toObject());
-                    if (server.properties.isEmpty())
-                        server.setupProblem += "tools/list returned no tools\n";
-                    servers.push_back(std::move(server));
+            const bool load = method == "session/load";
+            session = load ? params["sessionId"].toString() : "fake-session-1";
+            workingDirectory = params["cwd"].toString();
+            startServers(params, servers);
+            if (load) {
+                // Restores what this session remembered and replays it, as agents replay history.
+                QFile saved(stateFile(session));
+                if (saved.open(QIODevice::ReadOnly))
+                    for (const auto &item : QJsonDocument::fromJson(saved.readAll()).array())
+                        memory << item.toString();
+                for (const auto &item : memory) {
+                    update(session, {{"sessionUpdate", "user_message_chunk"},
+                                     {"content", QJsonObject{{"type", "text"}, {"text", "remember " + item}}}});
+                    say(session, "REMEMBERED " + item);
                 }
-            reply(message["id"], {{"sessionId", session}});
+                reply(message["id"], {{"modes", modes()}, {"configOptions", settings()}});
+            } else {
+                reply(message["id"], {{"sessionId", session}, {"modes", modes()}, {"configOptions", settings()}});
+            }
+            commands();
+        } else if (method == "session/set_mode") {
+            mode = params["modeId"].toString();
+            reply(message["id"], {});
+            update(session, {{"sessionUpdate", "current_mode_update"}, {"currentModeId", mode}});
+        } else if (method == "session/set_config_option") {
+            if (params["configId"] == "model")
+                model = params["value"].toString();
+            reply(message["id"], {{"configOptions", settings()}});
         } else if (method == "session/prompt") {
-            const auto text = params["prompt"].toArray().first().toObject()["text"].toString();
+            const auto blocks = params["prompt"].toArray();
+            const auto text = blocks.first().toObject()["text"].toString();
             QString stop = "end_turn";
+            bool late = false;
             if (!text.startsWith("Please "))
                 update(session, {{"sessionUpdate", "agent_thought_chunk"},
                                  {"content", QJsonObject{{"type", "text"}, {"text", "Thinking about: " + text.left(40)}}}});
@@ -285,8 +361,76 @@ int main(int argc, char **argv) {
                 say(session, QString("ENV NOVA_MCP_CODE=%1").arg(qEnvironmentVariableIsSet("NOVA_MCP_CODE") ? "present" : "absent"));
             } else if (text == "args") {
                 say(session, "ARGUMENTS " + app.arguments().mid(1).join(" | "));
+            } else if (text == "burst") {
+                for (int i = 0; i < 2000; ++i)
+                    say(session, QString(QChar('a' + i % 26)));
+                say(session, " BURST DONE");
+            } else if (text == "flood") {
+                QByteArray lines;
+                for (int i = 0; i < 5000; ++i)
+                    lines += QJsonDocument(QJsonObject{{"jsonrpc", "2.0"}, {"method", "session/update"}, {"params", QJsonObject{
+                        {"sessionId", session}, {"update", QJsonObject{{"sessionUpdate", "agent_message_chunk"},
+                            {"content", QJsonObject{{"type", "text"}, {"text", "f"}}}}}}}}).toJson(QJsonDocument::Compact) + '\n';
+                std::cout.write(lines.constData(), lines.size());
+                say(session, " FLOOD DONE");
+            } else if (text == "mode") {
+                say(session, "MODE " + mode + " MODEL " + model);
+            } else if (text.startsWith("remember ")) {
+                memory << text.mid(9);
+                QFile saved(stateFile(session));
+                if (!stateFile(session).isEmpty() && QDir().mkpath(QFileInfo(saved).path()) && saved.open(QIODevice::WriteOnly))
+                    saved.write(QJsonDocument(QJsonArray::fromStringList(memory)).toJson(QJsonDocument::Compact));
+                say(session, "REMEMBERED " + text.mid(9));
+            } else if (text == "recall") {
+                say(session, "RECALL " + memory.join(','));
+            } else if (text == "cwd") {
+                say(session, "CWD " + workingDirectory);
+            } else if (text == "usage") {
+                update(session, {{"sessionUpdate", "usage_update"}, {"used", 12345}, {"size", 200000},
+                                 {"cost", QJsonObject{{"amount", 0.42}, {"currency", "USD"}}}});
+                update(session, {{"sessionUpdate", "session_info_update"}, {"title", "Texture review"}});
+                say(session, "USAGE SENT");
+            } else if (text == "extras") {
+                update(session, {{"sessionUpdate", "agent_message_chunk"}, {"content", QJsonObject{
+                    {"type", "resource_link"}, {"name", "Pack guide"}, {"uri", "https://example.invalid/guide [1]"}}}});
+                update(session, {{"sessionUpdate", "agent_message_chunk"}, {"content", QJsonObject{
+                    {"type", "image"}, {"mimeType", "image/png"}, {"data", QString(4000, 'A')}}}});
+                update(session, {{"sessionUpdate", "mystery_update"}, {"payload", QJsonObject{{"x", 1}}}});
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "extras-1"}, {"title", "Read notes"},
+                                 {"kind", "read"}, {"status", "completed"}, {"locations", QJsonArray{
+                    QJsonObject{{"path", "C:/pack/notes.txt"}, {"line", 12}}}}});
+                say(session, "EXTRAS DONE");
+            } else if (text == "ask-withdraw") {
+                send({{"jsonrpc", "2.0"}, {"id", "perm-w"}, {"method", "session/request_permission"},
+                      {"params", QJsonObject{{"sessionId", session},
+                          {"toolCall", QJsonObject{{"toolCallId", "perm-w"}, {"title", "Write withdrawn.txt"}, {"kind", "edit"}}},
+                          {"options", QJsonArray{QJsonObject{{"optionId", "yes"}, {"name", "Allow"}, {"kind", "allow_once"}}}}}}});
+                QThread::msleep(300);
+                send({{"jsonrpc", "2.0"}, {"method", "$/cancel_request"}, {"params", QJsonObject{{"requestId", "perm-w"}}}});
+                for (;;) {
+                    const auto answer = readMessage(&eof);
+                    if (eof || answer["id"] == "perm-w") {
+                        say(session, QString("WITHDRAWN %1").arg(answer["error"].toObject()["code"].toInt()));
+                        break;
+                    }
+                }
+            } else if (text == "late") {
+                update(session, {{"sessionUpdate", "tool_call"}, {"toolCallId", "late-1"}, {"title", "Search textures"},
+                                 {"kind", "search"}, {"status", "in_progress"}});
+                late = true;
+            } else if (text == "attached") {
+                QStringList extra;
+                for (qsizetype i = 1; i < blocks.size(); ++i)
+                    extra << blocks.at(i).toObject()["type"].toString() + ": " + blocks.at(i).toObject()["text"].toString();
+                say(session, QString("BLOCKS %1 %2").arg(blocks.size()).arg(extra.join(" | ")));
+            } else if (text.startsWith("/review")) {
+                say(session, "COMMAND review");
             }
             reply(message["id"], {{"stopReason", stop}});
+            if (late) {
+                QThread::msleep(200); // the update arrives after the turn ended
+                update(session, {{"sessionUpdate", "tool_call_update"}, {"toolCallId", "late-1"}, {"status", "completed"}});
+            }
         } else if (method == "session/close") {
             reply(message["id"], {});
         } else if (message.contains("id") && message.contains("method")) {

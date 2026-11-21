@@ -11,7 +11,7 @@
 Nova Studio is a Windows 11 desktop editor for Minecraft Java Edition resource packs. It is written
 in C++20 with Qt Widgets and is free software under the GNU GPL, version 3 or later.
 
-Version `0.1.0` is the first full release. Keep backups of resource packs you care about. See
+Version `0.1.1` is the current release. Keep backups of resource packs you care about. See
 [known limitations](docs/release/KNOWN_LIMITATIONS.md).
 
 ## Features
@@ -47,7 +47,7 @@ Version `0.1.0` is the first full release. Keep backups of resource packs you ca
 | [Search](docs/release/SEARCH.md) | The Ctrl+K search box |
 | [MCP setup](docs/release/MCP_SETUP.md) | Connecting Claude Desktop, Claude Code, Codex or other MCP clients |
 | [Known limitations](docs/release/KNOWN_LIMITATIONS.md) | What is not tested or not supported yet |
-| [Release notes](docs/release/RELEASE_NOTES.md) | 0.1.0 |
+| [Release notes](docs/release/RELEASE_NOTES.md) | 0.1.1 |
 | [Building from source](docs/release/BUILDING.md) | Toolchain, build, tests and packaging |
 | [Source correspondence](docs/release/SOURCE_CORRESPONDENCE.md) | Exact candidate commit, archives, hashes and runtime source |
 | [Public-source preparation](docs/release/PUBLIC_SOURCE_PREPARATION.md) | Provenance, privacy scope, deletions and pending review |

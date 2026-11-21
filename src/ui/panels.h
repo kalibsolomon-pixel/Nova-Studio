@@ -51,6 +51,15 @@ class HistoryPanel : public QWidget {
     std::shared_ptr<Document> document;
     QListWidget *list;
     bool updating = false;
+    // What the list last showed: refresh() is a no-op while none of it changed.
+    struct Shown {
+        QUuid instance;
+        quint64 serial = 0;
+        int count = -1, cursor = -1;
+        QRgb disabled = 0, text = 0;
+        bool operator==(const Shown &) const = default;
+    };
+    Shown shown;
 
   public:
     explicit HistoryPanel(DocumentSession *session, QWidget *parent = nullptr);

@@ -296,7 +296,7 @@ class Phase3Tests : public QObject {
         QVERIFY(bytes.size() < 96 * 1024);
         const auto json = QJsonDocument::fromJson(bytes).object();
         QCOMPARE(json["format"].toString(), QString("nova-local-diagnostics"));
-        QCOMPARE(json["application_version"].toString(), QString("0.1.0"));
+        QCOMPARE(json["application_version"].toString(), QString("0.1.1"));
         QVERIFY(!json["source_revision"].toString().isEmpty());
         QVERIFY(!json["automatic_upload"].toBool(true));
         QVERIFY(!json.contains("environment")); QVERIFY(!json.contains("project"));
@@ -340,7 +340,7 @@ class Phase3Tests : public QObject {
         QVERIFY(context.open(QIODevice::ReadOnly));
         const auto bytes = context.readAll();
         QVERIFY(bytes.size() < 512);
-        QVERIFY(bytes.contains("Nova Studio 0.1.0 source="));
+        QVERIFY(bytes.contains("Nova Studio 0.1.1 source="));
         QVERIFY(bytes.contains("native exception=0xE0424E56 address=0x"));
     }
 };

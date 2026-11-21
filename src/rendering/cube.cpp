@@ -11,6 +11,9 @@
 #include <QOpenGLContext>
 #include <QPainter>
 #include <QWheelEvent>
+#include <algorithm>
+#include <initializer_list>
+#include <iterator>
 #include <numeric>
 namespace nova {
 struct Vertex {
@@ -36,6 +39,34 @@ const Lights &previewLights(bool gui, mc::GuiLight guiLight) {
     };
     static const Lights front = guiLights(false), side = guiLights(true);
     return !gui ? level : guiLight == mc::GuiLight::Front ? front : side;
+}
+Vertex lineVertex(QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0, 1}; }
+// Ground grid (0..35), axes (36..41), block bounds reference (42..65) and the GUI slot
+// square (66..73). Static, so it is uploaded once with the program.
+QVector<Vertex> guideVertices() {
+    QVector<Vertex> guides;
+    for (int i = -4; i <= 4; ++i) {
+        guides << lineVertex({float(i), -1, -4}) << lineVertex({float(i), -1, 4})
+               << lineVertex({-4, -1, float(i)}) << lineVertex({4, -1, float(i)});
+    }
+    for (const auto &axis : {QVector3D(1.5, 0, 0), QVector3D(0, 1.5, 0), QVector3D(0, 0, 1.5)})
+        guides << lineVertex({0, 0, 0}) << lineVertex(axis);
+    // Context references (mesh units, one block = 2): untransformed block bounds, then
+    // the 16 px GUI slot square in the view plane.
+    for (int axis = 0; axis < 3; ++axis)
+        for (int a : {-1, 1})
+            for (int b : {-1, 1}) {
+                QVector3D from, to;
+                from[axis] = -1;
+                to[axis] = 1;
+                from[(axis + 1) % 3] = to[(axis + 1) % 3] = float(a);
+                from[(axis + 2) % 3] = to[(axis + 2) % 3] = float(b);
+                guides << lineVertex(from) << lineVertex(to);
+            }
+    const QVector3D slot[] = {{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}};
+    for (int i = 0; i < 4; ++i)
+        guides << lineVertex(slot[i]) << lineVertex(slot[(i + 1) % 4]);
+    return guides;
 }
 QRect guiClipRect(const QRect &slot, bool oversized, const mc::Mesh &mesh) {
     const auto span = (mesh.maximum - mesh.minimum) * 8;
@@ -71,6 +102,7 @@ void Cube::cleanup() {
     if (!context())
         return;
     makeCurrent();
+    captureTargets.clear();
     buffer.destroy();
     lineBuffer.destroy();
     guideBuffer.destroy();
@@ -82,6 +114,7 @@ void Cube::cleanup() {
     }
     materialTextures.clear();
     materialSizes.clear();
+    materialCacheKeys.clear();
     dirtyMaterials.clear();
     program.reset();
     texture = 0;
@@ -120,9 +153,10 @@ void Cube::setModel(std::shared_ptr<const mc::Mesh> mesh, const QString &editabl
     bool materialSetChanged = materialImages.size() - (fallback.isNull() ? 0 : 1) != materials.size();
     for (auto it = materials.cbegin(); it != materials.cend(); ++it) {
         const auto previous = materialImages.constFind(it.key());
-        if (previous == materialImages.cend())
+        if (previous == materialImages.cend()) {
             materialSetChanged = true;
-        else if (previous->cacheKey() != it->cacheKey())
+            dirtyMaterials.insert(it.key());
+        } else if (previous->cacheKey() != it->cacheKey())
             dirtyMaterials.insert(it.key());
     }
     materialsDirty = materialsDirty || materialSetChanged;
@@ -342,8 +376,23 @@ QImage Cube::captureFrame(int size, bool comparison, bool inventory) {
     makeCurrent();
     QImage pixels;
     {
-        QOpenGLFramebufferObject framebuffer(size, size, QOpenGLFramebufferObject::CombinedDepthStencil);
-        if (framebuffer.isValid() && framebuffer.bind()) {
+        auto &target = captureTargets[size];
+        if (!target) {
+            // A handful of sizes at most (icons, the comparison view); never an unbounded set.
+            if (captureTargets.size() > 4) {
+                for (auto it = captureTargets.begin(); it != captureTargets.end();)
+                    it = it->first == size ? std::next(it) : captureTargets.erase(it);
+            }
+            target = std::make_unique<QOpenGLFramebufferObject>(
+                size, size, QOpenGLFramebufferObject::CombinedDepthStencil);
+        }
+        if (!target->isValid()) { // not worth keeping; the next capture tries again
+            captureTargets.erase(size);
+            doneCurrent();
+            return {};
+        }
+        auto &framebuffer = *target;
+        if (framebuffer.bind()) {
             GLint viewport[4];
             glGetIntegerv(GL_VIEWPORT, viewport);
             glViewport(0, 0, size, size);
@@ -381,7 +430,6 @@ void Cube::uploadGeometry() {
                 p.x(), p.y(), p.z(), uv.x(), uv.y(), n.x(), n.y(), n.z(), f.shade ? 1.f : 0.f,
                 f.overworldShade() * f.ambientShade[i]};
         }
-    auto lineVertex = [](QVector3D p) { return Vertex{p.x(), p.y(), p.z(), 0, 0, 0, 0, 1, 0, 1}; };
     QVector<Vertex> edges;
     edges.reserve(scene().faces.size() * 10);
     for (const auto &f : scene().faces)
@@ -390,31 +438,6 @@ void Cube::uploadGeometry() {
     lineBuffer.bind();
     lineBuffer.allocate(edges.constData(), int(edges.size() * sizeof(Vertex)));
     lineBuffer.release();
-    QVector<Vertex> guides;
-    for (int i = -4; i <= 4; ++i) {
-        guides << lineVertex({float(i), -1, -4}) << lineVertex({float(i), -1, 4})
-               << lineVertex({-4, -1, float(i)}) << lineVertex({4, -1, float(i)});
-    }
-    for (const auto &axis : {QVector3D(1.5, 0, 0), QVector3D(0, 1.5, 0), QVector3D(0, 0, 1.5)})
-        guides << lineVertex({0, 0, 0}) << lineVertex(axis);
-    // Context references (mesh units, one block = 2): untransformed block bounds, then
-    // the 16 px GUI slot square in the view plane.
-    for (int axis = 0; axis < 3; ++axis)
-        for (int a : {-1, 1})
-            for (int b : {-1, 1}) {
-                QVector3D from, to;
-                from[axis] = -1;
-                to[axis] = 1;
-                from[(axis + 1) % 3] = to[(axis + 1) % 3] = float(a);
-                from[(axis + 2) % 3] = to[(axis + 2) % 3] = float(b);
-                guides << lineVertex(from) << lineVertex(to);
-            }
-    const QVector3D slot[] = {{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}};
-    for (int i = 0; i < 4; ++i)
-        guides << lineVertex(slot[i]) << lineVertex(slot[(i + 1) % 4]);
-    guideBuffer.bind();
-    guideBuffer.allocate(guides.constData(), int(guides.size() * sizeof(Vertex)));
-    guideBuffer.release();
     buffer.bind();
     buffer.allocate(vertices.constData(), int(vertices.size() * sizeof(Vertex)));
     buffer.release();
@@ -467,8 +490,66 @@ void Cube::initializeGL() {
         setToolTip(program->log());
         return;
     }
+    loc.position = program->attributeLocation("position");
+    loc.texcoord = program->attributeLocation("texcoord");
+    loc.normal = program->attributeLocation("normal");
+    loc.shade = program->attributeLocation("shade");
+    loc.worldShade = program->attributeLocation("worldShade");
+    loc.mvp = program->uniformLocation("mvp");
+    loc.tex = program->uniformLocation("tex");
+    loc.solid = program->uniformLocation("solid");
+    loc.direction = program->uniformLocation("direction");
+    loc.ambient = program->uniformLocation("ambient");
+    loc.neutral = program->uniformLocation("neutral");
+    loc.light0 = program->uniformLocation("light0");
+    loc.light1 = program->uniformLocation("light1");
+    loc.lightingMode = program->uniformLocation("lightingMode");
+    loc.twoSided = program->uniformLocation("twoSided");
+    loc.alphaCutoff = program->uniformLocation("alphaCutoff");
+    loc.uvOrigin = program->uniformLocation("uvOrigin");
+    loc.textureAlpha = program->uniformLocation("textureAlpha");
+    loc.tintColor = program->uniformLocation("tintColor");
+    loc.solidColor = program->uniformLocation("solidColor");
+    // The guide lines never change: upload them once.
+    const auto guides = guideVertices();
+    guideBuffer.bind();
+    guideBuffer.allocate(guides.constData(), int(guides.size() * sizeof(Vertex)));
+    guideBuffer.release();
     geometryDirty = materialsDirty = fullUpload = true;
     metrics->record("opengl_initialize", timer);
+}
+void Cube::classifyFaces() {
+    const auto blockLayer = mc::blockRenderLayer(previewBlock);
+    const auto blockItemLayer = mc::itemRenderLayer(previewBlock, false);
+    const auto &faces = scene().faces;
+    passes.clear();
+    passes.reserve(faces.size());
+    for (const auto &face : faces) {
+        const auto sprite = mc::Location::fromAsset(face.texture, "textures").section(':', 1);
+        const bool blockSprite = sprite.startsWith("block/");
+        auto layer = blockItemLayer;
+        if (face.forceTranslucent || face.entityLayer == mc::EntityLayer::Overlay)
+            layer = mc::RenderLayer::Translucent;
+        else if (face.entityLayer == mc::EntityLayer::Solid)
+            layer = mc::RenderLayer::Solid;
+        else if (face.entityLayer != mc::EntityLayer::None)
+            layer = mc::RenderLayer::Cutout;
+        else if (placedBlock)
+            layer = blockLayer;
+        else if ((face.generatedLayer >= 0 && !blockSprite) ||
+                 (modelMesh && sprite.startsWith("item/")))
+            layer = mc::RenderLayer::Translucent;
+        passes << FacePass{blockSprite,
+                           layer == mc::RenderLayer::Translucent || layer == mc::RenderLayer::Tripwire,
+                           face.entityLayer == mc::EntityLayer::Overlay ||
+                                   face.entityLayer == mc::EntityLayer::Solid
+                               ? 0.f
+                               : mc::alphaCutoff(layer, placedBlock)};
+    }
+    passOwner = modelMesh;
+    passScene = &scene();
+    passBlock = previewBlock;
+    passPlaced = placedBlock;
 }
 void Cube::paintGL() {
     QElapsedTimer timer;
@@ -502,18 +583,25 @@ void Cube::paintGL() {
                 auto t = it.value();
                 glDeleteTextures(1, &t);
                 materialSizes.remove(it.key());
+                materialCacheKeys.remove(it.key());
                 it = materialTextures.erase(it);
                 metrics->count("material_texture_releases", 1);
             } else
                 ++it;
         }
-        QImage missing(16, 16, QImage::Format_RGBA8888);
-        for (int y = 0; y < 16; ++y)
-            for (int x = 0; x < 16; ++x)
-                missing.setPixelColor(x, y, (x < 8) != (y < 8) ? QColor(248, 0, 248) : Qt::black);
+        static const QImage missing = [] {
+            QImage image(16, 16, QImage::Format_RGBA8888);
+            for (int y = 0; y < 16; ++y)
+                for (int x = 0; x < 16; ++x)
+                    image.setPixelColor(x, y, (x < 8) != (y < 8) ? QColor(248, 0, 248) : Qt::black);
+            return image;
+        }();
         materialImages[QString()] = missing;
+        // Uploaded textures stay as they are when their image cache key still matches;
+        // missing or replaced textures are queued for upload.
         for (auto i = materialImages.cbegin(); i != materialImages.cend(); ++i)
-            dirtyMaterials.insert(i.key());
+            if (!materialTextures.contains(i.key()) || materialCacheKeys.value(i.key()) != i->cacheKey())
+                dirtyMaterials.insert(i.key());
         materialsDirty = false;
     }
     if (!dirtyMaterials.isEmpty()) {
@@ -543,6 +631,7 @@ void Cube::paintGL() {
                                 GL_UNSIGNED_BYTE, image.constBits());
             metrics->count("material_texture_uploads", 1);
             materialTextures[it.key()] = t;
+            materialCacheKeys[it.key()] = it->cacheKey();
         }
     }
     if (document) {
@@ -593,76 +682,70 @@ void Cube::paintGL() {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     program->bind();
-    program->setUniformValue("mvp", m);
-    program->setUniformValue("tex", 0);
-    program->setUniformValue("solid", 0.f);
-    program->setUniformValue("direction", lightDirection);
-    program->setUniformValue("ambient", std::clamp(ambient, 0.f, 1.f));
-    program->setUniformValue("neutral", neutral ? 1.f : 0.f);
+    program->setUniformValue(loc.mvp, m);
+    program->setUniformValue(loc.tex, 0);
+    program->setUniformValue(loc.solid, 0.f);
+    program->setUniformValue(loc.direction, lightDirection);
+    program->setUniformValue(loc.ambient, std::clamp(ambient, 0.f, 1.f));
+    program->setUniformValue(loc.neutral, neutral ? 1.f : 0.f);
     const auto &lights = previewLights(previewContext == "gui", scene().guiLight);
     const auto local = contextTransform.transposed();
-    program->setUniformValue("light0", local.mapVector(lights[0]).normalized());
-    program->setUniformValue("light1", local.mapVector(lights[1]).normalized());
-    program->setUniformValue("lightingMode", studioLighting ? 2 : placedBlock ? 1 : 0);
+    program->setUniformValue(loc.light0, local.mapVector(lights[0]).normalized());
+    program->setUniformValue(loc.light1, local.mapVector(lights[1]).normalized());
+    program->setUniformValue(loc.lightingMode, studioLighting ? 2 : placedBlock ? 1 : 0);
     buffer.bind();
-    auto attribute = [&](const char *name, int offset, int count) {
-        int a = program->attributeLocation(name);
-        program->enableAttributeArray(a);
-        program->setAttributeBuffer(a, GL_FLOAT, offset * sizeof(float), count, sizeof(Vertex));
+    auto attribute = [&](int location, int offset, int count) {
+        program->enableAttributeArray(location);
+        program->setAttributeBuffer(location, GL_FLOAT, offset * sizeof(float), count, sizeof(Vertex));
     };
-    attribute("position", 0, 3);
-    attribute("texcoord", 3, 2);
-    attribute("normal", 5, 3);
-    attribute("shade", 8, 1);
-    attribute("worldShade", 9, 1);
-    QVector<int> order(scene().faces.size());
+    attribute(loc.position, 0, 3);
+    attribute(loc.texcoord, 3, 2);
+    attribute(loc.normal, 5, 3);
+    attribute(loc.shade, 8, 1);
+    attribute(loc.worldShade, 9, 1);
+    const auto &faces = scene().faces;
+    if (passScene != &scene() || passBlock != previewBlock || passPlaced != placedBlock ||
+        passes.size() != faces.size())
+        classifyFaces();
+    // Faces draw in mesh order, opaque before blended; blended ones back to front. Only a
+    // mesh that has blended faces needs sorting (and the depths to sort by).
+    QVector<int> order(faces.size());
     std::iota(order.begin(), order.end(), 0);
-    const auto blockLayer = mc::blockRenderLayer(previewBlock);
-    const auto blockItemLayer = mc::itemRenderLayer(previewBlock, false);
-    struct FacePass {
-        mc::RenderLayer layer;
-        bool blockSprite;
-    };
-    QVector<FacePass> passes;
-    passes.reserve(order.size());
-    for (const auto &face : scene().faces) {
-        const auto sprite = mc::Location::fromAsset(face.texture, "textures").section(':', 1);
-        const bool blockSprite = sprite.startsWith("block/");
-        auto layer = blockItemLayer;
-        if (face.forceTranslucent || face.entityLayer == mc::EntityLayer::Overlay)
-            layer = mc::RenderLayer::Translucent;
-        else if (face.entityLayer == mc::EntityLayer::Solid)
-            layer = mc::RenderLayer::Solid;
-        else if (face.entityLayer != mc::EntityLayer::None)
-            layer = mc::RenderLayer::Cutout;
-        else if (placedBlock)
-            layer = blockLayer;
-        else if ((face.generatedLayer >= 0 && !blockSprite) ||
-                 (modelMesh && sprite.startsWith("item/")))
-            layer = mc::RenderLayer::Translucent;
-        passes << FacePass{layer, blockSprite};
+    const bool anyBlended = std::any_of(passes.cbegin(), passes.cend(),
+                                        [](const FacePass &pass) { return pass.blended; });
+    if (anyBlended) {
+        QVector<float> depths(faces.size());
+        for (int i = 0; i < faces.size(); ++i)
+            if (passes[i].blended)
+                depths[i] = m.map((faces[i].points[0] + faces[i].points[2]) / 2).z();
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            const bool ta = passes[a].blended, tb = passes[b].blended;
+            return ta != tb ? !ta : ta && depths[a] > depths[b];
+        });
     }
-    auto depth = [&](int i) {
-        auto c = (scene().faces[i].points[0] + scene().faces[i].points[2]) / 2;
-        return m.map(c).z();
-    };
-    auto blended = [&](int i) {
-        return passes[i].layer == mc::RenderLayer::Translucent ||
-               passes[i].layer == mc::RenderLayer::Tripwire;
-    };
-    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        bool ta = blended(a), tb = blended(b);
-        return ta != tb ? !ta : ta && depth(a) > depth(b);
-    });
+    // GL state as last applied, so unchanged state costs no call; unknown until first set.
+    struct Applied {
+        bool known = false;
+        int twoSided = 0, textureAlpha = 0;
+        float cutoff = 0, uvOrigin = 0;
+        QRgb color = 0;
+        GLuint texture = 0;
+    } applied;
+    const GLuint missingTexture = materialTextures.value(QString());
+    const bool documentTexture = document && !materialPreview;
     bool blend = false;
     bool cull = true, writeDepth = true;
     glDisable(GL_BLEND);
-    for (int i : order) {
-        const auto &f = scene().faces[i];
+    // Consecutive faces that are adjacent in the vertex buffer and share every piece of
+    // state go out as one draw call; the triangles still run in exactly the same order.
+    for (int k = 0; k < order.size();) {
+        const int first = order[k];
+        const auto &f = faces[first];
+        const auto &pass = passes[first];
         const bool overlay = f.entityLayer == mc::EntityLayer::Overlay;
         const bool twoSided = overlay || f.entityLayer == mc::EntityLayer::CutoutNoCull;
-        if (blend != blended(i)) {
-            blend = blended(i);
+        if (blend != pass.blended) {
+            blend = pass.blended;
             if (blend)
                 glEnable(GL_BLEND);
             else
@@ -679,24 +762,54 @@ void Cube::paintGL() {
             writeDepth = !overlay;
             glDepthMask(writeDepth);
         }
-        program->setUniformValue("twoSided", int(twoSided && !placedBlock && !studioLighting));
-        program->setUniformValue("alphaCutoff", overlay || f.entityLayer == mc::EntityLayer::Solid
-                                                   ? 0.f : mc::alphaCutoff(passes[i].layer, placedBlock));
+        const int twoSidedUniform = int(twoSided && !placedBlock && !studioLighting);
         // Interpolate in atlas coordinates before sampling the standalone texture.
         // A 16 px tile halfway across a 1024 px sheet has an origin of 32 sprite widths.
         // The shader cancels the offset after interpolation, reproducing the atlas rounding.
-        program->setUniformValue("uvOrigin", inventoryCapture && passes[i].blockSprite ? 32.f : 0.f);
+        const float uvOrigin = inventoryCapture && pass.blockSprite ? 32.f : 0.f;
         // The item atlas keeps the shader's alpha even for passes without blending.
         // Its GUI blit adds the stored RGB to the background weighted by (1 - alpha).
-        program->setUniformValue("textureAlpha", int(blend || inventoryCapture));
-        program->setUniformValue(
-            "tintColor",
-            QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
-        GLuint t = document && (!modelMesh || f.texture == activeTexture) && !materialPreview
-                       ? texture
-                       : materialTextures.value(f.texture, materialTextures.value(QString()));
-        glBindTexture(GL_TEXTURE_2D, t);
-        glDrawArrays(GL_TRIANGLES, i * 6, 6);
+        const int textureAlpha = int(blend || inventoryCapture);
+        GLuint t = missingTexture;
+        if (documentTexture && (!modelMesh || f.texture == activeTexture))
+            t = texture;
+        else if (const auto found = materialTextures.constFind(f.texture); found != materialTextures.cend())
+            t = *found;
+        if (!applied.known || applied.twoSided != twoSidedUniform)
+            program->setUniformValue(loc.twoSided, twoSidedUniform);
+        if (!applied.known || applied.cutoff != pass.cutoff)
+            program->setUniformValue(loc.alphaCutoff, pass.cutoff);
+        if (!applied.known || applied.uvOrigin != uvOrigin)
+            program->setUniformValue(loc.uvOrigin, uvOrigin);
+        if (!applied.known || applied.textureAlpha != textureAlpha)
+            program->setUniformValue(loc.textureAlpha, textureAlpha);
+        if (!applied.known || applied.color != f.color)
+            program->setUniformValue(
+                loc.tintColor,
+                QVector3D(qRed(f.color) / 255.f, qGreen(f.color) / 255.f, qBlue(f.color) / 255.f));
+        if (!applied.known || applied.texture != t)
+            glBindTexture(GL_TEXTURE_2D, t);
+        applied = {true, twoSidedUniform, textureAlpha, pass.cutoff, uvOrigin, f.color, t};
+        int tail = first;
+        ++k;
+        for (; k < order.size() && order[k] == tail + 1; ++k, ++tail) {
+            const auto &next = faces[order[k]];
+            const auto &nextPass = passes[order[k]];
+            const bool nextOverlay = next.entityLayer == mc::EntityLayer::Overlay;
+            const bool nextTwoSided = nextOverlay || next.entityLayer == mc::EntityLayer::CutoutNoCull;
+            GLuint nextTexture = missingTexture;
+            if (documentTexture && (!modelMesh || next.texture == activeTexture))
+                nextTexture = texture;
+            else if (const auto found = materialTextures.constFind(next.texture);
+                     found != materialTextures.cend())
+                nextTexture = *found;
+            if (nextPass.blended != pass.blended || nextOverlay != overlay ||
+                nextTwoSided != twoSided || nextPass.cutoff != pass.cutoff ||
+                (inventoryCapture && nextPass.blockSprite) != (inventoryCapture && pass.blockSprite) ||
+                next.color != f.color || nextTexture != t)
+                break;
+        }
+        glDrawArrays(GL_TRIANGLES, first * 6, (tail - first + 1) * 6);
     }
     glDepthMask(GL_TRUE);
     buffer.release();
@@ -707,42 +820,43 @@ void Cube::paintGL() {
     glEnable(GL_BLEND);
     // Reusable line buffers keep outlines, wireframe and guides in the same GL
     // pipeline. Qt vector overlays were suppressed on the verified Radeon path.
-    program->setUniformValue("solid", 1.f);
+    program->setUniformValue(loc.solid, 1.f);
     auto bindLines = [&](QOpenGLBuffer &lines) {
         lines.bind();
-        attribute("position", 0, 3);
-        attribute("texcoord", 3, 2);
-        attribute("normal", 5, 3);
-        attribute("shade", 8, 1);
-        attribute("worldShade", 9, 1);
+        attribute(loc.position, 0, 3);
+        attribute(loc.texcoord, 3, 2);
+        attribute(loc.normal, 5, 3);
+        attribute(loc.shade, 8, 1);
+        attribute(loc.worldShade, 9, 1);
     };
     bindLines(lineBuffer);
-    for (int i = 0; i < scene().faces.size(); ++i)
-        if (!inventoryCapture && (wireframe || outlines || i == selectedFace)) {
-            program->setUniformValue("solidColor", i == selectedFace
-                                                       ? QVector4D(1, .82f, .31f, 1)
-                                                       : QVector4D(.76f, .8f, .94f, .6f));
-            glLineWidth(i == selectedFace ? 2.f : 1.f);
-            glDrawArrays(GL_LINES, i * 10, wireframe ? 10 : 8);
-        }
+    if (!inventoryCapture && (wireframe || outlines || selectedFace >= 0))
+        for (int i = 0; i < faces.size(); ++i)
+            if (wireframe || outlines || i == selectedFace) {
+                program->setUniformValue(loc.solidColor, i == selectedFace
+                                                             ? QVector4D(1, .82f, .31f, 1)
+                                                             : QVector4D(.76f, .8f, .94f, .6f));
+                glLineWidth(i == selectedFace ? 2.f : 1.f);
+                glDrawArrays(GL_LINES, i * 10, wireframe ? 10 : 8);
+            }
     lineBuffer.release();
     bindLines(guideBuffer);
-    program->setUniformValue("mvp", matrix(false));
+    program->setUniformValue(loc.mvp, matrix(false));
     if (!inventoryCapture && groundGrid) {
-        program->setUniformValue("solidColor", QVector4D(.32f, .34f, .4f, .4f));
+        program->setUniformValue(loc.solidColor, QVector4D(.32f, .34f, .4f, .4f));
         glLineWidth(1);
         glDrawArrays(GL_LINES, 0, 36);
     }
     if (!inventoryCapture && axes) {
         const QVector4D colors[] = {{1, .2f, .2f, 1}, {.2f, 1, .2f, 1}, {.2f, .8f, 1, 1}};
         for (int i = 0; i < 3; ++i) {
-            program->setUniformValue("solidColor", colors[i]);
+            program->setUniformValue(loc.solidColor, colors[i]);
             glLineWidth(2);
             glDrawArrays(GL_LINES, 36 + i * 2, 2);
         }
     }
     if (!inventoryCapture && referenceFrame) {
-        program->setUniformValue("solidColor", QVector4D(.95f, .62f, .3f, .7f));
+        program->setUniformValue(loc.solidColor, QVector4D(.95f, .62f, .3f, .7f));
         glLineWidth(1);
         glDrawArrays(GL_LINES, referenceFrame == 2 ? 66 : 42, referenceFrame == 2 ? 8 : 24);
     }
@@ -751,8 +865,8 @@ void Cube::paintGL() {
     program->release();
     // QPainter overlays below share this context: leave no model vertex arrays enabled,
     // or its fills read them and are dropped.
-    for (auto name : {"position", "texcoord", "normal", "shade", "worldShade"})
-        program->disableAttributeArray(name);
+    for (const int location : {loc.position, loc.texcoord, loc.normal, loc.shade, loc.worldShade})
+        program->disableAttributeArray(location);
     if (modelMesh && scene().faces.isEmpty()) {
         QPainter p(this);
         p.setPen(Qt::lightGray);

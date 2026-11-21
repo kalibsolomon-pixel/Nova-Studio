@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <climits>
 #include <future>
+#include <optional>
 #include <type_traits>
 
 namespace nova {
@@ -40,6 +41,7 @@ namespace {
 constexpr int MaxEditDimension = 256;
 constexpr int MaxEditPixelBytes = 4 * 1024 * 1024;
 constexpr int MaxReportedFrames = 128;
+constexpr int MaxOpenDocuments = 32; // texture documents nova.asset.open may keep open
 
 bool rasterDestination(mcp::Scope &scope, const QString &path) {
     return scope.vacant(path) && scope.vacant(path + ".mcmeta");
@@ -126,6 +128,14 @@ QJsonObject documentState(const mcp::Snapshot &scope, const Document &doc, bool 
     state["interpolate"] = animation.interpolate;
     state["activeFrame"] = doc.activeFrame().toString(QUuid::WithoutBraces);
     state["activeLayer"] = doc.activeLayer().toString(QUuid::WithoutBraces);
+    // Pixel commands only change selected pixels, so agents need to see the selection.
+    QJsonValue bounds;
+    if (doc.hasSelection()) {
+        const auto area = ops::maskBounds(doc.selection());
+        bounds = area.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonObject{{"x", area.x()}, {"y", area.y()},
+                                                                            {"width", area.width()}, {"height", area.height()}};
+    }
+    state["selection"] = QJsonObject{{"present", doc.hasSelection()}, {"bounds", bounds}};
     return state;
 }
 QJsonObject documentState(const mcp::Snapshot &scope, const mc::ModelEdit &doc, bool details = true) {
@@ -195,25 +205,7 @@ QJsonObject encodePreview(const QImage &image, const QString &asset = {}, const 
     }
     return result;
 }
-QImage rasterPreview(const QImage &image, int edge = 256, bool grid = false) {
-    if (image.isNull())
-        return {};
-    auto result = image.scaled(edge, edge, Qt::KeepAspectRatio, Qt::FastTransformation);
-    if (grid && result.width() >= 4 * image.width() && result.height() >= 4 * image.height()) {
-        result = result.convertToFormat(QImage::Format_ARGB32);
-        QPainter painter(&result);
-        painter.setPen(QColor(0, 0, 0, 105));
-        for (int x = 1; x < image.width(); ++x) {
-            const int line = x * result.width() / image.width();
-            painter.drawLine(line, 0, line, result.height() - 1);
-        }
-        for (int y = 1; y < image.height(); ++y) {
-            const int line = y * result.height() / image.height();
-            painter.drawLine(0, line, result.width() - 1, line);
-        }
-    }
-    return result;
-}
+using mcp::rasterPreview;
 struct PreviewTile {
     QImage image;
     QString label;
@@ -249,12 +241,16 @@ void appendPreview(QJsonObject &response, const QImage &pixels) {
         response["_pngImage"] = image;
     response["preview"] = preview;
 }
+void describeVanillaCache(mcp::Snapshot &snapshot);
+// Pack textures and cached vanilla:<path> textures side by side, for comparing a texture with its
+// vanilla counterpart in one image.
 QJsonObject contactSheet(const mcp::Snapshot &snapshot, mcp::Scope &scope, const QJsonObject &args,
                          const QSet<QUuid> &baselineDocs, const DocumentSession &session) {
     const auto ids = args["assetIds"].toArray();
     QSet<QString> wanted;
     for (const auto &id : ids)
-        wanted.insert(id.toString());
+        if (!id.toString().startsWith("vanilla:"))
+            wanted.insert(id.toString());
     QHash<QString, QString> paths;
     for (const auto &path : snapshot.index.files) {
         if (!path.endsWith(".png") || !mcp::logicalAsset(path))
@@ -275,7 +271,36 @@ QJsonObject contactSheet(const mcp::Snapshot &snapshot, mcp::Scope &scope, const
     QJsonArray assets;
     const int edge = std::min(args["maxEdge"].toInt(128), 192);
     const bool grid = args["pixelGrid"].toBool();
+    std::optional<mcp::Snapshot> vanilla;
     for (const auto &id : ids) {
+        if (const auto name = id.toString(); name.startsWith("vanilla:")) {
+            if (!vanilla) {
+                vanilla = snapshot;
+                describeVanillaCache(*vanilla);
+            }
+            mcp::VanillaTextureData bytes;
+            const auto path = mcp::vanillaTexturePath(name);
+            const auto found = mcp::vanillaTexture(*vanilla, {{"path", path}, {"version", snapshot.version}}, &bytes);
+            if (found.contains("error")) {
+                auto error = found;
+                auto details = error["error"].toObject();
+                auto data = details["details"].toObject();
+                data["assetId"] = id;
+                details["details"] = data;
+                error["error"] = details;
+                return error;
+            }
+            QImage pixels;
+            if (found["width"].toInt() > MaxEditDimension || found["height"].toInt() > MaxEditDimension ||
+                !pixels.loadFromData(bytes.png, "PNG") || pixels.width() > MaxEditDimension ||
+                pixels.height() > MaxEditDimension)
+                return mcp::toolError("preview_limit", "A contact-sheet texture is unreadable or exceeds 256 by 256.",
+                                      {{"assetId", id}});
+            const auto label = "vanilla " + QFileInfo(path).completeBaseName();
+            tiles.append({rasterPreview(pixels, edge, grid), label});
+            assets.append(QJsonObject{{"assetId", id}, {"path", path}, {"label", label}, {"revision", QJsonValue()}});
+            continue;
+        }
         const auto path = paths.value(id.toString());
         const auto doc = openDocs.value(path);
         const bool provisional = snapshot.provisional.contains(path);
@@ -747,6 +772,8 @@ void Window::ensureMcpService() {
                     addOpen(path);
                 for (const auto &doc : session.all())
                     addOpen(QDir(project).relativeFilePath(doc->path));
+                if (tool == "nova.texture.adjust_bulk")
+                    snapshot.freeDocumentSlots = std::max(0, MaxOpenDocuments - int(session.all().size()));
             }
             const bool batch = tool == "nova.assets.inspect_batch";
             const bool context = tool == "nova.assets.context";
@@ -913,8 +940,33 @@ void Window::ensureMcpService() {
                 const auto relative = mcp::resolveAssetPath(snapshot, asset);
                 if (relative.isEmpty())
                     return toolError("asset_not_found", "The asset identifier is unknown or stale.");
+                if (relative.endsWith(".json") && !mc::Location::fromAsset(relative, "models").isEmpty()) {
+                    // A pack model opens in a model tab, as Open does in the asset browser.
+                    commit = [this, snapshot, relative, asset]() -> QJsonObject {
+                        if (QApplication::activeModalWidget())
+                            return toolError("document_busy", "Finish the current editor dialog first.");
+                        mcp::Scope scope(snapshot.root, snapshot.rootIdentity);
+                        if (!scope.open(relative))
+                            return toolError("asset_unavailable", "The model failed project containment.");
+                        if (!modelPanel->catalog()->editable(relative))
+                            return toolError("invalid_asset_type", "Nova cannot edit this model (it is not a "
+                                             "project-local model file).");
+                        const bool added = !modelPanel->anyModelDocument(relative);
+                        QString error;
+                        const auto edit = modelPanel->editableModel(relative, &error);
+                        if (!edit)
+                            return toolError(error.contains("limit") ? "open_limit" : "open_failed", error);
+                        showModelDocument(edit, false);
+                        const auto state = documentState(snapshot, *edit);
+                        return {{"assetId", asset}, {"path", relative}, {"opened", added},
+                                {"documentId", documentIdentifier(edit->instanceId())}, {"revision", state["revision"]},
+                                {"document", state}, {"changeSummary", QJsonObject{{"assetPath", relative}}}};
+                    };
+                    return {};
+                }
                 if (!relative.endsWith(".png"))
-                    return toolError("invalid_asset_type", "Opening an asset through MCP requires a pack PNG.");
+                    return toolError("invalid_asset_type", "nova.asset.open opens pack textures (PNG) and pack models "
+                                     "(models/*.json).");
                 commit = [this, snapshot, relative, asset]() -> QJsonObject {
                     if (QApplication::activeModalWidget())
                         return toolError("document_busy", "Finish the current editor dialog first.");
@@ -930,8 +982,9 @@ void Window::ensureMcpService() {
                         return toolError("document_busy", "Close the vanilla baseline tab before opening this pack texture.");
                     QString error;
                     if (added) {
-                        if (session.all().size() >= 32)
-                            return toolError("open_limit", "Close a texture before opening more documents.");
+                        if (session.all().size() >= MaxOpenDocuments)
+                            return toolError("open_limit", "Close a texture before opening more documents "
+                                             "(nova.asset.close closes one without unsaved changes).");
                         const auto metadataPath = relative + ".mcmeta";
                         const auto metadata = relative == "pack.png" ? nullptr : scope.open(metadataPath);
                         if (relative != "pack.png" && !metadata && !scope.vacant(metadataPath))
@@ -962,6 +1015,53 @@ void Window::ensureMcpService() {
                     return {{"assetId", asset}, {"path", relative}, {"opened", added},
                             {"documentId", documentIdentifier(doc->instanceId())}, {"revision", state["revision"]},
                             {"document", state}, {"changeSummary", QJsonObject{{"assetPath", relative}}}};
+                };
+                return {};
+            }
+            if (request.tool == "nova.asset.close") {
+                // Frees a document slot. Unsaved work is never discarded: a dirty document is refused.
+                const auto asset = request.arguments["assetId"].toString();
+                const auto relative = mcp::resolveAssetPath(snapshot, asset);
+                if (relative.isEmpty())
+                    return toolError("asset_not_found", "The asset identifier is unknown or stale.");
+                commit = [this, snapshot, relative, asset]() -> QJsonObject {
+                    if (QApplication::activeModalWidget())
+                        return toolError("document_busy", "Finish the current editor dialog first.");
+                    const auto unsaved = [] {
+                        return toolError("document_dirty", "The document has unsaved changes. Save it with "
+                                         "nova.drafts.save, or ask the user to close it; Nova does not discard edits.");
+                    };
+                    for (int i = 0; i < tabs->count(); ++i) {
+                        const auto page = tabs->widget(i);
+                        if (QDir(snapshot.root).relativeFilePath(tabPath(page)) != relative)
+                            continue;
+                        if (auto canvas = dynamic_cast<Canvas *>(page)) {
+                            const auto doc = canvas->document;
+                            if (baselineDocs.contains(doc->id()))
+                                continue;
+                            if (documentDirty(*doc) || doc->modified() || !doc->revision().exists)
+                                return unsaved();
+                            if (doc->strokeOpen() || canvas->interactionActive() || canvas->hasFloating())
+                                return toolError("document_busy", "Finish the current canvas interaction first.");
+                            emit tabs->tabCloseRequested(i);
+                            if (session.owns(doc))
+                                return toolError("close_failed", "The document stayed open.");
+                        } else if (auto model = modelPanel->anyModelDocument(relative)) {
+                            if (model->modified() || model->provisional())
+                                return unsaved();
+                            if (modelPanel->authoringModel(relative) || model->previewing())
+                                return toolError("document_busy", "Finish the model authoring window or preview first.");
+                            emit tabs->tabCloseRequested(i);
+                            if (modelPanel->anyModelDocument(relative))
+                                return toolError("close_failed", "The model stayed open.");
+                        } else {
+                            continue;
+                        }
+                        return {{"assetId", asset}, {"path", relative}, {"closed", true}, {"changed", false},
+                                {"openDocuments", qint64(session.all().size() + modelPanel->openModelAssets().size())},
+                                {"changeSummary", QJsonObject{{"assetPath", relative}}}};
+                    }
+                    return toolError("document_not_open", "No editor tab shows this asset.");
                 };
                 return {};
             }
@@ -1175,7 +1275,8 @@ void Window::ensureMcpService() {
                 {"tools", QJsonArray{"nova.texture.edit", "nova.layer.edit", "nova.animation.edit",
                                      "nova.model.edit", "nova.uv.edit", "nova.edit.batch", "nova.edit.undo", "nova.edit.redo",
                                      "nova.texture.put_pixels", "nova.texture.palette_remap", "nova.texture.gradient_map",
-                                     "nova.texture.erase", "nova.texture.adjust_bulk", "nova.asset.open"}}};
+                                     "nova.texture.erase", "nova.texture.adjust_bulk", "nova.asset.open",
+                                     "nova.asset.close"}}};
             if (capabilities && asset.isEmpty())
                 return result;
             if (!capabilities && QApplication::activeModalWidget())
@@ -1333,7 +1434,7 @@ void Window::ensureMcpService() {
                     return previewResult(*model);
                 const auto revision = revisionToken(snapshot, *model);
                 commit = [this, model, path, snapshot, revision, history, redo, prepared, returnPreview, includeDocument,
-                          changes = summary(path, revision),
+                          changes = summary(path, revision), steps = request.arguments["steps"].toInt(1),
                           operations, count = operations.size()]() -> QJsonObject {
                     if (modelPanel->openModelDocument(path) != model ||
                         modelPanel->catalog()->version() != snapshot.version ||
@@ -1392,18 +1493,29 @@ void Window::ensureMcpService() {
                     capture(comparison.before, comparison.uvBefore, true);
                     if (!faceName.isEmpty())
                         comparison.detail = QString("UV face %1 of element %2 · %3").arg(faceName).arg(element).arg(texture);
+                    int moved = 0;
                     if (history) {
-                        if (!model->ownsHistoryHead(snapshot.generation, redo))
-                            return toolError("history_conflict", "The next history entry belongs to another editor or session.");
-                        if (!(redo ? model->redo() : model->undo()))
-                            return toolError("edit_rejected", "The model history could not be moved.");
+                        for (; moved < steps; ++moved) {
+                            if (!model->ownsHistoryHead(snapshot.generation, redo)) {
+                                if (moved)
+                                    break;
+                                return toolError("history_conflict", "The next history entry belongs to another editor or session.");
+                            }
+                            if (!(redo ? model->redo() : model->undo())) {
+                                if (moved)
+                                    break;
+                                return toolError("edit_rejected", "The model history could not be moved.");
+                            }
+                        }
                     } else if (!prepared()) {
                         return toolError("revision_conflict", "The model changed before commit.");
                     }
                     metrics.record("mcp_model_native_mutation", publication);
                     const bool changed = revisionToken(snapshot, *model) != revision;
                     auto response = documentState(snapshot, *model, includeDocument);
-                    completeEdit(response, transaction, history ? 1 : count, changed);
+                    completeEdit(response, transaction, history ? moved : count, changed);
+                    if (history)
+                        response["stepsApplied"] = moved;
                     response["changeSummary"] = changes;
                     if (changed) {
                         const auto warning = modelPanel->publishModelEdit(model);
@@ -1510,10 +1622,11 @@ void Window::ensureMcpService() {
                         return toolError("invalid_asset_type", "This command requires a model document.");
                     const auto op = value.toObject();
                     const auto name = op["command"].toString();
-                    auto inside = [&](int x, int y) { return canvas.contains(x, y); };
-                    if (name == "fill" && !inside(op["x"].toInt(), op["y"].toInt()))
+                    // After trim the size is only known once the batch runs; the session checks it then.
+                    auto inside = [&](int x, int y) { return canvas.isNull() || canvas.contains(x, y); };
+                    if ((name == "fill" || name == "select_color") && !inside(op["x"].toInt(), op["y"].toInt()))
                         return toolError("invalid_arguments", "The seed lies outside the canvas.");
-                    if (name == "fill_rect" && !canvas.contains(
+                    if (name == "fill_rect" && !canvas.isNull() && !canvas.contains(
                             QRect(op["x"].toInt(), op["y"].toInt(), op["width"].toInt(), op["height"].toInt())))
                         return toolError("invalid_arguments", "The rectangle lies outside the canvas.");
                     for (const auto &point : op["points"].toArray()) {
@@ -1532,17 +1645,21 @@ void Window::ensureMcpService() {
                         if (const auto failure = texture::validate(name, op, doc->image.size()); !failure.ok())
                             return toolError("invalid_arguments", failure.message, {{"pointer", failure.pointer}});
                     }
-                    if (name == "directional_shading") {
-                        const auto source = op["params"].toObject()["height_source"].toString();
+                    if (name == "directional_shading" || name == "normal_map") {
+                        const auto key = name == "normal_map" ? "source" : "height_source";
+                        const auto source = op["params"].toObject()[key].toString();
                         const bool needsMap = source == "Heightmap layer" || source == "Normal map layer";
                         if (needsMap != op.contains("mapLayer"))
-                            return toolError("invalid_arguments",
-                                "Supply mapLayer exactly when height_source is Heightmap layer or Normal map layer.");
+                            return toolError("invalid_arguments", QString("Supply mapLayer exactly when %1 is "
+                                "Heightmap layer%2.").arg(key, name == "normal_map" ? "" : " or Normal map layer"));
                     }
-                    if (name == "resize_image") {
-                        const auto params = op["params"].toObject();
-                        canvas.setSize(QSize(params["width"].toInt(), params["height"].toInt()));
-                    }
+                    const auto params = op["params"].toObject();
+                    if (name == "resize_image" || name == "resize_canvas" || name == "crop")
+                        canvas = QRect(0, 0, params["width"].toInt(), params["height"].toInt());
+                    else if (name == "image_rotate" && params["turns"].toString("90° clockwise") != "180°")
+                        canvas = canvas.transposed();
+                    else if (name == "trim")
+                        canvas = {};
                     nativeCommands.append(mcp::nativeTextureCommand(name) ? nativeOperation(op) : op);
                 }
                 QString error;
@@ -1560,7 +1677,7 @@ void Window::ensureMcpService() {
             commit = [this, doc, relative, snapshot, revision, interactionActive, prepared, history, provisional,
                       changes = summary(relative, revision), compact, asset,
                       operations, redo, returnPreview, includeDocument, workflowStage = request.workflowStage,
-                      count = operations.size()]() -> QJsonObject {
+                      count = operations.size(), steps = request.arguments["steps"].toInt(1)]() -> QJsonObject {
                 if (!session.owns(doc) || revisionToken(snapshot, *doc) != revision)
                     return toolError("revision_conflict", "The texture changed before commit.");
                 if (QApplication::activeModalWidget() || interactionActive())
@@ -1621,17 +1738,29 @@ void Window::ensureMcpService() {
                 const QUuid targetLayer = compactArguments.contains("layer") ? QUuid(compactArguments["layer"].toString())
                                                                              : doc->activeLayer();
                 const auto targetBefore = compact.isEmpty() || !doc->layer(targetLayer) ? QImage{} : doc->layer(targetLayer)->pixels;
+                int moved = 0;
                 if (history) {
-                    if (!doc->ownsHistoryHead(snapshot.generation, redo))
-                        return toolError("history_conflict", "The next history entry belongs to another editor or session.");
-                    if (!session.dispatch(doc, redo ? Command::Redo : Command::Undo, {}, false, &error))
-                        return toolError("edit_rejected", error);
+                    // Several steps stop early, with what moved reported, at an entry this connection did not make.
+                    for (; moved < steps; ++moved) {
+                        if (!doc->ownsHistoryHead(snapshot.generation, redo)) {
+                            if (moved)
+                                break;
+                            return toolError("history_conflict", "The next history entry belongs to another editor or session.");
+                        }
+                        if (!session.dispatch(doc, redo ? Command::Redo : Command::Undo, {}, false, &error)) {
+                            if (moved)
+                                break;
+                            return toolError("edit_rejected", error);
+                        }
+                    }
                 } else if (!prepared(&error)) {
                     return toolError("edit_rejected", error.isEmpty() ? QString("The commit budget changed.") : error);
                 }
                 metrics.record(doc->animated() ? "mcp_animation_native_publication" : "mcp_texture_native_publication", publication);
                 auto response = documentState(snapshot, *doc, includeDocument);
-                completeEdit(response, transaction, history ? 1 : count, revisionToken(snapshot, *doc) != revision);
+                completeEdit(response, transaction, history ? moved : count, revisionToken(snapshot, *doc) != revision);
+                if (history)
+                    response["stepsApplied"] = moved;
                 response["changeSummary"] = changes;
                 if (!compact.isEmpty())
                     describeCompactEdit(response, compact, compactArguments, targetLayer, targetBefore, *doc,

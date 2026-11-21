@@ -134,7 +134,7 @@ LayersPanel::LayersPanel(DocumentSession *s, QWidget *parent) : QWidget(parent),
             }
     });
     connect(session, &DocumentSession::changed, this, [this](QUuid id) {
-        if (document && id == document->id())
+        if (document && id == document->id() && !document->strokeOpen())
             refresh();
     });
     setDocument({});

@@ -3,6 +3,34 @@
 #include <QtConcurrent>
 #include <QtWidgets>
 namespace nova {
+namespace {
+// A file whose modification time is closer than this to the moment it was hashed could still be
+// rewritten within the same timestamp tick with identical size, so it is hashed again next time.
+constexpr qint64 StableAfterMs = 3000;
+// Reads the disk revision, rehashing only when the cheap file identity changed. Size, mtime,
+// creation and metadata-change times together also catch a replaced file that kept size and mtime.
+Revision probeRevision(const QString &path, DiskProbe &probe) {
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        probe = {};
+        return Revision::read(path);
+    }
+    DiskProbe now;
+    now.valid = true;
+    now.size = info.size();
+    now.modified = info.lastModified().toMSecsSinceEpoch();
+    now.born = info.birthTime().toMSecsSinceEpoch();
+    now.changed = info.metadataChangeTime().toMSecsSinceEpoch();
+    now.hashedAt = QDateTime::currentMSecsSinceEpoch();
+    if (probe.valid && probe.revision.readable && probe.size == now.size &&
+        probe.modified == now.modified && probe.born == now.born && probe.changed == now.changed &&
+        probe.hashedAt - probe.modified > StableAfterMs)
+        return probe.revision;
+    now.revision = Revision::read(path);
+    probe = now;
+    return probe.revision;
+}
+} // namespace
 void Window::conflictDialog() {
     if (!current())
         return;
@@ -63,6 +91,7 @@ void Window::backgroundSafety() {
         std::shared_ptr<Document> snapshotDocument;
         qint64 key;
         bool snapshot;
+        DiskProbe probe;
     };
     QSet<QUuid> live;
     for (auto &doc : session.all())
@@ -73,13 +102,16 @@ void Window::backgroundSafety() {
     for (auto id : externalRevisions.keys())
         if (!live.contains(id))
             externalRevisions.remove(id);
+    for (auto id : diskProbes.keys())
+        if (!live.contains(id))
+            diskProbes.remove(id);
     QList<Item> items;
     for (const auto &doc : session.all()) {
         bool snapshot =
             doc->modified() && recoveredKeys.value(doc->id()) != qint64(doc->changeSerial());
         items.append({doc->id(), doc->path, doc->revision(),
                       snapshot ? doc->recoverySnapshot() : nullptr, qint64(doc->changeSerial()),
-                      snapshot});
+                      snapshot, diskProbes.value(doc->id())});
         if (!doc->modified())
             recovery->cleanupClean(doc->id());
     }
@@ -88,19 +120,20 @@ void Window::backgroundSafety() {
     ioBusy = true;
     auto store = *recovery;
     auto root = project;
-    using Results = QList<std::tuple<QUuid, Revision, qint64, QString>>;
+    using Results = QList<std::tuple<QUuid, Revision, qint64, QString, DiskProbe>>;
     auto watcher = new QFutureWatcher<Results>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
         ioBusy = false;
         auto results = watcher->result();
         watcher->deleteLater();
-        for (auto [id, disk, key, error] : results) {
+        for (auto [id, disk, key, error, probe] : results) {
             std::shared_ptr<Document> doc;
             for (auto &d : session.all())
                 if (d->id() == id)
                     doc = d;
             if (!doc)
                 continue;
+            diskProbes[id] = probe;
             if (key && error.isEmpty())
                 recoveredKeys[id] = key;
             if (!error.isEmpty()) {
@@ -118,10 +151,11 @@ void Window::backgroundSafety() {
     watcher->setFuture(QtConcurrent::run(&ioPool, [items, store, root] {
         Results results;
         for (const auto &item : items) {
-            auto disk = Revision::read(item.path);
+            auto probe = item.probe;
+            auto disk = probeRevision(item.path, probe);
             QString error;
             const bool written = item.snapshot && store.writeDocument(*item.snapshotDocument, root, &error);
-            results.append({item.id, disk, written ? item.key : 0, error});
+            results.append({item.id, disk, written ? item.key : 0, error, probe});
         }
         return results;
     }));

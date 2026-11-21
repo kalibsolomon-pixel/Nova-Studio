@@ -6,9 +6,9 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QRegularExpression>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace nova::mc {
 namespace {
@@ -16,9 +16,52 @@ constexpr int MaxDepth = 64, MaxElements = 4096;
 constexpr qint64 MaxJson = 2 * 1024 * 1024, MaxTotal = 32 * 1024 * 1024;
 bool scoped(const QString &path, const QStringList &changes) {
     for (const auto &change : changes)
-        if (change.isEmpty() || path == change || path.startsWith(change + '/'))
+        if (change.isEmpty() || path == change ||
+            (path.size() > change.size() && path.startsWith(change) && path.at(change.size()) == '/'))
             return true;
     return false;
+}
+constexpr qsizetype MaxCachedModels = 2048;
+// Bounded model caches: past the cap an arbitrary half goes, so a long browse does not
+// start over from nothing (the cap used to clear the whole cache at 128 entries).
+void trim(QHash<QString, Model> &models) {
+    if (models.size() < MaxCachedModels)
+        return;
+    bool drop = true;
+    for (auto it = models.begin(); it != models.end(); drop = !drop)
+        it = drop ? models.erase(it) : std::next(it);
+}
+// Lowercase ASCII, digits and the separators a resource location allows ('/' is handled by
+// the path walk).
+bool locationChar(QChar c) {
+    const char16_t u = c.unicode();
+    return (u >= u'a' && u <= u'z') || (u >= u'0' && u <= u'9') || u == u'_' || u == u'.' ||
+           u == u'-';
+}
+bool validNamespace(QStringView text) {
+    if (text.isEmpty())
+        return false;
+    for (const auto c : text)
+        if (!locationChar(c))
+            return false;
+    return true;
+}
+bool validPath(QStringView text) {
+    if (text.isEmpty())
+        return false;
+    qsizetype start = 0;
+    for (qsizetype i = 0; i <= text.size(); ++i) {
+        if (i < text.size() && text[i] != u'/') {
+            if (!locationChar(text[i]))
+                return false;
+            continue;
+        }
+        const auto part = text.mid(start, i - start);
+        if (part.isEmpty() || part == QLatin1String(".") || part == QLatin1String(".."))
+            return false;
+        start = i + 1;
+    }
+    return true;
 }
 bool relevant(const QString &path) {
     return !Location::fromAsset(path, "models").isEmpty() ||
@@ -111,17 +154,17 @@ Profile Profile::forVersion(const QString &v) {
     return {};
 }
 Location Location::parse(const QString &text) {
-    if (text.isEmpty() || text.size() > 1024 || text.count(':') > 1)
+    if (text.isEmpty() || text.size() > 1024)
         return {};
-    auto parts = text.split(':');
-    Location l{parts.size() == 1 ? "minecraft" : parts[0], parts.last()};
-    static const QRegularExpression ns("^[a-z0-9_.-]+$"), path("^[a-z0-9_./-]+$");
-    if (!ns.match(l.nameSpace).hasMatch() || !path.match(l.path).hasMatch())
+    const QStringView view(text);
+    const auto colon = view.indexOf(u':');
+    if (colon < 0)
+        return validPath(view) ? Location{QStringLiteral("minecraft"), text} : Location{};
+    if (view.indexOf(u':', colon + 1) >= 0)
         return {};
-    for (const auto &part : l.path.split('/'))
-        if (part.isEmpty() || part == "." || part == "..")
-            return {};
-    return l;
+    const auto nameSpace = view.left(colon), path = view.mid(colon + 1);
+    return validNamespace(nameSpace) && validPath(path) ? Location{nameSpace.toString(), path.toString()}
+                                                         : Location{};
 }
 QString Location::asset(const QString &kind) const {
     return valid() ? "assets/" + nameSpace + '/' + kind + '/' + path +
@@ -129,13 +172,27 @@ QString Location::asset(const QString &kind) const {
                    : QString();
 }
 QString Location::fromAsset(const QString &asset, const QString &kind) {
-    auto p = asset.split('/');
-    const QString suffix = kind == "textures" ? ".png" : ".json";
-    if (p.size() < 4 || p[0] != "assets" || p[2] != kind || !asset.endsWith(suffix))
+    // assets/<namespace>/<kind>/<path><suffix>, validated in place (no splitting).
+    const QStringView view(asset);
+    const auto prefix = QLatin1String("assets/");
+    if (!view.startsWith(prefix))
         return {};
-    auto path = p.mid(3).join('/');
-    path.chop(suffix.size());
-    return parse(p[1] + ':' + path).id();
+    const auto nsEnd = view.indexOf(u'/', prefix.size());
+    if (nsEnd < 0)
+        return {};
+    const auto kindEnd = view.indexOf(u'/', nsEnd + 1);
+    if (kindEnd < 0 || view.mid(nsEnd + 1, kindEnd - nsEnd - 1) != QStringView(kind))
+        return {};
+    const auto suffix = kind == "textures" ? QLatin1String(".png") : QLatin1String(".json");
+    if (!view.endsWith(suffix))
+        return {};
+    const auto nameSpace = view.mid(prefix.size(), nsEnd - prefix.size());
+    const auto path = view.mid(kindEnd + 1, view.size() - suffix.size() - (kindEnd + 1));
+    if (nameSpace.size() + 1 + path.size() > 1024 || !validNamespace(nameSpace) || !validPath(path))
+        return {};
+    QString id;
+    id.reserve(nameSpace.size() + 1 + path.size());
+    return id.append(nameSpace).append(u':').append(path);
 }
 QString Model::faceTexture(const QString &reference) const {
     if (reference.startsWith('#'))
@@ -150,6 +207,7 @@ void Library::setVersion(const QString &version) {
         return;
     profile = next;
     cache.clear();
+    invalidate();
     if (!root.isEmpty())
         update(root, editableSnapshot, {""});
     else
@@ -166,10 +224,13 @@ void Library::setFallbacks(QVector<ResourceSource> next, const QString &version)
     forward.clear();
     reverse.clear();
     cache.clear();
+    invalidate();
+    scanned = false;
     if (!root.isEmpty())
         update(root, editableSnapshot, {""});
 }
 void Library::releaseModelSource(const QString &asset) {
+    invalidate();
     if (provisionalSources.remove(asset) && !records.contains(asset)) {
         for (const auto &path : dependents(asset))
             cache.remove(Location::fromAsset(path, "models"));
@@ -188,6 +249,7 @@ void Library::setProvisionalSource(const QString &asset, const QJsonObject &valu
 void Library::previewSource(const QString &asset, const QJsonObject &value) {
     if (!editable(asset))
         return;
+    invalidate();
     auto invalid = dependents(asset);
     invalid << asset;
     if (provisionalSources.contains(asset))
@@ -246,6 +308,8 @@ void Library::update(const QString &project, const Index &editableIndex, const Q
     // Scoped changes accumulate in the scope (deduplicated) so assets stay invalid for
     // every consumer handoff, including previewed sources edited between updates; a
     // scoped update following an everything-stale event starts a precise scope again.
+    const bool sameProject = root == project;
+    invalidate();
     if (root != project || changed.contains(QString()))
         lastChanged = {QString()};
     else if (lastChanged.contains(QString()))
@@ -267,6 +331,7 @@ void Library::update(const QString &project, const Index &editableIndex, const Q
         forward.clear();
         reverse.clear();
         cache.clear();
+        scanned = false;
     }
     editableSnapshot = editableIndex;
     stack.build(project, editableSnapshot, fallbacks, profile.version);
@@ -276,39 +341,60 @@ void Library::update(const QString &project, const Index &editableIndex, const Q
     for (auto it = records.begin(); it != records.end(); ++it)
         if (!index.records.contains(it.key()))
             dirty.insert(it.key());
-    int count = 0;
-    qint64 total = 0;
-    for (auto it = index.records.begin(); it != index.records.end(); ++it) {
-        if (cancel && cancel->load())
-            return;
-        // Most pack entries are PNGs. Avoid splitting/resource-parsing each one
-        // three times when consuming a large existing Index snapshot.
-        if (!it.key().endsWith(".json"))
-            continue;
-        if (!relevant(it.key())) {
-            const auto parts = it.key().split('/');
-            if (parts.size() > 3 && parts[0] == "assets" &&
-                QStringList{"models", "items", "blockstates"}.contains(parts[2]) &&
-                it.key().endsWith(".json") && diagnostics.size() < 100)
-                diagnostics << "Invalid namespace/resource path: " + it.key();
-            continue;
-        }
-        if (++count > 8192 || (total += std::max(qint64(0), it->size)) > MaxTotal) {
-            diagnostics << "Model catalog budget exceeded (8192 JSON files / 32 MiB); remaining "
-                           "definitions unavailable";
+    // Edits that touch only non-JSON files (a texture, its .mcmeta) cannot add, remove or
+    // change a definition, and the loop above already caught deleted ones: the record scan
+    // would find nothing new, so keep its earlier diagnostics instead of walking every
+    // record (11k+ with a vanilla fallback).
+    bool definitionsUntouched = scanned && sameProject && !changed.isEmpty();
+    for (const auto &path : changed) {
+        if (!definitionsUntouched)
             break;
+        const auto dot = path.lastIndexOf('.');
+        definitionsUntouched = dot > path.lastIndexOf('/') + 1 &&
+                               !path.endsWith(".json", Qt::CaseInsensitive) &&
+                               !editableIndex.directories.contains(path);
+    }
+    if (definitionsUntouched) {
+        diagnostics += scanDiagnostics;
+    } else {
+        scanned = false;
+        const auto baseDiagnostics = diagnostics.size();
+        int count = 0;
+        qint64 total = 0;
+        for (auto it = index.records.begin(); it != index.records.end(); ++it) {
+            if (cancel && cancel->load())
+                return;
+            // Most pack entries are PNGs. Avoid splitting/resource-parsing each one
+            // three times when consuming a large existing Index snapshot.
+            if (!it.key().endsWith(".json"))
+                continue;
+            if (!relevant(it.key())) {
+                const auto parts = it.key().split('/');
+                if (parts.size() > 3 && parts[0] == "assets" &&
+                    (parts[2] == "models" || parts[2] == "items" || parts[2] == "blockstates") &&
+                    diagnostics.size() < 100)
+                    diagnostics << "Invalid namespace/resource path: " + it.key();
+                continue;
+            }
+            if (++count > 8192 || (total += std::max(qint64(0), it->size)) > MaxTotal) {
+                diagnostics << "Model catalog budget exceeded (8192 JSON files / 32 MiB); remaining "
+                               "definitions unavailable";
+                break;
+            }
+            auto old = records.constFind(it.key());
+            if (old == records.cend() || old->projectRoot != it->projectRoot ||
+                old->modified != it->modified || old->size != it->size || scoped(it.key(), changed))
+                dirty.insert(it.key());
         }
-        auto old = records.constFind(it.key());
-        if (old == records.cend() || old->projectRoot != it->projectRoot ||
-            old->modified != it->modified || old->size != it->size || scoped(it.key(), changed))
-            dirty.insert(it.key());
+        scanDiagnostics = diagnostics.mid(baseDiagnostics);
+        scanned = true;
     }
     // Texture creation/removal also invalidates cached missing-reference diagnostics.
-    for (const auto &path : changed) {
+    if (!changed.isEmpty())
         for (auto c = cache.begin(); c != cache.end();) {
             bool hit = false;
             for (const auto &texture : c->textures)
-                if (scoped(texture, {path})) {
+                if (scoped(texture, changed)) {
                     hit = true;
                     break;
                 }
@@ -317,7 +403,6 @@ void Library::update(const QString &project, const Index &editableIndex, const Q
             else
                 ++c;
         }
-    }
     QSet<QString> invalid = dirty;
     for (const auto &path : dirty)
         for (const auto &child : dependents(path))
@@ -401,6 +486,15 @@ QStringList Library::modelIds() const {
             out << Location::fromAsset(it.key(), "models");
     return out;
 }
+bool Library::hasModels() const {
+    for (auto it = records.cbegin(); it != records.cend(); ++it)
+        if (!Location::fromAsset(it.key(), "models").isEmpty())
+            return true;
+    for (auto it = provisionalSources.cbegin(); it != provisionalSources.cend(); ++it)
+        if (!records.contains(it.key()))
+            return true;
+    return false;
+}
 QStringList Library::definitionPaths() const {
     QStringList out;
     for (auto it = records.begin(); it != records.end(); ++it)
@@ -408,20 +502,52 @@ QStringList Library::definitionPaths() const {
             out << it.key();
     return out;
 }
+// One resolution: the chain being walked, where already resolved parents can be found, and
+// the valid models resolved on the way (each is exactly what resolving it alone yields), so
+// the caller can cache them for the next model that shares the chain.
+struct Library::ResolveState {
+    QSet<QString> visiting;
+    const QHash<QString, Model> *local = nullptr; // model()'s cache
+    SharedModels *shared = nullptr;               // modelConst()'s cache
+    QVector<Model> learned;
+};
 Model Library::model(const QString &input) {
     const auto id = Location::parse(input).id();
-    if (cache.contains(id)) {
+    const auto hit = cache.constFind(id);
+    if (hit != cache.cend()) {
         ++cacheHits;
-        return cache[id];
+        return *hit;
     }
-    QSet<QString> visiting;
-    auto result = resolve(input, visiting, 0);
-    if (cache.size() >= 128)
-        cache.clear();
+    ResolveState state;
+    state.local = &cache;
+    auto result = resolve(input, state, 0);
+    trim(cache);
+    for (const auto &entry : state.learned)
+        cache.insert(entry.id, entry);
     cache[id] = result;
     return result;
 }
-Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth) {
+Model Library::modelConst(const QString &input) const {
+    const auto id = Location::parse(input).id();
+    const auto models = shared; // pinned: a concurrent mutator on the owner swaps its pointer
+    {
+        QMutexLocker lock(&models->lock);
+        const auto hit = models->models.constFind(id);
+        if (hit != models->models.cend())
+            return *hit;
+    }
+    ResolveState state;
+    state.shared = models.get();
+    auto result = resolve(input, state, 0);
+    QMutexLocker lock(&models->lock);
+    trim(models->models);
+    for (const auto &entry : state.learned)
+        models->models.insert(entry.id, entry);
+    models->models[id] = result;
+    return result;
+}
+Model Library::resolve(const QString &input, ResolveState &state, int depth) const {
+    auto &visiting = state.visiting;
     const auto l = Location::parse(input);
     Model m;
     m.id = l.id();
@@ -449,6 +575,20 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
         m.diagnostics << "Unsupported built-in model renderer: " + m.id;
         return m;
     }
+    // A parent already resolved (valid, so independent of the chain below it) is reused;
+    // invalid ones are resolved again so their diagnostics keep naming this chain.
+    if (depth > 0) {
+        if (state.local) {
+            const auto hit = state.local->constFind(m.id);
+            if (hit != state.local->cend() && hit->valid)
+                return *hit;
+        } else if (state.shared) {
+            QMutexLocker lock(&state.shared->lock);
+            const auto hit = state.shared->models.constFind(m.id);
+            if (hit != state.shared->models.cend() && hit->valid)
+                return *hit;
+        }
+    }
     const auto path = l.asset("models");
     if (!sources.contains(path)) {
         m.diagnostics << (failures.contains(path) ? failures[path]
@@ -469,7 +609,7 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
             visiting.remove(m.id);
             return m;
         }
-        auto parent = resolve(m.source["parent"].toString(), visiting, depth + 1);
+        auto parent = resolve(m.source["parent"].toString(), state, depth + 1);
         for (const auto &message : parent.diagnostics) {
             // Texture variables are resolved again after child overrides merge;
             // a child may fix a missing/cyclic variable from the raw parent.
@@ -528,15 +668,15 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
         return m;
     }
     const auto display = m.resolved["display"].toObject();
-    const QStringList contexts{"gui",
-                               "firstperson_righthand",
-                               "firstperson_lefthand",
-                               "thirdperson_righthand",
-                               "thirdperson_lefthand",
-                               "ground",
-                               "fixed",
-                               "head",
-                               "on_shelf"};
+    static const QSet<QString> contexts{"gui",
+                                        "firstperson_righthand",
+                                        "firstperson_lefthand",
+                                        "thirdperson_righthand",
+                                        "thirdperson_lefthand",
+                                        "ground",
+                                        "fixed",
+                                        "head",
+                                        "on_shelf"};
     for (auto it = display.begin(); it != display.end(); ++it) {
         if (!contexts.contains(it.key()))
             m.diagnostics << "Unsupported display context retained: " + it.key();
@@ -546,7 +686,8 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
         }
         const auto o = it->toObject();
         for (auto p = o.begin(); p != o.end(); ++p) {
-            if (!QStringList{"rotation", "translation", "scale"}.contains(p.key())) {
+            if (p.key() != QLatin1String("rotation") && p.key() != QLatin1String("translation") &&
+                p.key() != QLatin1String("scale")) {
                 m.diagnostics << "Unsupported display property retained: " + p.key();
                 continue;
             }
@@ -615,12 +756,17 @@ Model Library::resolve(const QString &input, QSet<QString> &visiting, int depth)
             m.diagnostics << "Invalid texture resource: " + sprite(value);
             continue;
         }
-        m.textures[it.key()] = texture.asset("textures");
-        if (assetPath(texture.asset("textures")).isEmpty())
+        const auto asset = texture.asset("textures");
+        m.textures[it.key()] = asset;
+        // Absent from the stack is answered without touching the disk; a present file still
+        // has to resolve inside its root and match its hash (memoized by assetPath()).
+        if (!hasAsset(asset) || assetPath(asset).isEmpty())
             m.diagnostics << "Missing texture: " + texture.id();
     }
     m.valid = true;
     m.diagnostics.removeDuplicates();
+    if (depth > 0)
+        state.learned.append(m);
     return m;
 }
 PreviewChoice previewModelFor(Library &library, const QString &texture) {
@@ -681,7 +827,7 @@ QStringList Library::modelsForTexture(const QString &asset) {
         if (id.isEmpty())
             continue;
         const auto m = model(id);
-        if (m.textures.values().contains(asset))
+        if (std::find(m.textures.cbegin(), m.textures.cend(), asset) != m.textures.cend())
             out << id;
         else {
             const auto elements = m.resolved["elements"].toArray();

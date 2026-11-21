@@ -138,7 +138,7 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
         k << style.color << style.erase << int(style.brush.shape) << style.brush.size << style.brush.height
           << style.brush.opacity << style.brush.hardness << style.brush.spacing << style.replaceOnly
           << style.replaceColor << style.replaceTolerance << style.lockAlpha << int(style.symmetry)
-          << style.radial << qint64(style.brush.stamp.cacheKey()) << style.brush.sourceColors;
+          << style.radial << qint64(style.brush.stamp.cacheKey()) << style.brush.sourceColors << style.wrap;
         for (auto color : style.palette) k << color;
     }
     if (!pendingStroke.isEmpty() && (strokeLayer != id || strokeKey != key))
@@ -146,7 +146,16 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
     strokeKey = key;
     strokeLayer = id;
     lifecycle = State::Ready;
-    const auto dabs = ops::footprint(style.brush);
+    // The footprint depends only on these brush fields; recomputing it (a hypot per pixel of a
+    // up-to-256 px brush) for every pointer event dominated large soft brushes.
+    const BrushKey brushKey{int(style.brush.shape), style.brush.size, style.brush.height,
+                            style.brush.hardness, qint64(style.brush.stamp.cacheKey()),
+                            style.brush.stamp.size()};
+    if (footprintCache.empty() || footprintKey != brushKey) {
+        footprintCache = ops::footprint(style.brush);
+        footprintKey = brushKey;
+    }
+    const auto &dabs = footprintCache;
     const auto dimensions = ops::brushDimensions(style.brush);
     const int size = std::max(dimensions.width(), dimensions.height());
     const int step = style.brush.spacing <= 0
@@ -160,21 +169,44 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
     const QRect bounds = image.rect();
     const QSize canvas = image.size();
     QRect region;
+    const size_t area = size_t(width) * size_t(image.height());
+    if (strokeCover.size() != area) {
+        strokeCover.assign(area, 0);
+        strokeCoverTouched.clear();
+        strokeCoverDense = false;
+    }
+    // Layer pixels are RGBA8888; bound once inside the PixelWrite scope below.
+    uchar *bits = nullptr;
+    qsizetype stride = 0;
     auto apply = [&](int x, int y, int coverage, QRgb dabColor) {
-        if (!bounds.contains(x, y))
-            return;
+        if (!bounds.contains(x, y)) {
+            if (!style.wrap)
+                return;
+            x = (x % canvas.width() + canvas.width()) % canvas.width();
+            y = (y % canvas.height() + canvas.height()) % canvas.height();
+        }
         coverage = coverage * ops::maskValue(&selectionMask, x, y) / 255;
         if (coverage <= 0)
             return;
         const int index = y * width + x;
-        auto cover = strokeCover.find(index);
-        // Max coverage per stroke: overlapping dabs never compound opacity.
-        if (cover != strokeCover.end() && *cover >= coverage)
+        // Max coverage per stroke: overlapping dabs never compound opacity. Zero means untouched.
+        auto &cover = strokeCover[size_t(index)];
+        if (cover >= coverage)
             return;
-        strokeCover.insert(index, uchar(coverage));
+        if (!cover && !strokeCoverDense) {
+            if (strokeCoverTouched.size() >= area / 8 + 64) {
+                strokeCoverDense = true;
+                strokeCoverTouched = {};
+            } else {
+                strokeCoverTouched.push_back(index);
+            }
+        }
+        cover = quint8(coverage);
         auto existing = pendingStroke.find(index);
-        const QRgb before =
-            existing != pendingStroke.end() ? existing->before : target->pixels.pixel(x, y);
+        uchar *pixel = bits + y * stride + qsizetype(x) * 4;
+        const QRgb before = existing != pendingStroke.end()
+                                ? existing->before
+                                : qRgba(pixel[0], pixel[1], pixel[2], pixel[3]);
         if (style.replaceOnly && !ops::colorMatches(before, style.replaceColor, style.replaceTolerance,
                                                     ops::Distance::Rgba, true))
             return;
@@ -203,11 +235,16 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
             pendingStroke.insert(index, {index, before, after});
         else
             return;
-        target->pixels.setPixel(x, y, after);
+        pixel[0] = uchar(qRed(after));
+        pixel[1] = uchar(qGreen(after));
+        pixel[2] = uchar(qBlue(after));
+        pixel[3] = uchar(qAlpha(after));
         region = region.united(QRect(x, y, 1, 1));
     };
     {
         PixelWrite write(image, target->pixels);
+        bits = target->pixels.bits();
+        stride = target->pixels.bytesPerLine();
         const auto points = line(a, b);
         for (int i = 0; i < points.size(); ++i) {
             const QPoint p = points[i];
@@ -220,10 +257,13 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
             ++strokeTravel;
             if (!place)
                 continue;
-            for (auto q : ops::symmetricPoints(p, canvas, style.symmetry, style.radial, centre)) {
-                const bool mirroredX = q.x() != p.x() && (style.symmetry == ops::Symmetry::Horizontal ||
+            const QPoint origin = style.wrap ? QPoint((p.x() % canvas.width() + canvas.width()) % canvas.width(),
+                                                      (p.y() % canvas.height() + canvas.height()) % canvas.height())
+                                             : p;
+            for (auto q : ops::symmetricPoints(origin, canvas, style.symmetry, style.radial, centre)) {
+                const bool mirroredX = q.x() != origin.x() && (style.symmetry == ops::Symmetry::Horizontal ||
                                                           style.symmetry == ops::Symmetry::Both);
-                const bool mirroredY = q.y() != p.y() && (style.symmetry == ops::Symmetry::Vertical ||
+                const bool mirroredY = q.y() != origin.y() && (style.symmetry == ops::Symmetry::Vertical ||
                                                           style.symmetry == ops::Symmetry::Both);
                 for (const auto &d : dabs)
                     apply(q.x() + (mirroredX ? -d.offset.x() : d.offset.x()),
@@ -241,9 +281,52 @@ bool Document::stroke(QUuid id, QPoint a, QPoint b, const StrokeStyle &style, QS
     }
     return true;
 }
+void Document::resetStrokeCover() {
+    if (strokeCoverDense)
+        std::fill(strokeCover.begin(), strokeCover.end(), quint8(0));
+    else
+        for (const int index : strokeCoverTouched)
+            strokeCover[size_t(index)] = 0;
+    strokeCoverTouched.clear();
+    strokeCoverDense = false;
+}
+bool Document::revertStrokePixel(QUuid id, QPoint pixel, const StrokeStyle &style) {
+    auto target = findLayer(id);
+    if (!target || id != strokeLayer || pendingStroke.isEmpty())
+        return false;
+    // Captured up front: PixelWrite temporarily releases the composite view.
+    const QSize canvas = image.size();
+    const QRect bounds = image.rect();
+    const QPointF centre = style.centre.value_or(QPointF(canvas.width() / 2.0, canvas.height() / 2.0));
+    QRect region;
+    {
+        PixelWrite write(image, target->pixels);
+        for (auto q : ops::symmetricPoints(pixel, canvas, style.symmetry, style.radial, centre)) {
+            if (style.wrap)
+                q = {(q.x() % canvas.width() + canvas.width()) % canvas.width(),
+                     (q.y() % canvas.height() + canvas.height()) % canvas.height()};
+            if (!bounds.contains(q))
+                continue;
+            const int index = q.y() * canvas.width() + q.x();
+            auto it = pendingStroke.find(index);
+            if (it == pendingStroke.end())
+                continue;
+            target->pixels.setPixel(q, it->before);
+            pendingStroke.erase(it);
+            strokeCover[size_t(index)] = 0; // a later dab may paint it again
+            region = region.united(QRect(q, QSize(1, 1)));
+        }
+    }
+    if (region.isEmpty())
+        return false;
+    ++target->revision;
+    ++serial;
+    compose(region);
+    return true;
+}
 void Document::cancelStroke() {
     if (pendingStroke.isEmpty()) {
-        strokeCover.clear();
+        resetStrokeCover();
         strokeTravel = 0;
         strokeLast.reset();
         return;
@@ -260,7 +343,7 @@ void Document::cancelStroke() {
         ++target->revision;
     }
     pendingStroke.clear();
-    strokeCover.clear();
+    resetStrokeCover();
     strokeTravel = 0;
     strokeLast.reset();
     ++serial;
@@ -307,10 +390,17 @@ bool Document::replaceLayerPixels(QUuid id, const QImage &input, const QString &
     return rasterCommit(std::move(patches), label, {}, newSelection);
 }
 QImage Document::compositeWith(const QMap<QUuid, QImage> &replacements) const {
-    auto layers = stack;
-    for (auto &layer : layers)
-        if (replacements.contains(layer.id))
-            layer.pixels = replacements[layer.id];
+    // Composition reads only visibility, opacity and pixels: skip copying names and extensions.
+    std::vector<RasterLayer> layers;
+    layers.reserve(stack.size());
+    for (const auto &source : stack) {
+        RasterLayer view;
+        view.visible = source.visible;
+        view.opacity = source.opacity;
+        const auto replacement = replacements.constFind(source.id);
+        view.pixels = replacement != replacements.cend() ? *replacement : source.pixels;
+        layers.push_back(std::move(view));
+    }
     QImage result(image.size(), QImage::Format_RGBA8888);
     result.fill(Qt::transparent);
     composeInto(layers, result, image.rect());
@@ -393,8 +483,10 @@ bool Document::applyOperation(QUuid id, const ops::Spec &input, QString *error,
             out = ops::maskAlpha(out, *mask);
         const auto name = target->name.left(200) + " shading";
         const bool ok = addLayerWithPixels(name, out, {{"nova.effect", spec.toJson()}}, error, createdLayer);
-        if (ok && !compoundDepth && !history.empty())
+        if (ok && !compoundDepth && !history.empty()) {
             history.back().label = info->name;
+            history.back().bytes = -1; // label capacity is part of the memoized size
+        }
         return ok;
     }
     return replaceLayerPixels(id, out, info->name, error);
@@ -617,12 +709,19 @@ bool Document::flatten(QString *error) {
 }
 // ---------------------------------------------------------------- previews
 QImage Document::compositeWith(QUuid id, const QImage &replacement) const {
-    auto layers = stack;
-    for (auto &l : layers)
-        if (l.id == id)
-            l.pixels = replacement.convertToFormat(QImage::Format_RGBA8888);
-    if (layers.size() == 1 && layers[0].visible && layers[0].opacity == 255)
-        return layers[0].pixels;
+    const QImage converted = replacement.convertToFormat(QImage::Format_RGBA8888);
+    if (stack.size() == 1 && stack[0].visible && stack[0].opacity == 255)
+        return stack[0].id == id ? converted : stack[0].pixels;
+    // Composition reads only visibility, opacity and pixels: skip copying names and extensions.
+    std::vector<RasterLayer> layers;
+    layers.reserve(stack.size());
+    for (const auto &source : stack) {
+        RasterLayer view;
+        view.visible = source.visible;
+        view.opacity = source.opacity;
+        view.pixels = source.id == id ? converted : source.pixels;
+        layers.push_back(std::move(view));
+    }
     QImage out(image.size(), QImage::Format_RGBA8888);
     out.fill(Qt::transparent);
     composeInto(layers, out, out.rect());

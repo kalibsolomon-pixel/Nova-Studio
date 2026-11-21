@@ -274,9 +274,9 @@ bool Document::applyFrames(const std::vector<QUuid> &ids, const ops::Spec &input
 void Document::acceptAnimationExport(const Revision &png, const Revision &mcmeta, bool synchronized) {
     savedRevision = png;
     metadataRevision = mcmeta;
-    exportedPixels = synchronized ? pixelDigest() : QByteArray(32, '\0');
+    ++serial; // before the digest so the memo stays valid for the post-export state
+    exportedPixels = synchronized ? currentDigest() : QByteArray(32, '\0');
     exportMetadataChanged = true;
-    ++serial;
 }
 bool Document::acceptNativeSave(const Document &snapshot, quint64 expectedSerial) {
     if (snapshot.id() != id() || snapshot.path != path || snapshot.nativePath.isEmpty()) return false;

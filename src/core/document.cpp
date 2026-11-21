@@ -51,7 +51,7 @@ Document::Document(QString p, QImage im)
     stack.push_back(std::move(base));
     lifecycle = State::Ready;
     savedRevision = Revision::read(path);
-    exportedPixels = pixelDigest();
+    exportedPixels = currentDigest();
 }
 std::shared_ptr<Document> Document::open(const QString &path, QString *error, bool includeMetadata) {
     QJsonObject metadata;
@@ -183,7 +183,17 @@ QByteArray Document::pixelDigest() const {
         QByteArrayView(reinterpret_cast<const char *>(image.constBits()), image.sizeInBytes()));
     return hash.result();
 }
-bool Document::exportModified() const { return pixelDigest() != exportedPixels; }
+const QByteArray &Document::currentDigest() const {
+    const qint64 imageKey = qint64(image.cacheKey());
+    if (!digestValid || digestSerial != serial || digestImageKey != imageKey) {
+        digestMemo = pixelDigest();
+        digestSerial = serial;
+        digestImageKey = imageKey;
+        digestValid = true;
+    }
+    return digestMemo;
+}
+bool Document::exportModified() const { return currentDigest() != exportedPixels; }
 qint64 Document::pixelBytes() const {
     // A pristine legacy PNG shares its single buffer with the composite.
     qint64 bytes = image.sizeInBytes();
@@ -327,7 +337,7 @@ void Document::finish() {
         if (c.before != c.after)
             operation.pixels.push_back(c);
     pendingStroke.clear();
-    strokeCover.clear();
+    resetStrokeCover();
     strokeTravel = 0;
     strokeLast.reset();
     operation.label = "Paint";
@@ -609,8 +619,13 @@ qint64 Document::operationBytes(const Operation &op) {
         bytes += operationBytes(child);
     return bytes;
 }
+qint64 Document::memoBytes(const Operation &op) {
+    if (op.bytes < 0)
+        op.bytes = operationBytes(op);
+    return op.bytes;
+}
 qint64 Document::historyBytes() const {
-    qint64 bytes = qint64(history.capacity()) * sizeof(Operation);
+    qint64 bytes = qint64(history.size()) * sizeof(Operation);
     const bool frameHistory = animated() || std::any_of(history.begin(), history.end(), [](const auto &op) { return op.kind == Operation::Animation; });
     if (frameHistory) {
         // Charge each retained pixel buffer once, excluding buffers already owned by the
@@ -649,7 +664,7 @@ qint64 Document::historyBytes() const {
         return bytes;
     }
     for (const auto &op : history)
-        bytes += operationBytes(op);
+        bytes += memoBytes(op);
     return bytes;
 }
 void Document::setHistoryLimits(qint64 bytes, int operations) {
@@ -659,10 +674,25 @@ void Document::setHistoryLimits(qint64 bytes, int operations) {
     pruneHistory();
 }
 void Document::pruneHistory() {
+    // Animated histories charge shared pixel buffers once against the live document, so
+    // their total can shift when an operation leaves; they re-measure after every removal.
+    // Everything else sums memoized per-operation sizes once and subtracts as it prunes.
+    const bool frameHistory =
+        animated() || std::any_of(history.begin(), history.end(),
+                                  [](const auto &op) { return op.kind == Operation::Animation; });
+    qint64 total = 0;
+    if (!frameHistory) {
+        total = qint64(history.size()) * sizeof(Operation);
+        for (const auto &op : history)
+            total += memoBytes(op);
+    }
     while (!history.empty() &&
-           (historyBytes() > historyBudget || int(history.size()) > operationLimit)) {
+           ((frameHistory ? historyBytes() : total) > historyBudget ||
+            int(history.size()) > operationLimit)) {
+        if (!frameHistory)
+            total -= qint64(sizeof(Operation)) + memoBytes(cursor > 0 ? history.front() : history.back());
         if (cursor > 0) {
-            history.erase(history.begin());
+            history.pop_front();
             --cursor;
             if (saved) {
                 if (*saved == 0)
@@ -675,7 +705,6 @@ void Document::pruneHistory() {
             if (saved && *saved > int(history.size()))
                 saved.reset();
         }
-        history.shrink_to_fit();
     }
     if (history.empty())
         history.shrink_to_fit();
@@ -729,7 +758,7 @@ bool Document::saveAsRevision(const QString &target, const Revision &expected, Q
         path = QFileInfo(target).absoluteFilePath();
         savedRevision = {true, true, bytes.size(), 0,
                          QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)};
-        exportedPixels = pixelDigest();
+        exportedPixels = currentDigest();
         if (native)
             exportMetadataChanged = true;
         else
@@ -751,6 +780,7 @@ bool Document::reload(QString *error) {
     *this = std::move(*replacement);
     identity = keepId;
     serial = nextSerial;
+    digestValid = false;
     if (wasNative) {
         native = true;
         nativePath = keepNativePath;
@@ -764,6 +794,7 @@ void Document::restorePixels(const QImage &pixels, const Revision &originalRevis
     auto keepId = identity;
     const auto nextSerial = serial + 1;
     *this = std::move(restored);
+    digestValid = false;
     identity = keepId;
     savedRevision = originalRevision;
     saved.reset();
