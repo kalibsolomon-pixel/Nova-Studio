@@ -19,6 +19,7 @@
 #include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace nova {
 namespace {
@@ -594,6 +595,16 @@ void HistoryPanel::setDocument(const std::shared_ptr<Document> &doc) {
     refresh();
 }
 void HistoryPanel::refresh() {
+    Shown now;
+    if (document) {
+        now = {document->instanceId(), document->changeSerial(), document->historyOperations(),
+               document->historyCursor(), ui::current().disabled.rgba(),
+               palette().color(QPalette::Text).rgba()};
+        // Edits that are not history steps (an open stroke) still bump the serial; the rows
+        // only depend on the history, so an identical snapshot needs no work at all.
+        if (now == shown && list->count() == now.count + 1)
+            return;
+    }
     updating = true;
     QStringList labels;
     if (document) {
@@ -608,11 +619,19 @@ void HistoryPanel::refresh() {
         list->addItems(labels);
     }
     if (document) {
-        for (int i = 0; i < list->count(); ++i)
-            list->item(i)->setForeground(i > document->historyCursor() ? ui::current().disabled
-                                                                       : palette().color(QPalette::Text));
-        list->setCurrentRow(document->historyCursor());
+        // Row i is dimmed while it lies beyond the cursor. Recolour everything after a rebuild,
+        // another document or a theme change; otherwise only the rows the cursor crossed.
+        const bool all = !same || now.instance != shown.instance || now.disabled != shown.disabled ||
+                         now.text != shown.text || shown.cursor < 0;
+        const int from = all ? 0 : std::min(shown.cursor, now.cursor) + 1,
+                  to = all ? list->count() - 1 : std::max(shown.cursor, now.cursor);
+        for (int i = from; i <= to && i < list->count(); ++i)
+            list->item(i)->setForeground(i > now.cursor ? ui::current().disabled
+                                                         : palette().color(QPalette::Text));
+        if (list->currentRow() != now.cursor)
+            list->setCurrentRow(now.cursor);
     }
+    shown = now;
     updating = false;
 }
 } // namespace nova

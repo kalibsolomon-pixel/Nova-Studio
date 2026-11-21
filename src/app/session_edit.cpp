@@ -76,6 +76,13 @@ void DocumentSession::finishStroke(const std::shared_ptr<Document> &doc) {
         emit changed(doc->id());
     }
 }
+bool DocumentSession::revertStrokePixel(const std::shared_ptr<Document> &doc, QUuid layer, QPoint pixel,
+                                        const StrokeStyle &style) {
+    if (!owns(doc) || !doc->revertStrokePixel(layer, pixel, style))
+        return false;
+    emit changed(doc->id());
+    return true;
+}
 void DocumentSession::cancelStroke(const std::shared_ptr<Document> &doc) {
     if (owns(doc)) {
         doc->cancelStroke();
@@ -280,8 +287,17 @@ std::function<bool(QString *)> DocumentSession::prepareBatch(const std::shared_p
     }
     if (!owns(doc, error) || doc->changeSerial() != serial || doc->strokeOpen() || doc->compoundDepth)
         return {};
-    if (draft->compoundChildren.empty())
-        return [](QString *) { return true; };
+    if (draft->compoundChildren.empty()) {
+        // Choosing the active layer is not a history entry, so a batch may change only that.
+        const auto layer = draft->active;
+        if (layer == doc->active)
+            return [](QString *) { return true; };
+        return [this, doc, layer, serial](QString *commitError) {
+            if (!owns(doc, commitError) || doc->changeSerial() != serial || doc->strokeOpen() || doc->compoundDepth)
+                return false;
+            return edit(doc, {LayerCommand::Select, layer}, commitError);
+        };
+    }
 
     qint64 cost = 0;
     for (const auto &child : draft->compoundChildren)
@@ -295,7 +311,6 @@ std::function<bool(QString *)> DocumentSession::prepareBatch(const std::shared_p
         if (!owns(doc, commitError) || doc->changeSerial() != serial || doc->strokeOpen() ||
             doc->compoundDepth || !withinPixelBudget(doc, draft->pixelBytes() - doc->pixelBytes()))
             return false;
-        doc->history.reserve(size_t(doc->cursor) + 1);
         doc->image = std::move(draft->image);
         doc->stack = std::move(draft->stack);
         doc->active = draft->active;
@@ -465,7 +480,7 @@ bool DocumentSession::execute(const std::shared_ptr<Document> &doc, const QJsonO
             {"layer_add", LayerCommand::Add}, {"layer_duplicate", LayerCommand::Duplicate},
             {"layer_rename", LayerCommand::Rename}, {"layer_move", LayerCommand::Move},
             {"layer_visibility", LayerCommand::Visibility}, {"layer_opacity", LayerCommand::Opacity},
-            {"layer_remove", LayerCommand::Delete}};
+            {"layer_remove", LayerCommand::Delete}, {"layer_select", LayerCommand::Select}};
         if (actions.contains(command)) {
             if (!doc->layer(layer)) {
                 if (error)

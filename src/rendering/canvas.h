@@ -29,6 +29,7 @@ class Canvas : public QWidget {
         struct GroupLayer {
             QUuid id;
             QImage original, cached;
+            QRect stamped; // area of replacements[id] currently holding placed pixels
         };
         QVector<GroupLayer> layers;
         QMap<QUuid, QImage> replacements;
@@ -45,6 +46,11 @@ class Canvas : public QWidget {
         QImage cached;   // transformed pixels
         QPoint placed;   // top-left of cached pixels
         QByteArray cacheKey;
+        // Active layer with the lifted hole plus the last stamp; moving only re-stamps.
+        QImage working;
+        QUuid workingLayer;
+        quint64 workingSerial = 0;
+        QRect workingStamp;
     };
 
   private:
@@ -54,6 +60,7 @@ class Canvas : public QWidget {
     QPointF uvAnchor;
     QRectF uvOriginal;
     std::optional<QPoint> lastPixel, strokeEnd;
+    QVector<QPoint> perfectPath; // last stroke pixels for the pixel-perfect pencil
     QPointF smoothed;
     enum class Drag { None, Paint, Pan, Rect, Lasso, Move, Scale, Rotate, Line, Shape, Gradient };
     Drag drag = Drag::None;
@@ -74,6 +81,16 @@ class Canvas : public QWidget {
     int antsPhase = 0;
     qint64 outlineKey = -1;
     QVector<QLineF> outlineCache;
+    qint64 selectionBoundsKey = -1;
+    QRect selectionBoundsCache;
+    QBrush checkerBrush;
+    QRgb checkerDarkKey = 0, checkerLightKey = 0;
+    bool checkerValid = false;
+    // Line-tool preview: one scratch document per drag, rewound with undo instead of rebuilt.
+    std::unique_ptr<Document> lineScratch;
+    quint64 lineScratchSerial = 0;
+    QUuid lineScratchLayer;
+    int lineScratchBase = 0;
     QByteArray cursorKey;
     QVector<QLineF> cursorOutline;
     std::optional<QPoint> hover;
@@ -147,4 +164,7 @@ class Canvas : public QWidget {
     void clearExternalPreview();
     QImage displayed() const;
 };
+// Straight-alpha source-over (full coverage) of `source` placed at `at` onto `destination`,
+// clipped to the destination; the blend of the floating Move/Transform preview.
+void blendPlaced(QImage &destination, const QImage &source, QPoint at);
 } // namespace nova

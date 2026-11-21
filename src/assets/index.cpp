@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 #include <QTimeZone>
 #include <algorithm>
 namespace nova {
@@ -26,15 +27,22 @@ QString assetCategory(const QString &relative) {
         return "Sounds";
     return "Other assets";
 }
+// The <namespace> of assets/<namespace>/<rest>; empty for anything else.
+static QString namespaceOf(const QString &relative) {
+    const QStringView view(relative);
+    const auto prefix = QLatin1String("assets/");
+    if (!view.startsWith(prefix))
+        return {};
+    const auto end = view.indexOf(u'/', prefix.size());
+    return end < 0 ? QString() : view.mid(prefix.size(), end - prefix.size()).toString();
+}
 static AssetIdentity fromInfo(const QString &root, const QString &relative, const QFileInfo &info) {
     AssetIdentity a;
     a.projectRoot = root;
     a.relativePath = relative;
     a.filesystemPath = root + '/' + relative;
     a.state = info.exists() ? AssetIdentity::FileState::Present : AssetIdentity::FileState::Missing;
-    auto parts = relative.split('/');
-    if (parts.size() > 2 && parts[0] == "assets")
-        a.nameSpace = parts[1];
+    a.nameSpace = namespaceOf(relative);
     a.category = assetCategory(relative);
     a.size = info.size();
     a.modified = info.lastModified(QTimeZone::UTC).toMSecsSinceEpoch();
@@ -113,6 +121,11 @@ Index Index::refresh(const QString &root, const Index &previous, const QStringLi
         if (!covered)
             retained.append(path);
     }
+    // Files kept sorted by scan()/refresh(): a subtree is then one contiguous range found by
+    // binary search. Anything else (a hand-built index) keeps the linear pass.
+    const bool filesSorted = std::is_sorted(result.files.cbegin(), result.files.cend());
+    QStringList added;
+    QSet<QString> touched; // directory lists that need dedupe/sort again
     for (auto path : retained) {
         if (path.compare(".nova", Qt::CaseInsensitive) == 0 ||
             path.startsWith(".nova/", Qt::CaseInsensitive))
@@ -124,21 +137,39 @@ Index Index::refresh(const QString &root, const Index &previous, const QStringLi
         QString prefix = path + '/';
         // Remove a subtree in one stable pass. removeAll() for every matching
         // file made a folder notification quadratic in the pack's file count.
-        result.files.removeIf([&](const QString &file) {
-            if (file == path || file.startsWith(prefix)) {
-                result.records.remove(file);
-                return true;
+        if (filesSorted) {
+            auto first = std::lower_bound(result.files.begin(), result.files.end(), path);
+            auto same = first;
+            while (same != result.files.end() && *same == path) {
+                result.records.remove(*same);
+                ++same;
             }
-            return false;
-        });
-        auto oldDirectories = result.directories.keys();
-        for (const auto &dir : oldDirectories)
-            if (dir == path || dir.startsWith(prefix))
-                result.directories.remove(dir);
+            first = result.files.erase(first, same);
+            // Everything starting with "path/" follows the position of "path/" itself.
+            first = std::lower_bound(first, result.files.end(), prefix);
+            auto last = first;
+            while (last != result.files.end() && last->startsWith(prefix)) {
+                result.records.remove(*last);
+                ++last;
+            }
+            result.files.erase(first, last);
+        } else
+            result.files.removeIf([&](const QString &file) {
+                if (file == path || file.startsWith(prefix)) {
+                    result.records.remove(file);
+                    return true;
+                }
+                return false;
+            });
+        result.directories.remove(path);
+        for (auto dir = result.directories.lowerBound(prefix);
+             dir != result.directories.end() && dir.key().startsWith(prefix);)
+            dir = result.directories.erase(dir);
         auto parent = QFileInfo(path).path();
         if (parent == ".")
             parent.clear();
         result.directories[parent].removeAll(path);
+        touched.insert(parent);
         QFileInfo info(QDir(root).filePath(path));
         if (info.isSymLink() || !info.exists())
             continue;
@@ -153,30 +184,40 @@ Index Index::refresh(const QString &root, const Index &previous, const QStringLi
                 QStringList children;
                 for (auto child : it.value())
                     children.append(prefix + child);
-                result.directories.insert(it.key().isEmpty() ? path : prefix + it.key(), children);
+                const auto key = it.key().isEmpty() ? path : prefix + it.key();
+                result.directories.insert(key, children);
+                touched.insert(key);
             }
-            for (auto file : subtree.files) {
+            for (const auto &file : subtree.files) {
                 auto key = prefix + file;
-                result.files.append(key);
+                added.append(key);
                 // scan() already queried each file. Rebase its identity instead
                 // of issuing another round of filesystem metadata queries.
                 auto record = subtree.records.value(file);
                 record.projectRoot = root;
                 record.relativePath = key;
                 record.filesystemPath = root + '/' + key;
-                const auto parts = key.split('/');
-                record.nameSpace = parts.size() > 2 && parts[0] == "assets" ? parts[1] : QString();
+                record.nameSpace = namespaceOf(key);
                 record.category = assetCategory(key);
                 if (!record.metadataReference.isEmpty()) record.metadataReference.prepend(prefix);
                 result.records.insert(key, std::move(record));
             }
         } else if (info.isFile()) {
-            result.files.append(path);
+            added.append(path);
             result.directories[parent].append(path);
             result.records.insert(path, AssetIdentity::fromPath(root, path));
         }
     }
-    result.files.sort();
+    if (filesSorted) {
+        // The surviving files are still in order: sort only what was added and merge.
+        added.sort();
+        const auto kept = result.files.size();
+        result.files += added;
+        std::inplace_merge(result.files.begin(), result.files.begin() + kept, result.files.end());
+    } else {
+        result.files += added;
+        result.files.sort();
+    }
     // A file-only refresh must maintain the same metadata link as a full scan,
     // including when the notification adds/removes just the .mcmeta sidecar.
     for (const auto &path : retained) {
@@ -188,7 +229,15 @@ Index Index::refresh(const QString &root, const Index &previous, const QStringLi
         updateMetadata(path);
         if (path.endsWith(".mcmeta")) updateMetadata(path.chopped(7));
     }
-    for (auto &children : result.directories) {
+    // Directory lists touched above are deduplicated and sorted again; every other list is
+    // left alone when it is already strictly ascending (which makes both steps a no-op).
+    for (auto it = result.directories.begin(); it != result.directories.end(); ++it) {
+        auto &children = it.value();
+        if (!touched.contains(it.key()) &&
+            std::adjacent_find(children.cbegin(), children.cend(),
+                               [](const QString &a, const QString &b) { return !(a < b); }) ==
+                children.cend())
+            continue;
         children.removeDuplicates();
         children.sort();
     }
@@ -198,15 +247,30 @@ QStringList Navigation::entries(const Index &index) const {
     QStringList result;
     if (query.isEmpty())
         result = index.directories.value(directory);
-    else
-        for (auto p : index.files)
-            if ((directory.isEmpty() || p.startsWith(directory + '/')) &&
+    else {
+        const QString prefix = directory + '/';
+        for (const auto &p : index.files)
+            if ((directory.isEmpty() || p.startsWith(prefix)) &&
                 p.contains(query, Qt::CaseInsensitive))
                 result.append(p);
-    std::sort(result.begin(), result.end(), [&](const QString &a, const QString &b) {
-        bool ad = index.directories.contains(a), bd = index.directories.contains(b);
-        return ad != bd ? ad : a < b;
+    }
+    // Look each entry up once, not on every comparison.
+    struct Row {
+        QString path;
+        bool directory;
+    };
+    QVector<Row> rows;
+    rows.reserve(result.size());
+    for (auto &p : result) {
+        const bool isDirectory = index.directories.contains(p);
+        rows.append(Row{std::move(p), isDirectory});
+    }
+    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        return a.directory != b.directory ? a.directory : a.path < b.path;
     });
+    result.clear();
+    for (auto &row : rows)
+        result.append(std::move(row.path));
     if (reverse)
         std::reverse(result.begin(), result.end());
     return result;

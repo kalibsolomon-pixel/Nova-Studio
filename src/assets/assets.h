@@ -25,11 +25,19 @@ class AssetModel : public QAbstractItemModel {
     Q_OBJECT
     struct Node {
         QString path;
-        bool directory;
+        // Fixed when the node is made (the path never changes): shown on every paint and
+        // consulted for every node when model sources change.
+        QString name;
+        bool directory = false, modelIcon = false;
         Node *parent = nullptr;
         int row = 0;
         std::vector<std::unique_ptr<Node>> children;
     };
+    static void describe(Node &node);
+    // dataChanged for every node under `parent` (recursively) that `affected` accepts,
+    // one signal per run of adjacent rows.
+    void emitChanged(Node *parent, const std::function<bool(const Node &)> &affected,
+                     const QList<int> &roles);
     std::unique_ptr<Node> root;
     QMap<QString, Node *> nodes;
     mutable QCache<QString, QIcon> cache{4 * 1024 * 1024};

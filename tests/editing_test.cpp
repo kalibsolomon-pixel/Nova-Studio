@@ -184,6 +184,44 @@ class EditingTests : public QObject {
         QCOMPARE(at(c, 7, 5), qRgb(1, 1, 1));
         QCOMPARE(at(c, 8, 5), QRgb(0)); // clipped at the selection edge
     }
+    void wrapPaintsAcrossOppositeEdges() {
+        auto d = doc(8, 8);
+        auto s = style(qRgb(255, 0, 0), 3);
+        s.wrap = true;
+        QVERIFY(d->stroke(d->activeLayer(), {0, 4}, {0, 4}, s));
+        d->finish();
+        // A 3 px dab centred on x = 0 spills onto the right edge instead of being dropped.
+        QCOMPARE(at(d, 0, 4), qRgb(255, 0, 0));
+        QCOMPARE(at(d, 7, 4), qRgb(255, 0, 0));
+        QCOMPARE(at(d, 6, 4), QRgb(0));
+        auto c = doc(8, 8);
+        QVERIFY(c->stroke(c->activeLayer(), {0, 4}, {0, 4}, style(qRgb(255, 0, 0), 3)));
+        c->finish();
+        QCOMPARE(at(c, 7, 4), QRgb(0)); // without wrap the overhang is clipped
+        auto e = doc(8, 8);
+        QVERIFY(e->stroke(e->activeLayer(), {-1, 2}, {-1, 2}, s)); // centre past the left edge
+        e->finish();
+        QCOMPARE(at(e, 7, 2), qRgb(255, 0, 0));
+        QCOMPARE(at(e, 0, 2), qRgb(255, 0, 0));
+    }
+    void revertStrokePixelMakesCleanDiagonals() {
+        auto d = doc(8, 8);
+        auto s = style();
+        s.symmetry = ops::Symmetry::Horizontal;
+        QVERIFY(d->stroke(d->activeLayer(), {1, 1}, {2, 1}, s));
+        QVERIFY(d->stroke(d->activeLayer(), {2, 1}, {2, 2}, s));
+        QVERIFY(d->revertStrokePixel(d->activeLayer(), {2, 1}, s));
+        QVERIFY(!d->revertStrokePixel(d->activeLayer(), {5, 5}, s)); // untouched pixel
+        d->finish();
+        QCOMPARE(at(d, 1, 1), qRgb(255, 0, 0));
+        QCOMPARE(at(d, 2, 1), QRgb(0));
+        QCOMPARE(at(d, 5, 1), QRgb(0)); // mirrored copy reverted too
+        QCOMPARE(at(d, 2, 2), qRgb(255, 0, 0));
+        QCOMPARE(d->historyOperations(), 1);
+        d->undo();
+        QCOMPARE(at(d, 1, 1), QRgb(0));
+        QCOMPARE(at(d, 2, 2), QRgb(0));
+    }
     void eraserColorReplaceAndPaletteLock() {
         auto d = doc();
         QVERIFY(d->stroke(d->activeLayer(), {0, 0}, {15, 0}, style(qRgb(10, 20, 30), 1)));

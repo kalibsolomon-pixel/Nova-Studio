@@ -42,18 +42,37 @@ Mesh generatedMesh(const Model &model, const QMap<QString, QImage> &sprites,
         // Union the edge transitions from each frame, including edges hidden by other frames.
         QVector<quint8> edges(width * height);
         qsizetype elementsWithEdges = elements.size();
-        for (const auto &frame : samples) {
-            if (frame.size() != image.size())
+        for (const auto &sample : samples) {
+            if (sample.size() != image.size())
                 continue;
+            // Scan a 32-bit view: pixel() converts per call. Alpha is the same in every
+            // 32-bit layout this converts to, so the transparency test is unchanged.
+            const QImage frame = sample.format() == QImage::Format_ARGB32 ||
+                                         sample.format() == QImage::Format_ARGB32_Premultiplied ||
+                                         sample.format() == QImage::Format_RGBA8888 ||
+                                         sample.format() == QImage::Format_RGBA8888_Premultiplied
+                                     ? sample
+                                     : sample.convertToFormat(QImage::Format_ARGB32);
+            const bool alphaFirst = frame.format() == QImage::Format_ARGB32 ||
+                                    frame.format() == QImage::Format_ARGB32_Premultiplied;
+            auto transparent = [&](int px, int py) {
+                if (px < 0 || py < 0 || px >= width || py >= height)
+                    return true;
+                const uchar *line = frame.constScanLine(py);
+                // ARGB32 is a native-endian word with alpha in the top byte; RGBA8888 stores
+                // the bytes R, G, B, A in memory order.
+                if (alphaFirst)
+                    return (reinterpret_cast<const quint32 *>(line)[px] >> 24) == 0;
+                return line[px * 4 + 3] == 0;
+            };
             for (int y = 0; y < height; ++y)
                 for (int x = 0; x < width; ++x) {
-                    if (qAlpha(frame.pixel(x, y)) == 0)
+                    if (transparent(x, y))
                         continue;
                     auto &mask = edges[y * width + x];
                     for (int d = 0; d < 4; ++d) {
-                        const QPoint neighbor = QPoint(x, y) + offsets[d];
-                        if (!(mask & (1 << d)) && (!frame.rect().contains(neighbor) ||
-                                                    qAlpha(frame.pixel(neighbor)) == 0)) {
+                        if (!(mask & (1 << d)) &&
+                            transparent(x + offsets[d].x(), y + offsets[d].y())) {
                             mask |= 1 << d;
                             if (++elementsWithEdges > 4096)
                                 return flat("Generated contour exceeds the 4096-face budget: " + texture);

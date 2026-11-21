@@ -4,3 +4,5 @@
 LICENSE text eol=lf
 # Unified-diff context lines contain a required leading space; preserve exact Qt patch bytes.
 *.patch whitespace=-blank-at-eol
+# Embedded font files must stay byte-identical across platforms.
+*.ttf binary

@@ -48,6 +48,19 @@ class ModelPanel : public QWidget {
     bool syncing = false, pinned = false;
     void rebuild();
     void choices();
+    // The model and definition targets the picker offers after the texture's own models,
+    // split by editability ([0] editable pack, [1] everything else) and cut to what the
+    // picker can show (plus the 256 ids it may skip as already listed). They depend only on
+    // the library, so they are kept until the library changes; switching between textures
+    // then only recomputes the short "Using texture" head.
+    struct TargetCatalog {
+        QStringList models[2], definitions[2];
+    };
+    std::weak_ptr<mc::Library> targetOwner;
+    quint64 targetRevision = 0;
+    bool targetsKnown = false;
+    TargetCatalog targetLists;
+    const TargetCatalog &targetCatalog();
     void showFallback(const QString &notice, const QString &details);
     void overlay();
     void configureResources();

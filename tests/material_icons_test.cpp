@@ -32,6 +32,30 @@ constexpr IconCase icons[] = {
 };
 static_assert(std::size(icons) == 45);
 
+constexpr IconCase allMappedIcons[] = {
+    {"save", 0xe161}, {"undo", 0xe166}, {"redo", 0xe15a}, {"open", 0xe2c8},
+    {"folder", 0xe2c7}, {"file", 0xe66d}, {"undock", 0xe89e}, {"search", 0xef7a},
+    {"command", 0xef7a}, {"close", 0xe5cd}, {"check", 0xe5ca}, {"pending", 0xe835},
+    {"in-progress", 0xe8b5}, {"error", 0xe000}, {"chat", 0xe0b7}, {"add", 0xe145},
+    {"duplicate", 0xe14d}, {"delete", 0xe92e}, {"rename", 0xf097}, {"up", 0xe5d8},
+    {"down", 0xe5db}, {"parent", 0xe5d9}, {"tree", 0xe97a}, {"grid", 0xe9b0},
+    {"sort", 0xe164}, {"zoom-in", 0xe8ff}, {"zoom-out", 0xe900}, {"fit", 0xea10},
+    {"actual", 0xe693}, {"center", 0xe3b4}, {"layers", 0xe53b}, {"info", 0xe88e},
+    {"cube", 0xefc9}, {"results", 0xf02f}, {"settings", 0xe8b8}, {"activity", 0xe7f5},
+    {"workspace", 0xe871}, {"keyboard", 0xe312}, {"transform", 0xe428}, {"eye", 0xe8f4},
+    {"pencil", 0xf604}, {"brush", 0xe3ae}, {"eraser", 0xe6d0}, {"replace", 0xf20a},
+    {"rect-select", 0xf74d}, {"ellipse-select", 0xef4a}, {"lasso", 0xeb03},
+    {"polygon-lasso", 0xebbb}, {"magic-wand", 0xf31e}, {"color-range", 0xe40a},
+    {"move", 0xe89f}, {"line", 0xf41e}, {"shape", 0xe602}, {"fill", 0xe23a},
+    {"gradient", 0xe3e9}, {"eyedropper", 0xe3b8}, {"effects", 0xe429}, {"eye-off", 0xe8f5},
+    {"palette", 0xe40a}, {"opacity", 0xe91c}, {"menu", 0xe5d2}, {"go", 0xe5c8},
+    {"swap-colors", 0xe8d4}, {"reset-colors", 0xe23b}, {"select-replace", 0xe3c6},
+    {"select-add", 0xe145}, {"select-subtract", 0xe15b}, {"select-intersect", 0xeaf4},
+    {"first", 0xe045}, {"previous", 0xe5cb}, {"play", 0xe037}, {"pause", 0xe034},
+    {"stop", 0xe047}, {"next", 0xe5cc}, {"last", 0xe044}, {"drag", 0xe945},
+};
+static_assert(std::size(allMappedIcons) == 76);
+
 int inkPixels(const QImage &image) {
     int count = 0;
     for (int y = 0; y < image.height(); ++y)
@@ -67,15 +91,19 @@ class MaterialIconsTest : public QObject {
 void MaterialIconsTest::initTestCase() {
     QFile fontFile(QStringLiteral(":/fonts/MaterialSymbolsOutlined.ttf"));
     QVERIFY(fontFile.open(QIODevice::ReadOnly));
-    QCOMPARE(fontFile.size(), 10'744'832);
+    QCOMPARE(fontFile.size(), 122'576);
     QCOMPARE(QCryptographicHash::hash(fontFile.readAll(), QCryptographicHash::Sha256).toHex(),
-             QByteArray("f7837ba8573d9a7a74931618ced8307bc81f96d49af296bf6c8052c772ed5282"));
+             QByteArray("81cd837372f05491a2d8b163e9aa61f968fd178eb5d5dbb21043259cbd149778"));
     QVERIFY(!nova::ui::lineIcon(QStringLiteral("save")).isNull());
     QVERIFY(QFontDatabase::families().contains(QStringLiteral("Material Symbols Outlined")));
     QSet<uint> unique;
     for (const auto &entry : icons)
         unique.insert(entry.codepoint);
     QCOMPARE(unique.size(), 44);
+    QSet<uint> allUnique;
+    for (const auto &entry : allMappedIcons)
+        allUnique.insert(entry.codepoint);
+    QCOMPARE(allUnique.size(), 73);
 }
 
 void MaterialIconsTest::mapsValidatedGlyphs() {
@@ -87,7 +115,7 @@ void MaterialIconsTest::mapsValidatedGlyphs() {
     font.setVariableAxis(QFont::Tag("opsz"), 32);
     const QFontMetricsF metrics(font);
     const QRect rect(0, 0, 32, 32);
-    for (const auto &entry : icons) {
+    for (const auto &entry : allMappedIcons) {
         const QString name = QString::fromLatin1(entry.name);
         const QString text(QChar(entry.codepoint));
         QVERIFY2(metrics.inFont(QChar(entry.codepoint)), entry.name);
@@ -108,6 +136,7 @@ void MaterialIconsTest::mapsValidatedGlyphs() {
             }
         }
         QVERIFY2(actual.toImage() == expected.toImage(), entry.name);
+        QVERIFY2(inkPixels(actual.toImage()) > 0, entry.name);
     }
 }
 

@@ -3,6 +3,7 @@
 #include "index.h"
 #include <QByteArray>
 #include <QJsonObject>
+#include <memory>
 namespace nova::vanilla {
 struct BaselineEntry;
 }
@@ -26,8 +27,21 @@ struct ResourceCandidate {
 };
 // Uses the existing Index snapshots. No independent filesystem crawler/watcher.
 class ResourceStack {
-    QMap<QString, QVector<ResourceCandidate>> candidates;
+    // The fallback sources change far less often than the editable pack, so their
+    // candidates/records are built once and shared (copy-on-write, snapshot-friendly) by
+    // every build() that is handed the same sources again.
+    struct FallbackLayer {
+        QVector<ResourceSource> sources; // pins the buffers `matches` compares by identity
+        QString version;
+        QMap<QString, QVector<ResourceCandidate>> candidates;
+        Index combined;
+        QStringList diagnostics;
+        bool matches(const QVector<ResourceSource> &other, const QString &target) const;
+    };
+    QMap<QString, QVector<ResourceCandidate>> candidates; // editable pack only
+    std::shared_ptr<const FallbackLayer> fallbackLayer;
     Index combined;
+    const ResourceCandidate *candidate(const QString &asset, int provider) const;
 
   public:
     QStringList diagnostics;
@@ -35,9 +49,9 @@ class ResourceStack {
                const QVector<ResourceSource> &fallbacks, const QString &version);
     const Index &index() const { return combined; }
     QString path(const QString &asset, int provider = 0) const;
-    QVector<ResourceCandidate> providers(const QString &asset) const {
-        return candidates.value(asset);
-    }
+    QVector<ResourceCandidate> providers(const QString &asset) const;
+    // Presence only: no filesystem access and no integrity check (see path()).
+    bool hasAsset(const QString &asset) const;
     bool editable(const QString &asset) const;
 };
 } // namespace nova::mc

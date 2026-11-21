@@ -9,6 +9,7 @@
 #include <QPointF>
 #include <QStringList>
 #include <QUuid>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -82,6 +83,7 @@ struct StrokeStyle {
     QRgb replaceColor = 0;
     int replaceTolerance = 32;
     bool lockAlpha = false;        // keep each pixel's existing alpha
+    bool wrap = false;             // seamless tiles: dabs past an edge continue on the opposite edge
 };
 class Document {
     friend class DocumentSession;
@@ -114,8 +116,9 @@ class Document {
         bool selectionChanged = false;
         QImage selectionBefore, selectionAfter;
         std::vector<Operation> children;       // Compound: applied in order
+        mutable qint64 bytes = -1;             // operationBytes() memo; -1 = not computed, reset on edits
     };
-    std::vector<Operation> history;
+    std::deque<Operation> history;
     std::vector<RasterLayer> stack;
     QUuid active;
     QUuid strokeLayer;
@@ -136,7 +139,20 @@ class Document {
     QString compoundLabel;
     void beginCompound(const QString &label);
     bool endCompound(bool keep, const QString &owner = {});
-    QHash<int, uchar> strokeCover;
+    // Max coverage per pixel for the open stroke: flat width*height, zero when idle.
+    // Touched indices allow a sparse reset; a dense stroke falls back to a full fill.
+    std::vector<quint8> strokeCover;
+    std::vector<int> strokeCoverTouched;
+    bool strokeCoverDense = false;
+    void resetStrokeCover();
+    struct BrushKey {
+        int shape = -1, size = 0, height = 0, hardness = 0;
+        qint64 stamp = 0;
+        QSize stampSize;
+        bool operator==(const BrushKey &) const = default;
+    };
+    BrushKey footprintKey;
+    std::vector<ops::Dab> footprintCache;
     qint64 strokeTravel = 0;
     std::optional<QPoint> strokeLast;
     QByteArray strokeKey;
@@ -144,8 +160,16 @@ class Document {
     bool rasterCommit(std::vector<Patch> patches, const QString &label, QSize newSize = {},
                       const QImage *newSelection = nullptr);
     static qint64 operationBytes(const Operation &op);
+    static qint64 memoBytes(const Operation &op);
     RasterLayer *findLayer(QUuid id);
     QByteArray pixelDigest() const;
+    // pixelDigest() memoized on the change serial and the composite's buffer identity, so
+    // repeated exportModified() calls between edits do not rehash every frame.
+    mutable QByteArray digestMemo;
+    mutable quint64 digestSerial = 0;
+    mutable qint64 digestImageKey = 0;
+    mutable bool digestValid = false;
+    const QByteArray &currentDigest() const;
     bool prepareFrameEdit(FrameCommand command, QUuid id, int position, const QString &name,
                           AnimationState &state, QString &label, QString *error) const;
     QHash<int, Change> pendingStroke;
@@ -193,6 +217,21 @@ class Document {
     qint64 pixelBytes() const;
     bool animated() const { return animation.enabled; }
     QUuid activeFrame() const { return frameId; }
+    // Zero-copy views of animationState().frames (a document without stored frames has one).
+    int frameCount() const { return animation.frames.empty() ? 1 : int(animation.frames.size()); }
+    QUuid frameIdAt(int index) const {
+        if (animation.frames.empty())
+            return index == 0 ? frameId : QUuid{};
+        return index >= 0 && index < int(animation.frames.size()) ? animation.frames[size_t(index)].id : QUuid{};
+    }
+    int activeFrameIndex() const {
+        if (animation.frames.empty())
+            return 0;
+        for (int i = int(animation.frames.size()) - 1; i >= 0; --i)
+            if (animation.frames[size_t(i)].id == frameId)
+                return i;
+        return -1;
+    }
     AnimationState animationState() const;
     const AnimationLimits &frameLimits() const { return animationLimits; }
     bool setAnimationLimits(const AnimationLimits &limits, QString *error = nullptr);
@@ -238,6 +277,9 @@ class Document {
     // cancelStroke() restores every pixel the open stroke touched.
     bool stroke(QUuid layer, QPoint a, QPoint b, const StrokeStyle &style, QString *error = nullptr);
     void cancelStroke();
+    // Pixel-perfect pencil: restores one pixel (and its symmetric copies) of the open stroke
+    // to its pre-stroke colour, so an L-shaped corner becomes a clean diagonal step.
+    bool revertStrokePixel(QUuid layer, QPoint pixel, const StrokeStyle &style);
     bool strokeOpen() const { return !pendingStroke.isEmpty(); }
     bool replaceLayerPixels(QUuid layer, const QImage &pixels, const QString &label,
                             QString *error = nullptr, const QImage *newSelection = nullptr);

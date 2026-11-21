@@ -4,18 +4,16 @@
 namespace nova {
 void Canvas::paintOnions(QPainter &painter, const QRectF &target) {
     if (!onion.enabled || !document->animated()) return;
-    // This short-lived state shares images only during the draw; no active frame is retained.
-    const auto state = document->animationState();
-    int frameIndex = -1;
-    for (int i = 0; i < int(state.frames.size()); ++i) if (state.frames[size_t(i)].id == document->activeFrame()) frameIndex = i;
+    // Frame identities come from zero-copy accessors: animationState() deep-copies every layer.
+    const int frameIndex = document->activeFrameIndex(), frames = document->frameCount();
     if (frameIndex < 0) return;
     painter.save();
     for (int direction : {-1, 1}) {
         const int count = std::clamp(direction < 0 ? onion.previous : onion.next, 0, 8);
         for (int distance = count; distance >= 1; --distance) {
             const int index = frameIndex + direction * distance;
-            if (index < 0 || index >= int(state.frames.size())) continue;
-            auto source = document->frameComposite(state.frames[size_t(index)].id);
+            if (index < 0 || index >= frames) continue;
+            auto source = document->frameComposite(document->frameIdAt(index));
             const auto key = QString::number(source.cacheKey()) + (direction < 0 ? ":prev" : ":next") + (onion.tint ? ":tint" : ":plain");
             QImage overlay;
             if (auto cached = onionCache.object(key)) overlay = *cached;

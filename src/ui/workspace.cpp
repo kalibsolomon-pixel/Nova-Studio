@@ -742,6 +742,7 @@ void Window::shortcutsDialog() {
              {"Pan canvas", "Space+drag · middle or right drag"},
              {"Pick colour while painting", "Alt+click"},
              {"Straight line from last point", "Shift+click"},
+             {"Snap line or gradient to 45°", "Shift+drag"},
              {"Add / subtract / intersect selection", "Shift · Alt · Shift+Alt"},
              {"Apply placement or transform", "Enter"},
              {"Cancel placement, polygon or preview", "Esc"},

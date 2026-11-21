@@ -13,12 +13,15 @@
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QMetaObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QPointer>
 #include <QRunnable>
 #include <QStyle>
 #include <algorithm>
 #include <deque>
 #include <functional>
+#include <limits>
 namespace nova {
 namespace {
 bool isModelIcon(const QString &path) {
@@ -32,6 +35,40 @@ struct IconRecipe {
     QImage fallback;
     QString blockId;
 };
+// Decoded PNGs shared by every icon on every worker: one block texture such as
+// block/stone.png is used by hundreds of icons. An entry is only reused while the file's
+// size and modification time are unchanged. QImage is implicitly shared, so handing one
+// out copies nothing until somebody writes to it.
+struct CachedPng {
+    qint64 size = 0, modified = 0;
+    QImage image;
+};
+QMutex &pngLock() {
+    static QMutex lock;
+    return lock;
+}
+QCache<QString, CachedPng> &pngCache() {
+    static QCache<QString, CachedPng> cache(64 * 1024 * 1024); // bytes of pixel data
+    return cache;
+}
+QImage cachedPng(const QString &path, bool decode) {
+    const QFileInfo info(path);
+    const qint64 size = info.size(), modified = info.lastModified().toMSecsSinceEpoch();
+    {
+        QMutexLocker lock(&pngLock());
+        if (const auto *hit = pngCache().object(path); hit && hit->size == size && hit->modified == modified)
+            return hit->image;
+    }
+    if (!decode)
+        return {};
+    auto image = loadPng(path);
+    if (!image.isNull()) {
+        QMutexLocker lock(&pngLock());
+        pngCache().insert(path, new CachedPng{size, modified, image},
+                          int(qMin<qsizetype>(image.sizeInBytes(), std::numeric_limits<int>::max())));
+    }
+    return image;
+}
 // The animation of a texture from any source. The baseline cache stores files under their hashes,
 // so the .png.mcmeta is found through the library, never beside the PNG.
 std::shared_ptr<Document> textureAnimation(const mc::Library &library, const QString &texture,
@@ -43,7 +80,7 @@ std::shared_ptr<Document> textureAnimation(const mc::Library &library, const QSt
     const auto json = QJsonDocument::fromJson(meta.readAll()).object();
     if (!json.contains("animation"))
         return {};
-    const auto sheet = loadPng(file).convertToFormat(QImage::Format_RGBA8888);
+    const auto sheet = cachedPng(file, true).convertToFormat(QImage::Format_RGBA8888);
     QImage placeholder(1, 1, QImage::Format_RGBA8888);
     placeholder.fill(Qt::transparent);
     auto document = std::make_shared<Document>(file, placeholder);
@@ -51,7 +88,9 @@ std::shared_ptr<Document> textureAnimation(const mc::Library &library, const QSt
 }
 // animationEntry picks the playback entry of animated textures (wrapping per texture); Explorer
 // uses the first.
-IconRecipe buildIcon(mc::Library library, const QString &asset, int animationEntry = 0) {
+// The library is only read (modelConst() is thread-safe), so worker threads share one
+// snapshot instead of each copying it.
+IconRecipe buildIcon(const mc::Library &library, const QString &asset, int animationEntry = 0) {
     IconRecipe result;
     result.blockId = mc::previewBlockId(asset, library);
     const auto id = mc::Location::fromAsset(asset, "models");
@@ -69,7 +108,10 @@ IconRecipe buildIcon(mc::Library library, const QString &asset, int animationEnt
         QImage image;
         const auto path = library.assetPath(texture);
         if (!path.isEmpty()) {
-            const auto size = QImageReader(path, "png").size();
+            // A decoded copy already in the cache answers the size check without reading
+            // the header again.
+            const auto known = cachedPng(path, false);
+            const auto size = known.isNull() ? QImageReader(path, "png").size() : known.size();
             const auto pixels = qint64(size.width()) * size.height();
             if (size.isValid() && pixels <= pixelsLeft) {
                 pixelsLeft -= pixels;
@@ -78,7 +120,7 @@ IconRecipe buildIcon(mc::Library library, const QString &asset, int animationEnt
                     image = animation->frameComposite(entries[qMax(0, animationEntry) % entries.size()].frame);
                 }
                 if (image.isNull())
-                    image = loadPng(path);
+                    image = cachedPng(path, true);
             }
         }
         if (result.fallback.isNull() && !image.isNull())
@@ -86,7 +128,7 @@ IconRecipe buildIcon(mc::Library library, const QString &asset, int animationEnt
         result.materials.insert(texture, image);
     };
     for (const auto &instance : instances) {
-        const auto model = library.model(instance.model);
+        const auto model = library.modelConst(instance.model);
         if (model.generated)
             for (const auto &texture : model.textures)
                 load(texture);
@@ -164,6 +206,26 @@ QImage renderInventoryIcon(const mc::Library &library, const QString &asset, int
         cube->grabFramebuffer(); // creates the context
     return cube->captureInventoryIcon(scale);
 }
+void AssetModel::describe(Node &node) {
+    node.name = node.path.mid(node.path.lastIndexOf('/') + 1);
+    node.modelIcon = !node.directory && isModelIcon(node.path);
+}
+void AssetModel::emitChanged(Node *parent, const std::function<bool(const Node &)> &affected,
+                             const QList<int> &roles) {
+    const int count = int(parent->children.size());
+    for (int row = 0, start = -1; row <= count; ++row) {
+        const bool hit = row < count && affected(*parent->children[size_t(row)]);
+        if (hit && start < 0)
+            start = row;
+        if (!hit && start >= 0) {
+            emit dataChanged(createIndex(start, 0, parent->children[size_t(start)].get()),
+                             createIndex(row - 1, 0, parent->children[size_t(row - 1)].get()), roles);
+            start = -1;
+        }
+        if (row < count && !parent->children[size_t(row)]->children.empty())
+            emitChanged(parent->children[size_t(row)].get(), affected, roles);
+    }
+}
 AssetModel::AssetModel(QObject *p) : QAbstractItemModel(p), root(std::make_unique<Node>()) {
     root->directory = true;
     pool.setMaxThreadCount(2);
@@ -179,6 +241,7 @@ std::unique_ptr<AssetModel::Node> AssetModel::build(const Index &idx, QString pa
     n->parent = parent;
     n->row = row;
     n->directory = idx.directories.contains(path);
+    describe(*n);
     nodes[path] = n.get();
     if (n->directory) {
         auto children = idx.directories.value(path);
@@ -188,12 +251,16 @@ std::unique_ptr<AssetModel::Node> AssetModel::build(const Index &idx, QString pa
                 if (it->category == category)
                     children.append(it.key());
         }
-        std::sort(children.begin(), children.end(), [&](auto a, auto b) {
-            bool ad = idx.directories.contains(a), bd = idx.directories.contains(b);
-            return ad != bd ? ad : a < b;
-        });
+        // Folders first, then by path; each child is classified once, not per comparison.
+        QStringList folders, files;
+        for (const auto &child : children)
+            (idx.directories.contains(child) ? folders : files).append(child);
+        folders.sort();
+        files.sort();
         int r = 0;
-        for (auto p : children)
+        for (const auto &p : folders)
+            n->children.push_back(build(idx, p, n.get(), r++));
+        for (const auto &p : files)
             n->children.push_back(build(idx, p, n.get(), r++));
     }
     return n;
@@ -254,24 +321,26 @@ void AssetModel::applyIndex(const Index &idx, const QStringList &changed) {
         for (auto path : all) {
             if (path.isEmpty() || nodes.contains(path))
                 continue;
-            auto parentPath = QFileInfo(path).path();
-            if (parentPath == ".")
-                parentPath.clear();
+            const auto slash = path.lastIndexOf('/');
+            const auto parentPath = slash < 0 ? QString() : path.left(slash);
             auto p = nodes.value(parentPath, nullptr);
             if (!p)
                 continue;
             bool directory = idx.directories.contains(path);
-            int row = 0;
-            while (row < int(p->children.size())) {
-                auto &sibling = p->children[row];
-                if (directory != sibling->directory ? directory : path < sibling->path)
-                    break;
-                ++row;
-            }
+            // Siblings stay ordered (directories first, then by path), so the slot is a
+            // binary search rather than a walk of the whole folder.
+            const int row = int(std::partition_point(p->children.begin(), p->children.end(),
+                                                     [&](const std::unique_ptr<Node> &sibling) {
+                                                         return !(directory != sibling->directory
+                                                                      ? directory
+                                                                      : path < sibling->path);
+                                                     }) -
+                                p->children.begin());
             beginInsertRows(indexFor(parentPath), row, row);
             auto n = std::make_unique<Node>();
             n->path = path;
             n->directory = directory;
+            describe(*n);
             n->parent = p;
             n->row = row;
             nodes[path] = n.get();
@@ -282,17 +351,18 @@ void AssetModel::applyIndex(const Index &idx, const QStringList &changed) {
         }
     }
     QSet<QString> exact(changed.begin(), changed.end());
-    QStringList directories;
-    for (auto path : changed)
+    const bool everything = exact.contains("");
+    QStringList directoryPrefixes;
+    for (const auto &path : changed)
         if (idx.directories.contains(path))
-            directories.append(path);
+            directoryPrefixes.append(path + '/');
     auto invalidated = [&](const QString &path) {
-        if (exact.contains("") || exact.contains(path)) return true;
-        for (const auto &directory : directories)
-            if (path.startsWith(directory + '/')) return true;
+        if (everything || exact.contains(path)) return true;
+        for (const auto &prefix : directoryPrefixes)
+            if (path.startsWith(prefix)) return true;
         return false;
     };
-    if (exact.contains("")) {
+    if (everything) {
         cache.clear();
         failed.clear();
     } else {
@@ -302,13 +372,26 @@ void AssetModel::applyIndex(const Index &idx, const QStringList &changed) {
             if (invalidated(path)) cache.remove(path);
         failed.removeIf(invalidated);
     }
-    for (auto it = nodes.cbegin(); it != nodes.cend(); ++it) {
-        if (invalidated(it.key())) {
-            auto i = indexFor(it.key());
-            if (i.isValid())
-                emit dataChanged(i, i, {Qt::DecorationRole, Qt::ForegroundRole, Qt::ToolTipRole, OriginRole});
-        }
+    // Rows that changed: the changed nodes and, for a changed folder, its whole subtree,
+    // found through the tree instead of testing every node's path against every folder.
+    QSet<const Node *> affected;
+    if (!everything) {
+        std::function<void(const Node *)> subtree = [&](const Node *n) {
+            affected.insert(n);
+            for (const auto &child : n->children)
+                subtree(child.get());
+        };
+        for (const auto &path : changed)
+            if (const auto *n = nodes.value(path, nullptr)) {
+                if (idx.directories.contains(path))
+                    subtree(n);
+                else
+                    affected.insert(n);
+            }
     }
+    emitChanged(root.get(),
+                [&](const Node &n) { return everything || affected.contains(&n); },
+                {Qt::DecorationRole, Qt::ForegroundRole, Qt::ToolTipRole, OriginRole});
 }
 void AssetModel::setCategory(const QString &value) {
     if (category == value)
@@ -332,7 +415,7 @@ void AssetModel::setModelSources(const std::shared_ptr<mc::Library> &library) {
     QSet<QString> stale;
     // A library without any models is fresh (project open/close hands one over before
     // the first index update lands); flush fully as the previous behavior did.
-    const bool full = !modelSources || modelSources->modelIds().isEmpty() ||
+    const bool full = !modelSources || !modelSources->hasModels() ||
                       modelSources->lastUpdateChanged().contains(QString());
     if (!full)
         for (const auto &path : modelSources->lastUpdateChanged()) {
@@ -360,11 +443,9 @@ void AssetModel::setModelSources(const std::shared_ptr<mc::Library> &library) {
                 if (iconQueue)
                     iconQueue->forget(path);
             }
-    for (auto it = nodes.cbegin(); it != nodes.cend(); ++it)
-        if (!it.value()->directory && isModelIcon(it.key()) && (full || stale.contains(it.key()))) {
-            const auto index = indexFor(it.key());
-            emit dataChanged(index, index, {Qt::DecorationRole});
-        }
+    emitChanged(root.get(),
+                [&](const Node &n) { return n.modelIcon && (full || stale.contains(n.path)); },
+                {Qt::DecorationRole});
 }
 void AssetModel::resetIconStats() const { iconCounters = {}; }
 void AssetModel::scheduleIconDrain() const {
@@ -474,7 +555,7 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
         return {};
     auto n = node(i);
     if (role == Qt::DisplayRole)
-        return QFileInfo(n->path).fileName();
+        return n->name;
     if (role == OriginRole)
         return n->directory ? int(ProjectRow) : int(origin(n->path));
     if (role == Qt::ToolTipRole && !baselineVersion.isEmpty() && !n->directory) {
@@ -504,7 +585,7 @@ QVariant AssetModel::data(const QModelIndex &i, int role) const {
     // The row is being painted; its finished recipe should be captured before the rest.
     if (iconQueue && pending.contains(n->path))
         iconQueue->promote(n->path);
-    const auto sources = isModelIcon(n->path) ? modelSources : nullptr;
+    const auto sources = n->modelIcon ? modelSources : nullptr;
     if ((sources || n->path.endsWith(".png", Qt::CaseInsensitive)) && !pending.contains(n->path) &&
         !failed.contains(n->path) && pending.size() < 128) {
         // Baseline rows come from the shared read-only cache; project rows from the project.

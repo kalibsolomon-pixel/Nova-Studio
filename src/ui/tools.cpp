@@ -28,9 +28,9 @@ namespace nova {
 const QList<ToolInfo> &toolInfos() {
     static const QList<ToolInfo> list = {
         {Tool::Pencil, "pencil", "Pencil", "Draw", "B", "Exact hard-edged pixels (Alt-click picks a colour, Shift-click draws a line)"},
-        {Tool::Brush, "brush", "Brush", "Draw", "Shift+B", "Sized brush with opacity, hardness and spacing"},
-        {Tool::Eraser, "eraser", "Eraser", "Draw", "E", "Erase to transparency with the brush footprint"},
-        {Tool::ColorReplace, "replace", "Colour Replace", "Draw", "Shift+E", "Paints only over pixels matching the background colour"},
+        {Tool::Brush, "brush", "Brush", "Draw", "Shift+B", "Sized brush with opacity, hardness and spacing (Alt-click picks a colour, Shift-click draws a line)"},
+        {Tool::Eraser, "eraser", "Eraser", "Draw", "E", "Erase to transparency with the brush footprint (Shift-click erases a line)"},
+        {Tool::ColorReplace, "replace", "Colour Replace", "Draw", "Shift+E", "Paints only over pixels matching the background colour (Alt-click picks a colour)"},
         {Tool::RectSelect, "rect-select", "Rectangle Select", "Select", "M", "Drag a rectangle (Shift add, Alt subtract, Shift+Alt intersect, Ctrl square)"},
         {Tool::EllipseSelect, "ellipse-select", "Ellipse Select", "Select", "Shift+M", "Drag an ellipse (same modifiers as rectangle)"},
         {Tool::Lasso, "lasso", "Lasso", "Select", "L", "Freehand selection"},
@@ -39,10 +39,10 @@ const QList<ToolInfo> &toolInfos() {
         {Tool::ColorRange, "color-range", "Colour Range", "Select", "Shift+W", "Select every pixel within the tolerance"},
         {Tool::Move, "move", "Move", "Transform", "V", "Lift the selection (or layer) and place it; Enter applies, Esc cancels"},
         {Tool::Transform, "transform", "Transform", "Transform", "T", "Scale and rotate the selection or layer with a live preview"},
-        {Tool::Line, "line", "Line", "Shapes", "Shift+U", "Straight line with the brush (Shift snaps to 45°)"},
+        {Tool::Line, "line", "Line", "Shapes", "Shift+U", "Straight line with the brush (Shift snaps to 45°, Alt-click picks a colour)"},
         {Tool::Shape, "shape", "Shape", "Shapes", "U", "Rectangles, ellipses, polygons and stars (Shift keeps aspect, Alt from centre)"},
-        {Tool::Fill, "fill", "Fill Bucket", "Fill", "G", "Contiguous or Universal Fill with tolerance"},
-        {Tool::Gradient, "gradient", "Gradient", "Fill", "Shift+G", "Drag a foreground→background gradient"},
+        {Tool::Fill, "fill", "Fill Bucket", "Fill", "G", "Contiguous or Universal Fill with tolerance (Alt-click picks a colour)"},
+        {Tool::Gradient, "gradient", "Gradient", "Fill", "Shift+G", "Drag a foreground→background gradient (Shift snaps to 45°, Alt-click picks a colour)"},
         {Tool::Eyedropper, "eyedropper", "Eyedropper", "Colour", "I", "Pick the foreground (Shift or right-click: background)"},
     };
     return list;
@@ -85,6 +85,7 @@ StrokeStyle ToolState::strokeStyle(Tool t) const {
     s.symmetry = symmetry;
     s.radial = radial;
     s.lockAlpha = lockAlpha;
+    s.wrap = wrap;
     if (paletteLock)
         s.palette = palette;
     if (t == Tool::ColorReplace) {
@@ -556,7 +557,7 @@ QWidget *ToolOptionsBar::paintPage() {
     auto height = spin("Brush height (Auto keeps a square; custom stamps retain their original size)", 0, ops::Brush::MaxSize, 0, " px");
     height->setSpecialValueText("Auto");
     height->setObjectName("brushHeight");
-    auto opacity = spin("Opacity", 0, 255, 255);
+    auto opacity = spin("Opacity (0–255; keys 1–9 and 0 set 10–100%)", 0, 255, 255);
     opacity->setObjectName("brushOpacity");
     auto hardness = spin("Hardness: 100 keeps exact pixel edges", 0, 100, 100, "%");
     hardness->setObjectName("brushHardness");
@@ -592,6 +593,18 @@ QWidget *ToolOptionsBar::paintPage() {
     lockAlpha->setProperty("role", "toggle");
     lockAlpha->setIconSize({ui::IconSize, ui::IconSize});
     lockAlpha->setToolTip("Lock alpha: paint only over existing pixels, preserving their transparency");
+    lockAlpha->setObjectName("lockAlpha");
+    auto wrap = new QCheckBox;
+    wrap->setIcon(ui::lineIcon("grid"));
+    wrap->setProperty("novaIcon", "grid");
+    wrap->setAccessibleName("Wrap around edges");
+    wrap->setProperty("role", "toggle");
+    wrap->setIconSize({ui::IconSize, ui::IconSize});
+    wrap->setObjectName("wrapPaint");
+    wrap->setToolTip("Wrap around edges: strokes past one edge continue on the opposite edge, for seamless tiling textures");
+    auto pixelPerfect = new QCheckBox("Pixel perfect");
+    pixelPerfect->setObjectName("pixelPerfect");
+    pixelPerfect->setToolTip("Removes the extra corner pixel where a 1 px freehand line turns (L-shapes become clean diagonals)");
     auto tolerance = spin("Colour replace tolerance", 0, 255, 32);
     tolerance->setObjectName("replaceTolerance");
     // A menu command like Brush settings beside it: frameless text with a drop-down arrow.
@@ -629,7 +642,7 @@ QWidget *ToolOptionsBar::paintPage() {
     form->itemAt(0, QFormLayout::FieldRole)->setAlignment(Qt::AlignRight);
     ui::settingsMenu(settings, formBody);
     auto w = row({name, nullptr, shape, label("Size"), size, label("Opacity"), opacity,
-                  settings, nullptr, symmetry, radial, nullptr, palette, stampColors, lockAlpha,
+                  settings, pixelPerfect, nullptr, symmetry, radial, nullptr, palette, stampColors, lockAlpha, wrap,
                   toleranceLabel, tolerance, nullptr, presets});
     auto brush = [this] { return &state->brush(state->tool); };
     connect(stampColors, &QCheckBox::toggled, this, [=, this](bool value) { if (!updating) { brush()->sourceColors = value; state->touch(); } });
@@ -648,6 +661,8 @@ QWidget *ToolOptionsBar::paintPage() {
     connect(radial, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->radial = v; state->touch(); } });
     connect(palette, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->paletteLock = v; state->touch(); } });
     connect(lockAlpha, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->lockAlpha = v; state->touch(); } });
+    connect(wrap, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->wrap = v; state->touch(); } });
+    connect(pixelPerfect, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->pixelPerfect = v; state->touch(); } });
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->replaceTolerance = v; state->touch(); } });
     return w;
 }
@@ -682,8 +697,10 @@ QWidget *ToolOptionsBar::selectPage() {
     metric->setToolTip("Colour distance: RGB/RGBA channel difference, perceptual redmean, or hue");
     auto composite = new QCheckBox("Sample all layers");
     composite->setObjectName("sampleComposite");
+    composite->setToolTip("Match colours on the visible image instead of the selected layer");
     auto alpha = new QCheckBox("Match alpha");
     alpha->setObjectName("includeAlpha");
+    alpha->setToolTip("Compare transparency too; off matches colours whatever their alpha");
     auto snap = spin("Snap rectangle/ellipse selections to a grid of N pixels", 1, 64, 1, " px");
     snap->setObjectName("selectSnap");
     auto w = row({toolName(), nullptr, label("Mode"), modes, nullptr, label("Tolerance"), tolerance, metric, composite, alpha, nullptr,
@@ -701,8 +718,10 @@ QWidget *ToolOptionsBar::shapePage() {
     auto names = ops::shapeNames();
     names.removeLast(); // Line has its own tool
     kind->addItems(names);
+    kind->setToolTip("Shape kind");
     auto filled = new QCheckBox("Filled");
     filled->setObjectName("shapeFilled");
+    filled->setToolTip("Fill the shape; off draws its outline at the given thickness");
     auto smooth = new QCheckBox("Smooth edges");
     smooth->setObjectName("shapeSmooth");
     smooth->setToolTip("Optional anti-aliased coverage; leave off for exact pixel-art edges");
@@ -720,22 +739,34 @@ QWidget *ToolOptionsBar::shapePage() {
     inner->setSingleStep(.05);
     inner->setValue(.5);
     inner->setToolTip("Star inner radius ratio");
+    inner->setObjectName("shapeInner");
     auto rotation = new QDoubleSpinBox;
     rotation->setRange(-360, 360);
     rotation->setSuffix("°");
     rotation->setToolTip("Rotation around the shape centre");
     rotation->setObjectName("shapeRotation");
     auto flipH = new QCheckBox("Flip H"), flipV = new QCheckBox("Flip V");
+    flipH->setObjectName("shapeFlipH");
+    flipH->setToolTip("Mirror the shape horizontally");
+    flipV->setObjectName("shapeFlipV");
+    flipV->setToolTip("Mirror the shape vertically");
     auto centre = new QCheckBox("From centre");
+    centre->setObjectName("shapeFromCentre");
     centre->setToolTip("Drag from the centre (also hold Alt)");
-    auto opacity = spin("Opacity", 0, 255, 255);
+    auto opacity = spin("Opacity (0–255)", 0, 255, 255);
+    opacity->setObjectName("shapeOpacity");
+    // Shape-specific values show only for the shapes that use them.
+    auto radiusLabel = label("Radius"), sidesLabel = label("Sides"), innerLabel = label("Inner");
+    radiusLabel->setObjectName("shapeRadiusLabel");
+    sidesLabel->setObjectName("shapeSidesLabel");
+    innerLabel->setObjectName("shapeInnerLabel");
     auto snap = spin("Snap shape corners to a grid of N pixels (1 = every pixel)", 1, 64, 1, " px");
     auto numeric = new QPushButton("Parameters / presets…");
     numeric->setObjectName("shapeParameters");
     connect(numeric,&QPushButton::clicked,state,&ToolState::shapeSettingsRequested);
     snap->setObjectName("shapeSnap");
-    auto w = row({toolName(), nullptr, kind, filled, smooth, nullptr, label("Thickness"), thickness, label("Radius"), radius, label("Sides"), sides,
-                  label("Inner"), inner, nullptr, label("Rotate"), rotation, flipH, flipV, centre, nullptr, label("Opacity"),
+    auto w = row({toolName(), nullptr, kind, filled, smooth, nullptr, label("Thickness"), thickness, radiusLabel, radius, sidesLabel, sides,
+                  innerLabel, inner, nullptr, label("Rotate"), rotation, flipH, flipV, centre, nullptr, label("Opacity"),
                   opacity, label("Grid"), snap, nullptr, numeric});
     connect(snap, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->snap = v; state->touch(); } });
     connect(kind, &QComboBox::currentIndexChanged, this, [this](int i) { if (!updating) { state->shape = ops::ShapeKind(i); state->touch(); } });
@@ -800,7 +831,7 @@ QWidget *ToolOptionsBar::fillPage() {
     auto composite = new QCheckBox("Sample all layers");
     composite->setObjectName("fillSampleComposite");
     composite->setToolTip("Match colours on the visible image; only the selected layer changes");
-    auto opacity = spin("Opacity", 0, 255, 255);
+    auto opacity = spin("Opacity (0–255)", 0, 255, 255);
     opacity->setObjectName("fillOpacity");
     auto w = row({toolName(), nullptr, modes, nullptr, label("Tolerance"), tolerance, metric, composite, label("Opacity"), opacity});
     connect(tolerance, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->tolerance = v; state->touch(); } });
@@ -813,9 +844,14 @@ QWidget *ToolOptionsBar::gradientPage() {
     auto type = new QComboBox;
     type->setObjectName("gradientType");
     type->addItems({"Linear", "Radial", "Reflected"});
+    type->setToolTip("Gradient type: Linear, Radial from the start point, or Reflected around it");
     auto steps = spin("Discrete steps (0 = smooth)", 0, 64, 0);
+    steps->setObjectName("gradientSteps");
     auto dither = new QCheckBox("Ordered dither");
-    auto opacity = spin("Opacity", 0, 255, 255);
+    dither->setObjectName("gradientDither");
+    dither->setToolTip("Bayer 4×4 dithering between steps, a classic pixel-art blend");
+    auto opacity = spin("Opacity (0–255)", 0, 255, 255);
+    opacity->setObjectName("gradientOpacity");
     auto w = row({toolName(), nullptr, label("Foreground → background"), type, label("Steps"), steps, dither, label("Opacity"), opacity});
     connect(type, &QComboBox::currentTextChanged, this, [this](const QString &v) { if (!updating) { state->gradientType = v; state->touch(); } });
     connect(steps, &QSpinBox::valueChanged, this, [this](int v) { if (!updating) { state->gradientSteps = v; state->touch(); } });
@@ -851,6 +887,7 @@ QWidget *ToolOptionsBar::transformPage() {
     flipV->setObjectName("transformFlipV");
     auto hidden = new QCheckBox("Include hidden");
     hidden->setObjectName("transformHidden");
+    hidden->setToolTip("Also move or transform hidden layers among the selected layers");
     auto w = row({toolName(), nullptr, label("Selected layers"), hidden, nullptr, label("Scale"), sx, sy, label("Rotate"), angle,
                   resampling, flipH, flipV, nullptr, apply, cancel, reset, hint});
     connect(flipH, &QCheckBox::toggled, this, [this](bool value) {
@@ -883,6 +920,7 @@ QWidget *ToolOptionsBar::transformPage() {
 QWidget *ToolOptionsBar::pickPage() {
     auto composite = new QCheckBox("Sample all layers");
     composite->setObjectName("pickComposite");
+    composite->setToolTip("Pick from the visible image instead of the selected layer");
     auto w = row({toolName(), nullptr, label("Click: foreground · Shift-click / right-click: background"), composite});
     connect(composite, &QCheckBox::toggled, this, [this](bool v) { if (!updating) { state->sampleComposite = v; state->touch(); } });
     return w;
@@ -915,8 +953,23 @@ void ToolOptionsBar::reload() {
     set("replaceTolerance", state->replaceTolerance);
     if (auto c = page->findChild<QComboBox *>("symmetry"))
         c->setCurrentIndex(int(state->symmetry));
-    if (auto c = page->findChild<QCheckBox *>("paletteLock"))
-        c->setChecked(state->paletteLock);
+    auto check = [&](const char *name, bool v) {
+        if (auto c = page->findChild<QCheckBox *>(name))
+            c->setChecked(v);
+    };
+    auto shown = [&](const char *name, bool v) {
+        if (auto w = page->findChild<QWidget *>(name))
+            w->setVisible(v);
+    };
+    auto setReal = [&](const char *name, double v) {
+        if (auto s = page->findChild<QDoubleSpinBox *>(name))
+            s->setValue(v);
+    };
+    check("paletteLock", state->paletteLock);
+    check("lockAlpha", state->lockAlpha);
+    check("wrapPaint", state->wrap);
+    check("pixelPerfect", state->pixelPerfect);
+    shown("pixelPerfect", state->tool == Tool::Pencil);
     if (auto c = page->findChild<QCheckBox *>("stampSourceColors")) {
         c->setChecked(b.sourceColors); c->setVisible(b.shape == ops::BrushShape::Custom);
     }
@@ -938,9 +991,17 @@ void ToolOptionsBar::reload() {
         c->setCurrentIndex(int(state->metric));
         c->setEnabled(state->contiguous);
     }
-    if (auto c = page->findChild<QCheckBox *>("fillSampleComposite"))
-        c->setChecked(state->sampleComposite);
+    for (const char *n : {"fillSampleComposite", "sampleComposite", "pickComposite"})
+        check(n, state->sampleComposite);
+    check("includeAlpha", state->includeAlpha);
+    if (auto c = page->findChild<QComboBox *>("selectMetric"))
+        c->setCurrentIndex(int(state->metric));
     set("fillOpacity", state->fillOpacity);
+    set("gradientOpacity", state->fillOpacity);
+    set("gradientSteps", state->gradientSteps);
+    check("gradientDither", state->gradientDither);
+    if (auto c = page->findChild<QComboBox *>("gradientType"))
+        c->setCurrentText(state->gradientType);
     set("transformScaleX", state->scaleX);
     set("transformScaleY", state->scaleY);
     if (auto c = page->findChild<QCheckBox *>("transformFlipH"))
@@ -960,6 +1021,22 @@ void ToolOptionsBar::reload() {
     if (auto c = page->findChild<QCheckBox *>("shapeSmooth"))
         c->setChecked(state->smoothShape);
     set("shapeThickness", state->thickness);
+    set("shapeSides", state->sides);
+    set("shapeOpacity", state->shapeOpacity);
+    setReal("shapeRadius", state->radius);
+    setReal("shapeInner", state->innerRatio);
+    setReal("shapeRotation", state->rotation);
+    check("shapeFlipH", state->flipH);
+    check("shapeFlipV", state->flipV);
+    check("shapeFromCentre", state->fromCentre);
+    const bool rounded = state->shape == ops::ShapeKind::RoundedRectangle;
+    const bool pointed = state->shape == ops::ShapeKind::RegularPolygon || state->shape == ops::ShapeKind::Star;
+    for (const char *n : {"shapeRadius", "shapeRadiusLabel"})
+        shown(n, rounded);
+    for (const char *n : {"shapeSides", "shapeSidesLabel"})
+        shown(n, pointed);
+    for (const char *n : {"shapeInner", "shapeInnerLabel"})
+        shown(n, state->shape == ops::ShapeKind::Star);
     set("shapeSnap", state->snap);
     set("selectSnap", state->snap);
     // Transform-only controls are hidden for Move.

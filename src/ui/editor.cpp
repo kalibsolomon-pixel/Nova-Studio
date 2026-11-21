@@ -34,7 +34,7 @@ QMenu *Window::operationMenu(const QString &title, const QString &category) {
         }
     return menu;
 }
-void Window::openOperation(const QStringList &ids) {
+void Window::openOperation(const QStringList &ids, const QJsonObject &params) {
     auto canvas = current();
     if (!canvas) {
         statusBar()->showMessage("Open a texture first", 4000);
@@ -48,9 +48,40 @@ void Window::openOperation(const QStringList &ids) {
     OperationDialog dialog(&session, canvas->document, canvas, &presets, colorPanel->activePalette(), ids,
                            [this] { return colorPanel->activePaletteText(); }, this);
     dialog.setSelectedLayers(layersPanel->selectedLayers(), layersPanel->selectedLayers().size()>1);
-    dialog.exec();
+    if (!params.isEmpty()) {
+        dialog.parameters()->setParams(params);
+        emit dialog.parameters()->edited();
+    }
+    if (dialog.exec() == QDialog::Accepted)
+        rememberEffect({dialog.parameters()->operation(), dialog.parameters()->params()});
     canvas->clearExternalPreview();
     refresh();
+}
+void Window::rememberEffect(const ops::Spec &spec) {
+    const auto op = ops::find(spec.id);
+    if (!op)
+        return;
+    lastEffect = spec;
+    if (auto a = findChild<QAction *>("repeatEffect")) {
+        a->setText("Repeat " + op->name);
+        a->setEnabled(true);
+    }
+    if (auto a = findChild<QAction *>("reopenEffect")) {
+        a->setText(op->name + " Again…");
+        a->setEnabled(true);
+    }
+}
+void Window::repeatEffect() {
+    const auto op = ops::find(lastEffect.id);
+    if (!op)
+        return;
+    // Generators choose an output (new layer or replace) in their dialog; ask again.
+    if (op->generator) {
+        openOperation({lastEffect.id}, lastEffect.params);
+        return;
+    }
+    documentOperation(lastEffect);
+    statusBar()->showMessage("Applied " + op->name + " again", 3000);
 }
 void Window::documentOperation(const ops::Spec &spec) {
     auto canvas = current();
@@ -278,6 +309,22 @@ void Window::buildEditor(QMenu *view) {
                     toolState.applyBrushPreset(info.tool, brushes.value(info.id).toObject());
             toolState.symmetry = ops::Symmetry(std::clamp(o.value("symmetry").toInt(), 0, 4));
             toolState.smoothing = 0;
+            // Later option values; each keeps its default when absent.
+            toolState.lockAlpha = o.value("lock_alpha").toBool(false);
+            toolState.paletteLock = o.value("palette_lock").toBool(false);
+            toolState.wrap = o.value("wrap").toBool(false);
+            toolState.pixelPerfect = o.value("pixel_perfect").toBool(false);
+            toolState.metric = ops::Distance(std::clamp(o.value("metric").toInt(0), 0, int(ops::distanceNames().size()) - 1));
+            toolState.includeAlpha = o.value("include_alpha").toBool(true);
+            toolState.replaceTolerance = std::clamp(o.value("replace_tolerance").toInt(32), 0, 255);
+            toolState.fillOpacity = std::clamp(o.value("fill_opacity").toInt(255), 0, 255);
+            toolState.shape = ops::ShapeKind(std::clamp(o.value("shape").toInt(0), 0, int(ops::ShapeKind::Star)));
+            toolState.filled = o.value("shape_filled").toBool(false);
+            toolState.thickness = std::clamp(o.value("shape_thickness").toInt(1), 1, 64);
+            if (const auto type = o.value("gradient_type").toString(); type == "Linear" || type == "Radial" || type == "Reflected")
+                toolState.gradientType = type;
+            toolState.gradientSteps = std::clamp(o.value("gradient_steps").toInt(0), 0, 64);
+            toolState.gradientDither = o.value("gradient_dither").toBool(false);
         }
     }
     metrics.record("editor_settings_libraries", stage);
@@ -288,6 +335,17 @@ void Window::buildEditor(QMenu *view) {
         colorsDock->show();
         colorsDock->raise();
     });
+    // The active tool's hint stays in the status bar (temporary messages cover it briefly).
+    auto toolHint = ui::hint({});
+    toolHint->setObjectName("statusToolHint");
+    toolHint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    statusBar()->addWidget(toolHint, 1);
+    auto showToolHint = [toolHint](Tool t) {
+        const auto &info = toolInfo(t);
+        toolHint->setText(QString("%1 (%2) · %3").arg(info.name, info.shortcut, info.tip));
+    };
+    showToolHint(toolState.tool);
+    connect(&toolState, &ToolState::toolChanged, toolHint, showToolHint);
     metrics.record("editor_toolbox", stage);
     stage.restart();
     addToolBarBreak(Qt::TopToolBarArea);
@@ -423,16 +481,53 @@ void Window::buildEditor(QMenu *view) {
     edit->addSeparator();
     add(edit, "Swap Colours", "swapColors", "X", [this] { toolState.swapColors(); });
     add(edit, "Default Colours", "defaultColors", "D", [this] { toolState.resetColors(); });
-    add(edit, "Decrease Brush Size", "brushSmaller", "[", [this] {
-        auto &b = toolState.brush(toolState.tool);
-        b.size = std::max(1, b.size - 1);
+    // [ and ] change the active tool's main size: brush size (in steps that grow with the
+    // brush), shape outline thickness, or the colour tolerance of fills and colour selections.
+    auto resize = [this](int direction) {
+        const Tool t = toolState.tool;
+        QString shown;
+        if (t == Tool::Shape) {
+            toolState.thickness = std::clamp(toolState.thickness + direction, 1, 64);
+            shown = QString("Outline thickness %1 px").arg(toolState.thickness);
+        } else if (t == Tool::Fill || t == Tool::MagicWand || t == Tool::ColorRange) {
+            toolState.tolerance = std::clamp(toolState.tolerance + 8 * direction, 0, 255);
+            shown = QString("Tolerance %1").arg(toolState.tolerance);
+        } else {
+            auto &b = toolState.brush(t);
+            const int step = std::max(1, (direction > 0 ? b.size : b.size - 1) / 8);
+            b.size = std::clamp(b.size + direction * step, 1, ops::Brush::MaxSize);
+            shown = QString("Brush size %1 px").arg(b.size);
+        }
         toolState.touch();
-    });
-    add(edit, "Increase Brush Size", "brushLarger", "]", [this] {
-        auto &b = toolState.brush(toolState.tool);
-        b.size = std::min(ops::Brush::MaxSize, b.size + 1);
-        toolState.touch();
-    });
+        statusBar()->showMessage(shown, 1500);
+    };
+    add(edit, "Decrease Brush Size", "brushSmaller", "[", [resize] { resize(-1); })
+        ->setStatusTip("Smaller brush, thinner shape outline, or lower fill/selection tolerance");
+    add(edit, "Increase Brush Size", "brushLarger", "]", [resize] { resize(1); })
+        ->setStatusTip("Larger brush, thicker shape outline, or higher fill/selection tolerance");
+    // 1–9 and 0 set the active tool's opacity to 10–100%, as in other painting tools.
+    auto opacityMenu = edit->addMenu("Tool &Opacity");
+    opacityMenu->setObjectName("toolOpacityMenu");
+    for (int k = 1; k <= 10; ++k) {
+        auto a = add(opacityMenu, QString("%1%").arg(k * 10), QString("toolOpacity%1").arg(k * 10).toLatin1().constData(),
+                     QString::number(k % 10), [this, k] {
+                         const int value = k == 10 ? 255 : (k * 255 + 5) / 10;
+                         const Tool t = toolState.tool;
+                         if (t == Tool::Fill || t == Tool::Gradient)
+                             toolState.fillOpacity = value;
+                         else if (t == Tool::Shape)
+                             toolState.shapeOpacity = value;
+                         else if (isPaintTool(t) || t == Tool::Line)
+                             toolState.brush(t).opacity = value;
+                         else
+                             return;
+                         toolState.touch();
+                         statusBar()->showMessage(QString("%1 opacity %2%").arg(toolInfo(t).name).arg(k * 10), 1500);
+                     });
+        // Digits act only in the document area, so they still type into fields and lists.
+        a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        tabs->addAction(a);
+    }
     for (auto shortcutAction : edit->actions())
         if (shortcutAction->shortcut().count() && shortcutAction->shortcut()[0].keyboardModifiers() == Qt::NoModifier)
             shortcutAction->setShortcutContext(Qt::WindowShortcut);
@@ -571,6 +666,14 @@ void Window::buildEditor(QMenu *view) {
     // One Effects menu groups the four operation families (menu bar and fx button).
     effectsMenu = menuBar()->addMenu("Effe&cts");
     effectsMenu->setObjectName("menu-Effects");
+    auto repeat = add(effectsMenu, "Repeat Last Effect", "repeatEffect", "Ctrl+F", [this] { repeatEffect(); });
+    repeat->setStatusTip("Apply the last effect again with the same settings");
+    repeat->setEnabled(false);
+    auto reopen = add(effectsMenu, "Last Effect Again…", "reopenEffect", "Ctrl+Alt+F",
+                      [this] { openOperation({lastEffect.id}, lastEffect.params); });
+    reopen->setStatusTip("Open the last effect with its settings to adjust them");
+    reopen->setEnabled(false);
+    effectsMenu->addSeparator();
     for (auto m : {adjust, filters, shading, generate}) {
         menuBar()->removeAction(m->menuAction());
         effectsMenu->addMenu(m);

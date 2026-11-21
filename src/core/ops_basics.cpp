@@ -249,18 +249,31 @@ QImage invertMask(const QImage &mask) {
 QRect maskBounds(const QImage &mask) {
     int left = mask.width(), right = -1, top = mask.height(), bottom = -1;
     for (int y = 0; y < mask.height(); ++y) {
-        auto s = mask.constScanLine(y);
-        for (int x = 0; x < mask.width(); ++x)
-            if (s[x]) {
-                left = std::min(left, x);
-                right = std::max(right, x);
-                top = std::min(top, y);
-                bottom = y;
-            }
+        // Only each row's first and last non-zero byte can move the bounds.
+        auto begin = mask.constScanLine(y), end = begin + mask.width();
+        const auto first = std::find_if(begin, end, [](uchar v) { return v != 0; });
+        if (first == end)
+            continue;
+        auto last = end;
+        while (last[-1] == 0) // terminates at `first`, which is non-zero
+            --last;
+        left = std::min(left, int(first - begin));
+        right = std::max(right, int(last - begin) - 1);
+        top = std::min(top, y);
+        bottom = y;
     }
     return right < 0 ? QRect() : QRect(QPoint(left, top), QPoint(right, bottom));
 }
-bool maskEmpty(const QImage &mask) { return mask.isNull() || maskBounds(mask).isEmpty(); }
+bool maskEmpty(const QImage &mask) {
+    if (mask.isNull())
+        return true;
+    for (int y = 0; y < mask.height(); ++y) {
+        auto row = mask.constScanLine(y);
+        if (std::any_of(row, row + mask.width(), [](uchar v) { return v != 0; }))
+            return false;
+    }
+    return true;
+}
 QImage rectMask(QSize size, QRect rect) {
     auto m = emptyMask(size);
     rect = rect.normalized().intersected(QRect(QPoint(), size));
