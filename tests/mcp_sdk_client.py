@@ -1239,7 +1239,12 @@ async def main() -> None:
             assert initialized.protocolVersion == "2025-11-25"
             assert initialized.capabilities.tools is not None
             tools = await client.list_tools()
-            assert len(tools.tools) == 44
+            assert len(tools.tools) == 45
+            # The SDK parses the complete annotations; only the two saves are destructive.
+            for tool in tools.tools:
+                assert tool.annotations.title and tool.annotations.openWorldHint is False, tool.name
+                if not tool.annotations.readOnlyHint:
+                    assert tool.annotations.destructiveHint is tool.name.startswith("nova.drafts.save"), tool.name
             if mode == "phase3":
                 print(json.dumps(await phase3(client)), flush=True)
                 save_wire("sdk-phase3.jsonl")

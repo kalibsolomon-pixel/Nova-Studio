@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QStandardPaths>
 
 namespace nova::testing {
@@ -19,8 +20,17 @@ namespace nova::acp {
 namespace {
 constexpr int ProtocolVersion = 1;
 constexpr int StartupTimeout = 30000, AuthenticateTimeout = 180000, CancelTimeout = 8000;
+constexpr int RememberInterval = 250; // at most one process snapshot per this many ms of output
+constexpr int ListLimit = 64;         // modes, config options and commands kept from one report
 QString text(const QJsonObject &error) {
     return error["message"].toString().left(300);
+}
+QJsonArray bounded(const QJsonArray &list) {
+    QJsonArray kept;
+    for (qsizetype i = 0; i < qMin<qsizetype>(list.size(), ListLimit); ++i)
+        if (list.at(i).isObject())
+            kept.append(list.at(i));
+    return kept;
 }
 } // namespace
 
@@ -130,6 +140,8 @@ Session::Session(QObject *parent) : QObject(parent) {
         if (error == QProcess::FailedToStart)
             finish("Windows could not start the agent. Check the program path and reinstall its adapter or runtime.");
     });
+    // The handshake begins once Windows reports the process running, so starting never blocks the window.
+    connect(&process, &QProcess::started, this, &Session::initialize);
     shutdownTimer.setSingleShot(true);
     connect(&shutdownTimer, &QTimer::timeout, this, &Session::endTree);
     replyTimer.setSingleShot(true);
@@ -138,6 +150,8 @@ Session::Session(QObject *parent) : QObject(parent) {
     // even after the agent itself has exited.
     treeTimer.setInterval(500);
     connect(&treeTimer, &QTimer::timeout, this, &Session::remember);
+    rememberSoon.setSingleShot(true);
+    connect(&rememberSoon, &QTimer::timeout, this, &Session::remember);
 }
 
 Session::~Session() {
@@ -148,7 +162,7 @@ Session::~Session() {
 }
 
 bool Session::start(const AgentProgram &program, const QString &workingDirectory, const QJsonArray &mcpServers,
-                    const QProcessEnvironment &environment, QString *problem) {
+                    const QProcessEnvironment &environment, QString *problem, const QString &resumeSessionId) {
     if (current != State::Idle) {
         if (problem)
             *problem = "This session has already been used.";
@@ -163,19 +177,28 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
     }
     directory = QDir::toNativeSeparators(workingDirectory);
     servers = mcpServers;
+    resumeId = resumeSessionId;
     process.setProgram(program.executable);
     process.setArguments(program.arguments);
     process.setWorkingDirectory(workingDirectory);
     process.setProcessEnvironment(environment);
     setState(State::Starting);
+    // Waits for neither the process nor the agent: started, errorOccurred and the reply timer continue.
+    expectReply(StartupTimeout, "The agent program did not start. Check the program path and runtime, then retry.");
     process.start();
-    if (!process.waitForStarted(10000)) {
-        finish("The agent program did not start. Check the program path and runtime, then retry.");
+    if (current == State::Ended) {
         if (problem)
             *problem = reason;
         return false;
     }
+    return true;
+}
+
+void Session::initialize() {
+    if (current != State::Starting)
+        return;
     identity = testing::identifyProcess(process.processId());
+    sinceRemember.start();
     treeTimer.start();
     expectReply(StartupTimeout, "The agent did not answer the ACP handshake. Check the adapter and its launch arguments.");
     request("initialize", {{"protocolVersion", ProtocolVersion},
@@ -193,7 +216,10 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
             return stop("The agent does not support ACP protocol version 1.");
         const auto info = result["agentInfo"].toObject();
         agent = (info["title"].toString(info["name"].toString("Agent")) + ' ' + info["version"].toString()).trimmed().left(120);
-        canClose = result["agentCapabilities"].toObject()["sessionCapabilities"].toObject().contains("close");
+        const auto capabilities = result["agentCapabilities"].toObject();
+        canClose = capabilities["sessionCapabilities"].toObject().contains("close");
+        loadable = capabilities["loadSession"].toBool();
+        promptAbilities = capabilities["promptCapabilities"].toObject();
         for (const auto &value : result["authMethods"].toArray()) {
             const auto method = value.toObject();
             if (!method["id"].toString().isEmpty() && authMethods.size() < 32)
@@ -201,19 +227,35 @@ bool Session::start(const AgentProgram &program, const QString &workingDirectory
         }
         createSession();
     });
-    return true;
 }
 
 void Session::createSession() {
     if (current != State::Starting)
         return;
-    expectReply(StartupTimeout, "The agent did not open a session. Check sign-in and agent output, then retry.");
-    request("session/new", {{"cwd", directory}, {"mcpServers", servers}}, [this](const QJsonObject &reply) {
+    const bool load = loadable && !resumeId.isEmpty();
+    expectReply(StartupTimeout, load ? "The agent did not reopen the session. Check agent output, then start again."
+                                     : "The agent did not open a session. Check sign-in and agent output, then retry.");
+    QJsonObject params{{"cwd", directory}, {"mcpServers", servers}};
+    if (load) {
+        params["sessionId"] = resumeId;
+        session = resumeId; // the replayed history arrives as session/update before the reply
+        replaying = true;
+    }
+    request(load ? "session/load" : "session/new", params, [this, load](const QJsonObject &reply) {
         if (current != State::Starting)
             return;
         replyTimer.stop();
+        replaying = false;
         if (reply.contains("error")) {
             const auto error = reply["error"].toObject();
+            if (load && error["code"].toInt() != -32000) {
+                // The agent could not reopen it: continue in a new session rather than not at all.
+                resumeId.clear();
+                session.clear();
+                emit problem("The agent could not continue the earlier conversation, so a new session started: " +
+                             text(error));
+                return createSession();
+            }
             if (error["code"].toInt() != -32000)
                 return stop("The agent could not start a session: " + text(error));
             waitingForAuth = !authMethods.isEmpty();
@@ -222,11 +264,63 @@ void Session::createSession() {
                 stop("Sign-in required.");
             return;
         }
-        session = reply["result"].toObject()["sessionId"].toString();
+        const auto result = reply["result"].toObject();
+        if (!load)
+            session = result["sessionId"].toString();
         if (session.isEmpty())
             return stop("The agent did not return a session.");
-        setState(State::Ready);
+        wasResumed = load;
+        opened(result);
     });
+}
+
+void Session::opened(const QJsonObject &result) {
+    readModes(result);
+    if (result.contains("configOptions")) {
+        options = bounded(result["configOptions"].toArray());
+        emit configOptionsChanged();
+    }
+    setState(State::Ready);
+}
+
+void Session::readModes(const QJsonObject &result) {
+    if (!result.contains("modes"))
+        return;
+    const auto state = result["modes"].toObject();
+    modeState = {{"currentModeId", state["currentModeId"].toString()},
+                 {"availableModes", bounded(state["availableModes"].toArray())}};
+    emit modesChanged();
+}
+
+bool Session::setMode(const QString &modeId) {
+    if ((current != State::Ready && current != State::Prompting) || modeId.isEmpty())
+        return false;
+    request("session/set_mode", {{"sessionId", session}, {"modeId", modeId}}, [this, modeId](const QJsonObject &reply) {
+        if (current != State::Ready && current != State::Prompting)
+            return;
+        if (reply.contains("error"))
+            emit problem("The agent did not change its mode: " + text(reply["error"].toObject()));
+        else
+            modeState["currentModeId"] = modeId;
+        emit modesChanged(); // a refusal puts the picker back
+    });
+    return true;
+}
+
+bool Session::setConfigOption(const QString &configId, const QString &value) {
+    if ((current != State::Ready && current != State::Prompting) || configId.isEmpty())
+        return false;
+    request("session/set_config_option", {{"sessionId", session}, {"configId", configId}, {"value", value}},
+            [this](const QJsonObject &reply) {
+        if (current != State::Ready && current != State::Prompting)
+            return;
+        if (reply.contains("error"))
+            emit problem("The agent did not change that setting: " + text(reply["error"].toObject()));
+        else if (reply["result"].toObject()["configOptions"].isArray())
+            options = bounded(reply["result"].toObject()["configOptions"].toArray());
+        emit configOptionsChanged();
+    });
+    return true;
 }
 
 bool Session::authenticate(const QString &methodId) {
@@ -254,12 +348,15 @@ bool Session::authenticate(const QString &methodId) {
     return false;
 }
 
-bool Session::prompt(const QString &message) {
+bool Session::prompt(const QString &message, const QJsonArray &attachments) {
     if (current != State::Ready || message.trimmed().isEmpty())
         return false;
     cancellingTurn = false;
     setState(State::Prompting);
-    request("session/prompt", {{"sessionId", session}, {"prompt", QJsonArray{QJsonObject{{"type", "text"}, {"text", message}}}}},
+    auto blocks = QJsonArray{QJsonObject{{"type", "text"}, {"text", message}}};
+    for (const auto &block : attachments)
+        blocks.append(block);
+    request("session/prompt", {{"sessionId", session}, {"prompt", blocks}},
             [this](const QJsonObject &reply) {
         replyTimer.stop();
         cancelPermissions();
@@ -346,6 +443,8 @@ void Session::write(const QJsonObject &message) {
 }
 
 void Session::remember() {
+    sinceRemember.start();
+    rememberSoon.stop();
     const auto tree = testing::descendants(identity);
     for (const auto &child : tree)
         if (!started.contains(child))
@@ -353,17 +452,28 @@ void Session::remember() {
 }
 
 void Session::readOutput() {
-    remember(); // output follows the agent starting a process (such as Nova's bridge)
+    // Output follows the agent starting a process (such as Nova's bridge). Streamed chunks take a
+    // snapshot of every process at most once per interval, with one more after it; replies and
+    // requests (rare, and what a turn ends with) always take one.
+    if (!sinceRemember.isValid() || sinceRemember.elapsed() >= RememberInterval)
+        remember();
+    else if (!rememberSoon.isActive())
+        rememberSoon.start(int(RememberInterval - sinceRemember.elapsed()));
     buffer += process.readAllStandardOutput();
-    qsizetype end;
-    while ((end = buffer.indexOf('\n')) >= 0) {
-        if (end > LineLimit) {
+    if (reading)
+        return; // reached from a nested event loop; the outer call reads on through the appended data
+    reading = true;
+    const auto done = qScopeGuard([this] { reading = false; });
+    // Lines are read in place and the consumed prefix removed once, so a large write stays linear.
+    qsizetype start = 0, end;
+    while ((end = buffer.indexOf('\n', start)) >= 0) {
+        if (end - start > LineLimit) {
             buffer.clear();
             stop("The agent sent an oversized message.");
             return;
         }
-        const auto line = buffer.left(end).trimmed();
-        buffer.remove(0, end + 1);
+        const auto line = QByteArrayView(buffer).sliced(start, end - start).trimmed().toByteArray();
+        start = end + 1;
         if (line.isEmpty())
             continue;
         QJsonParseError error{};
@@ -372,10 +482,15 @@ void Session::readOutput() {
             emit problem("The agent sent a message Nova could not read; it was ignored.");
             continue;
         }
+        if (document.object().contains("id") && sinceRemember.elapsed() > 0)
+            remember();
         handle(document.object());
-        if (current == State::Ended)
+        if (current == State::Ended) {
+            buffer.clear();
             return;
+        }
     }
+    buffer.remove(0, start);
     if (buffer.size() > LineLimit)
         stop("The agent sent an oversized message.");
 }
@@ -424,8 +539,17 @@ void Session::handle(const QJsonObject &message) {
         return;
     }
     if (message.contains("method")) {
-        if (method == "session/update" && message["params"].toObject()["sessionId"].toString() == session)
+        if (method == "session/update" && message["params"].toObject()["sessionId"].toString() == session) {
             update(message["params"].toObject());
+        } else if (method == "$/cancel_request") {
+            // The agent withdrew a question it asked; the original request is answered "cancelled" (-32800).
+            const QJsonValue id = message["params"].toObject().value("requestId");
+            if (permissions.removeOne(id)) {
+                write({{"jsonrpc", "2.0"}, {"id", id},
+                       {"error", QJsonObject{{"code", -32800}, {"message", "Request cancelled."}}}});
+                emit permissionWithdrawn(id);
+            }
+        }
         return;
     }
     const auto id = qint64(message["id"].toDouble(-1));
@@ -436,19 +560,44 @@ void Session::handle(const QJsonObject &message) {
 void Session::update(const QJsonObject &params) {
     const auto change = params["update"].toObject();
     const auto kind = change["sessionUpdate"].toString();
-    if (kind == "agent_message_chunk" || kind == "agent_thought_chunk") {
+    if (kind == "current_mode_update") {
+        modeState["currentModeId"] = change["currentModeId"].toString();
+        emit modesChanged();
+    } else if (kind == "config_option_update") {
+        options = bounded(change["configOptions"].toArray());
+        emit configOptionsChanged();
+    } else if (kind == "available_commands_update") {
+        availableCommands = bounded(change["availableCommands"].toArray());
+        emit commandsChanged();
+    } else if (kind == "usage_update") {
+        used.used = qint64(change["used"].toDouble(-1));
+        used.size = qint64(change["size"].toDouble(-1));
+        const auto cost = change["cost"].toObject();
+        used.cost = cost["amount"].isDouble() ? cost["amount"].toDouble() : -1;
+        used.currency = cost["currency"].toString().left(8);
+        emit detailsChanged();
+    } else if (kind == "session_info_update") {
+        if (change.contains("title")) {
+            sessionTitle = change["title"].toString(); // null clears it
+            emit detailsChanged();
+        }
+    } else if (replaying) {
+        // session/load replays the conversation, which the window still shows.
+    } else if (kind == "agent_message_chunk" || kind == "agent_thought_chunk") {
         const auto content = change["content"].toObject();
+        const bool thought = kind == "agent_thought_chunk";
         if (content["type"] != "text")
-            return;
-        if (kind == "agent_message_chunk")
-            emit agentText(content["text"].toString());
-        else
+            emit agentContent(thought, content);
+        else if (thought)
             emit agentThought(content["text"].toString());
+        else
+            emit agentText(content["text"].toString());
     } else if (kind == "tool_call" || kind == "tool_call_update") {
         emit toolCall(change);
     } else if (kind == "plan") {
         emit planChanged(change["entries"].toArray());
     }
+    // Other kinds (user_message_chunk echoes, notices, newer protocol additions) are not shown.
 }
 
 void Session::finish(const QString &why) {
@@ -458,6 +607,7 @@ void Session::finish(const QString &why) {
         reason = why;
     shutdownTimer.stop();
     treeTimer.stop();
+    rememberSoon.stop();
     replyTimer.stop();
     endTree();
     pending.clear();

@@ -75,6 +75,48 @@ class GuidanceTest : public QObject {
         QVERIFY(!instructions.contains("1.21.11")); // version rules belong in guides, not in instructions
     }
 
+    // Workflow-starter prompts and completion of the guide template's version and topic.
+    void promptsAndCompletion() {
+        Protocol protocol;
+        QCOMPARE(protocol.receive(request(2, "prompts/list")).response["error"].toObject()["code"].toInt(), -32002);
+        QJsonObject init;
+        initialized(protocol, &init);
+        QVERIFY(init["capabilities"].toObject()["prompts"].isObject());
+        QVERIFY(init["capabilities"].toObject()["completions"].isObject());
+        const auto prompts = result(protocol.receive(request(2, "prompts/list")))["prompts"].toArray();
+        QStringList names;
+        for (const auto &value : prompts) {
+            const auto prompt = value.toObject();
+            names << prompt["name"].toString();
+            QVERIFY(!prompt["title"].toString().isEmpty() && !prompt["description"].toString().isEmpty());
+        }
+        QCOMPARE(names, (QStringList{"retexture", "audit-pack", "recolor-set"}));
+        const auto retexture = result(protocol.receive(request(3, "prompts/get",
+            {{"name", "retexture"}, {"arguments", QJsonObject{{"asset", "block/stone"}, {"goal", "mossier"}}}})));
+        auto message = [](const QJsonObject &prompt) {
+            return prompt["messages"].toArray().at(0).toObject()["content"].toObject()["text"].toString();
+        };
+        const auto text = message(retexture);
+        QVERIFY2(text.contains("Retexture block/stone") && text.contains("Goal: mossier.") && !text.contains('{'),
+                 qPrintable(text));
+        const auto audit = result(protocol.receive(request(4, "prompts/get", {{"name", "audit-pack"}})));
+        QVERIFY(message(audit).startsWith("Audit the authorized Nova resource pack. "));
+        QCOMPARE(protocol.receive(request(5, "prompts/get", {{"name", "nope"}})).response["error"].toObject()["code"].toInt(),
+                 -32602);
+        auto complete = [&](int id, const QJsonObject &ref, const QString &name, const QString &value) {
+            const auto reply = result(protocol.receive(request(id, "completion/complete",
+                {{"ref", ref}, {"argument", QJsonObject{{"name", name}, {"value", value}}}})));
+            QStringList values;
+            for (const auto &item : reply["completion"].toObject()["values"].toArray())
+                values << item.toString();
+            return values;
+        };
+        const QJsonObject rules{{"type", "ref/resource"}, {"uri", "nova://rules/{version}/{topic}"}};
+        QCOMPARE(complete(6, rules, "version", ""), guides::guideVersions());
+        QCOMPARE(complete(7, rules, "topic", "a"), (QStringList{"armor", "animations"}));
+        QCOMPARE(complete(8, {{"type", "ref/resource"}, {"uri", "nova://other"}}, "topic", ""), QStringList{});
+    }
+
     void resourcesAreDiscoverableAndReadOnly() {
         Protocol protocol;
         QCOMPARE(protocol.receive(request(2, "resources/list")).response["error"].toObject()["code"].toInt(), -32002);
@@ -113,6 +155,7 @@ class GuidanceTest : public QObject {
             ++seen;
             QCOMPARE(tool["annotations"].toObject()["readOnlyHint"].toBool(), true);
             QCOMPARE(tool["annotations"].toObject()["openWorldHint"].toBool(), false);
+            QVERIFY(tool["annotations"].toObject()["title"].toString().contains("guide"));
         }
         QCOMPARE(seen, 2);
         // No tool writes style notes or accepts filesystem paths for saving.

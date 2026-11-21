@@ -7,11 +7,14 @@
 #include "search.h"
 #include "service.h"
 #include "agent_client.h"
+#include "agent_conversation.h"
 #include "theme.h"
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
+#include <QCompleter>
 #include <QCryptographicHash>
 #include <QDirIterator>
 #include <QJsonDocument>
@@ -118,6 +121,20 @@ class AcpSessionTest : public QObject {
     }
     QPushButton *button(const char *name) { return dialog->findChild<QPushButton *>(name); }
     QPlainTextEdit *composer() { return dialog->findChild<QPlainTextEdit *>("acpPrompt"); }
+    // Chooses an item as a click would (activated is the user's signal, not currentIndexChanged).
+    static void pick(QComboBox *combo, const QString &text) {
+        const auto index = combo->findText(text);
+        QVERIFY2(index >= 0, qPrintable(text));
+        combo->setCurrentIndex(index);
+        emit combo->activated(index);
+    }
+    QList<QToolButton *> toolCards() { return dialog->findChildren<QToolButton *>("acpToolDetails"); }
+    static QStringList labels(QWidget *parent) {
+        QStringList texts;
+        for (auto label : parent->findChildren<QLabel *>())
+            texts << label->text();
+        return texts;
+    }
     void open() {
         QElapsedTimer timer;
         timer.start();
@@ -169,6 +186,7 @@ class AcpSessionTest : public QObject {
         }
         qApp->setProperty("settingsFile", base + "/settings/studio.ini");
         qunsetenv("FAKE_ACP_SKIP_MCP");
+        qputenv("FAKE_ACP_STATE", (base + "/agent-state").toUtf8()); // what the fake agent remembers per session
         const auto evidence = qEnvironmentVariable("NOVA_EVIDENCE_DIR");
         if (!evidence.isEmpty())
             qputenv("FAKE_ACP_DIAGNOSTICS", (evidence + "/fake-acp-" + QTest::currentTestFunction() + ".jsonl").toUtf8());
@@ -425,6 +443,156 @@ class AcpSessionTest : public QObject {
         QCOMPARE(reply->textCursor().selectedText(), "First");
     }
 
+    // Thousands of tiny chunks, and thousands of updates in one write, arrive complete and in order.
+    void burstAndFloodArriveWhole() {
+        open();
+        startReadOnly();
+        ask("burst", "BURST DONE");
+        QString letters;
+        for (int i = 0; i < 2000; ++i)
+            letters += QChar('a' + i % 26);
+        QVERIFY2(transcript().contains("Agent\n" + letters + " BURST DONE"), qPrintable(transcript().right(300)));
+        ask("flood", "FLOOD DONE");
+        QVERIFY2(transcript().contains("Agent\n" + QString(5000, 'f') + " FLOOD DONE"), qPrintable(transcript().right(300)));
+    }
+
+    // The agent's modes and settings appear as pickers; a mode that stops it asking needs consent.
+    void modesAndSettings() {
+        open();
+        startReadOnly();
+        QComboBox *mode = nullptr, *model = nullptr;
+        QTRY_VERIFY((mode = dialog->findChild<QComboBox *>("acpMode")) && mode->isEnabled());
+        QTRY_VERIFY(model = dialog->findChild<QComboBox *>("acpSetting-model"));
+        QCOMPARE(mode->currentText(), "Ask");
+        QCOMPARE(model->currentText(), "Fast");
+        QVERIFY(labels(dialog).contains("Model"));
+        pick(mode, "Code");
+        ask("mode", "MODE code MODEL fast");
+        pick(model, "Deep");
+        QTRY_COMPARE(model->currentText(), "Deep");
+        ask("mode", "MODE code MODEL deep");
+        {
+            Answer cancel(QMessageBox::Cancel);
+            pick(mode, "Bypass permissions");
+            QCOMPARE(cancel.title, "Let the agent act without asking?");
+            QVERIFY(cancel.text.contains("“Bypass permissions”") && cancel.text.contains("read-only"));
+        }
+        QCOMPARE(mode->currentText(), "Code");
+        ask("mode", "MODE code MODEL deep");
+        {
+            Answer yes(QMessageBox::Yes);
+            pick(mode, "Bypass permissions");
+            QCOMPARE(yes.title, "Let the agent act without asking?");
+        }
+        ask("mode", "MODE bypassPermissions MODEL deep");
+        QCOMPARE(mode->currentText(), "Bypass permissions");
+        QCOMPARE(service()->permission(), "Read-only"); // Nova's own grant is unchanged
+    }
+
+    // Typing / lists the agent's commands with their descriptions; Enter completes the highlighted one.
+    void slashCommands() {
+        open();
+        startReadOnly();
+        auto completer = composer()->findChild<QCompleter *>();
+        QVERIFY(completer);
+        QTRY_VERIFY(completer->model()->rowCount() == 2);
+        composer()->setFocus();
+        QTest::keyClicks(composer(), "/re");
+        auto popup = completer->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QCOMPARE(completer->completionCount(), 1);
+        QVERIFY(popup->currentIndex().data().toString().contains("Review the pack's textures"));
+        QTest::keyClick(popup, Qt::Key_Return);
+        QTRY_COMPARE(composer()->toPlainText(), "/review ");
+        QVERIFY(!popup->isVisible());
+        QTest::keyClick(composer(), Qt::Key_Return);
+        QTRY_VERIFY(transcript().contains("COMMAND review"));
+    }
+
+    void usageAndTitle() {
+        open();
+        startReadOnly();
+        ask("usage", "USAGE SENT");
+        QTRY_VERIFY2(status().contains("Texture review") && status().contains("12k of 200k tokens") &&
+                     status().contains("$0.42"), qPrintable(status()));
+    }
+
+    // Links and images are shown without being fetched or decoded; tool cards name the kind and
+    // places; an unknown update kind is ignored.
+    void contentAndToolDetails() {
+        open();
+        startReadOnly();
+        ask("extras", "EXTRAS DONE");
+        const auto shown = transcript();
+        QVERIFY2(shown.contains("Pack guide (https://example.invalid/guide%20[1])"), qPrintable(shown.right(600)));
+        QVERIFY2(shown.contains("Image (image/png, 3 KB) not shown"), qPrintable(shown.right(600)));
+        bool linked = false;
+        for (auto message : messages())
+            linked |= message->toHtml().contains("href=\"https://example.invalid/guide%20[1]\"");
+        QVERIFY(linked);
+        const auto cards = toolCards();
+        QCOMPARE(cards.size(), 1);
+        QCOMPARE(cards.first()->text(), "Agent tool · Read notes");
+        const auto card = cards.first()->parentWidget();
+        QVERIFY2(labels(card).contains("Read · Completed"), qPrintable(labels(card).join(" | ")));
+        QVERIFY(card->findChild<QLabel *>("acpToolContent")->text().contains("Location\nC:/pack/notes.txt:12"));
+        QVERIFY(status().startsWith("Connected"));
+    }
+
+    // $/cancel_request withdraws a permission question; an update after the turn finds its card.
+    void withdrawnPermissionAndLateToolUpdate() {
+        open();
+        startReadOnly();
+        ask("ask-withdraw", "WITHDRAWN -32800");
+        QVERIFY(!dialog->findChild<QWidget *>("acpPermissionCard")->isVisible());
+        ask("late", "Thinking about: late");
+        QTRY_VERIFY(toolCards().size() == 1 && labels(toolCards().first()->parentWidget()).contains("Search · Completed"));
+        QCOMPARE(toolCards().first()->text(), "Agent tool · Search textures");
+        // Reused call ids in a later turn are a new call.
+        ask("late", "Thinking about: late");
+        QTRY_COMPARE(toolCards().size(), 2);
+    }
+
+    // "Mention the open asset" adds the pack path of the open document as a second text block.
+    void mentionOpenAsset() {
+        const auto texture = root + "/assets/nova/textures/block/plain.png";
+        nova::Preferences preferences;
+        preferences.projectPath = root;
+        preferences.openDocuments = {texture};
+        preferences.activeDocument = texture;
+        QVERIFY(nova::Settings(qApp->property("settingsFile").toString()).save(preferences));
+        open();
+        QTRY_VERIFY(window->activeCanvas());
+        startReadOnly();
+        auto mention = dialog->findChild<QCheckBox *>("acpMentionAsset");
+        QTRY_VERIFY(mention->isEnabled());
+        mention->setChecked(true);
+        ask("attached", "BLOCKS 2 text: The asset open in Nova Studio is assets/nova/textures/block/plain.png");
+        QVERIFY(transcript().contains("You\nattached\n\nOpen asset: assets/nova/textures/block/plain.png"));
+    }
+
+    // Past the character budget the oldest rows go, so a long session's memory stays bounded.
+    void transcriptBudgetEvictsOldest() {
+        using Conversation = nova::AgentConversation;
+        Conversation conversation(nullptr);
+        conversation.add(Conversation::Speaker::You, "first question");
+        const QString chunk(150'000, 'r');
+        for (int i = 0; i < 16; ++i) {
+            conversation.add(Conversation::Speaker::Thinking, chunk);
+            conversation.add(Conversation::Speaker::You, QString("question %1").arg(i));
+        }
+        conversation.finishTurn();
+        qsizetype kept = 0;
+        QStringList texts;
+        for (auto body : conversation.findChildren<QTextEdit *>()) {
+            kept += body->toPlainText().size();
+            texts << body->toPlainText();
+        }
+        QVERIFY2(kept <= Conversation::CharacterBudget, qPrintable(QString::number(kept)));
+        QVERIFY(!texts.contains("first question"));
+        QVERIFY(texts.contains("question 15"));
+    }
+
     // The grant accepts only a bridge started by the Nova-launched agent; others do not consume it.
     void foreignClientRefused() {
         qputenv("FAKE_ACP_SKIP_MCP", "1");
@@ -561,6 +729,10 @@ class AcpSessionTest : public QObject {
         startReadOnly();
         QTRY_VERIFY(button("acpEditing")->isEnabled());
         const auto outside = fingerprint(other);
+        ask("remember blue-otter", "REMEMBERED blue-otter");
+        ask("cwd", "CWD ");
+        const auto folder = transcript().section("CWD ", -1).section('\n', 0, 0);
+        QVERIFY(!folder.isEmpty());
         {
             Answer yes(QMessageBox::Yes);
             button("acpEditing")->click();
@@ -568,9 +740,16 @@ class AcpSessionTest : public QObject {
             QCOMPARE(yes.title, "Allow agent editing?");
             QVERIFY(yes.text.contains("Project: Synthetic Pack"));
             QVERIFY(yes.text.contains("save"));
+            QVERIFY(yes.text.contains("continue this conversation"));
         }
         QTRY_VERIFY_WITH_TIMEOUT(service()->clientConnected() && service()->permission() == "Editing allowed", 20000);
         QTRY_VERIFY_WITH_TIMEOUT(status().startsWith("Connected"), 15000);
+        // session/load continued the conversation in the same folder; its replay is not shown twice.
+        QVERIFY(session()->resumed());
+        ask("recall", "RECALL blue-otter");
+        QCOMPARE(transcript().count("REMEMBERED blue-otter"), 1);
+        ask("cwd", "CWD ");
+        QCOMPARE(transcript().section("CWD ", -1).section('\n', 0, 0), folder);
         ask("call nova.project.info {}", "RESULT ok");
         const auto revision = transcript().section("\"indexRevision\":\"", 1).section('"', 0, 0);
         QVERIFY(!revision.isEmpty());
@@ -579,6 +758,26 @@ class AcpSessionTest : public QObject {
         ask("call nova.drafts.save_all {}", "RESULT ok");
         QTRY_VERIFY(QFileInfo::exists(root + "/assets/nova/textures/block/agent_made.png"));
         QCOMPARE(fingerprint(other), outside);
+    }
+
+    // An agent without session/load gets a new session, and the consent says it forgets.
+    void editingWithoutLoadStartsAfresh() {
+        open();
+        dialog->findChild<QLineEdit *>("acpAgentArguments")->setText("--no-load");
+        startReadOnly();
+        ask("remember blue-otter", "REMEMBERED blue-otter");
+        QTRY_VERIFY(button("acpEditing")->isEnabled());
+        {
+            Answer yes(QMessageBox::Yes);
+            button("acpEditing")->click();
+            QTRY_VERIFY(yes.text.contains("does not remember this conversation"));
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(service()->clientConnected() && service()->permission() == "Editing allowed", 20000);
+        QTRY_VERIFY_WITH_TIMEOUT(status().startsWith("Connected"), 15000);
+        QVERIFY(!session()->resumed());
+        ask("recall", "RECALL");
+        QVERIFY(!transcript().section("RECALL", -1).contains("blue-otter"));
+        QVERIFY(transcript().contains("REMEMBERED blue-otter")); // the earlier messages stay on screen
     }
 
     // Connection codes never reach the agent: not in its environment, the session request or the window.

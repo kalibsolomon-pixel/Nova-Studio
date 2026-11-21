@@ -54,9 +54,18 @@ active layer; naming another layer returns `edit_rejected` ("Select the target l
 `palette_remap` and `gradient_map` are adjustments and may target any visible layer; as with Nova's
 Adjust operations, the edited layer becomes the active layer (the result's `activeLayer` shows it).
 Hidden layers return `edit_rejected` ("Show the selected layer before editing it"). Other layers never
-change.
+change. To paint another layer, make it active first with the `nova.layer.edit` command
+`{"command":"layer_select","layer":"…"}`, on its own or as the first command of a `nova.edit.batch`.
+Choosing the active layer is not a history step; the result's `activeLayer` shows it.
 
-**Selection.** Nova's selection is a coverage mask (0–255 per pixel). With no selection, the whole
+**Selection.** Nova's selection is a coverage mask (0–255 per pixel). Every document state reports it as
+`selection: {present, bounds}`, where `bounds` is the rectangle of selected pixels (or `null` when the
+selection is empty). Set it with the `nova.texture.edit` / `nova.edit.batch` commands `select_rect` and
+`select_ellipse` (`x`, `y`, `width`, `height`), `select_polygon` (`points`, 3–64 `[x, y]` pairs) and
+`select_color` (seed `x`, `y`, optional `tolerance` 0–255 and `contiguous`); each takes an optional
+`mode` of `replace` (default), `add`, `subtract` or `intersect`. `select_all`, `deselect` and
+`invert_selection` take no fields. Selection changes are undoable history steps and never make the
+document dirty. With no selection, the whole
 region is edited. Selected pixels (255) take the full result; unselected pixels (0) do not change; an
 empty selection changes nothing. For `put_pixels`, `palette_remap` and `gradient_map`, partial
 coverage *k* mixes each straight RGBA channel exactly as Nova's Adjust operations do:
@@ -70,7 +79,10 @@ one history step; a failure at any point (an argument, the history budget, a doc
 cancellation with `notifications/cancelled` before publication) leaves every pixel unchanged.
 `nova.edit.undo` / `nova.edit.redo` (and Undo / Redo in Nova Studio) restore the exact previous and
 resulting pixels. An edit that changes no pixel succeeds with `changed: false` and adds no history
-step.
+step. Set `steps` (1–32) on `nova.edit.undo` / `nova.edit.redo` to move several entries in one call; it
+stops early at an entry this connection did not make (or at the end of the history), and
+`stepsApplied` reports how many moved. If not even one entry can move, the call fails as before
+(`history_conflict`).
 
 **Recovery and drafts.** The edited document is an ordinary unsaved draft: `nova.drafts.list` shows
 it with `dirty: true`, `nova.pack.validate` includes it, Nova's recovery checkpoints protect it, and
@@ -143,7 +155,9 @@ texel boundaries when each texel has at least four preview pixels per side.
 
 Set `compare` to get the before and after captures for the latest edit of the requested revision in
 this connection. For an animation, the comparison shows the frame captured by that edit. Pass
-`assetIds` with up to 16 texture IDs to get a contact sheet from open drafts and saved PNGs. Each
+`assetIds` with up to 16 texture IDs to get a contact sheet from open drafts and saved PNGs; an ID
+may also be `vanilla:<path>` from `nova.vanilla.list`, so a texture and its vanilla counterpart share
+one image (vanilla tiles are labelled `vanilla <name>`). Each
 tile defaults to a 128-pixel longest edge, capped at 192 pixels. The response lists the tiles in
 request order with their labels and asset paths.
 
@@ -253,19 +267,30 @@ operation accepts only the parameters that `tools/list` shows under `nova.edit.b
 (the listing names the other tools' operations by command only). Optional parameters
 use Nova's editor defaults. Colours use the same CSS order as the compact tools.
 
-- Colour and tone: `hue_saturation`, `levels`, `colorize`, `quantize`, `palette_map`.
+- Colour and tone: `hue_saturation`, `levels`, `colorize`, `quantize`, `palette_map`,
+  `brightness_contrast`, `temperature_tint`, `curves`, `replace_color`, `grayscale`,
+  `invert`, `posterize`, `hsv_noise`.
   `levels` requires `input_white` to exceed `input_black`. `palette_map` requires
   an explicit `palette` of 1–256 colours.
-- Effects: `outline`, `directional_shading`, `seamless`. For a heightmap or normal
-  map source, set `mapLayer` to a layer in the active frame. Set `output` to
-  `Modify pixels` to shade the target in place. The default adds a shading layer.
+- Alpha: `alpha_threshold` (snap alpha to 0 or 255), `transparency_cleanup` (clear
+  near-transparent pixels and zero hidden RGB).
+- Effects and filters: `outline`, `directional_shading`, `seamless`, `gradient`,
+  `box_blur`, `gaussian_blur`, `sharpen`, `noise`, `pixelate`, `normal_map`. For a
+  heightmap or normal map source (`directional_shading` `height_source`, `normal_map`
+  `source: "Heightmap layer"`), set `mapLayer` to a layer in the active frame. Set
+  `output` to `Modify pixels` to shade the target in place. The default adds a shading layer.
+- Layer transforms: `flip`, `rotate`, `offset`, `align_content` move the target layer's
+  content within the canvas.
 - Generators: `gen_stone`, `gen_bricks`, `gen_tiles`, `gen_wood`, `gen_ore`,
   `gen_metal`, `gen_gui_panel`, `gen_item`, `gen_noise`. They render at the current
   canvas size and replace pixels on the target layer.
-- `resize_image` requires `params.width` and `params.height` (1–256). It resizes
-  every layer and frame together and uses nearest-neighbour resampling by default.
+- Whole image: `resize_image`, `resize_canvas` and `crop` require their integer
+  `params` (sizes 1–256); `trim` requires `params.alpha_threshold`; `image_rotate` and
+  `image_flip` take an optional `turns` / `direction`. They change every layer and frame
+  together; `resize_image` uses nearest-neighbour resampling by default. Later commands
+  of the same batch see the new size.
 
-Except for `resize_image`, choose an optional visible `layer` in the active frame
+Except for the whole-image commands, choose an optional visible `layer` in the active frame
 and an optional `region` inside the canvas. Nova computes the effect at canvas
 size and clips the result to the region and the active selection.
 
@@ -292,7 +317,14 @@ field in the message and in `details.pointer`, and never echo the value.
 | `edit_limit` | Document larger than 256 × 256 or 4 MiB | `The document exceeds the editing budget.` |
 | `document_busy` | A canvas interaction or dialog is in progress | `Finish the current canvas interaction first.` |
 | `operation_canceled` | The client cancelled before publication | `Publication stopped at the next document boundary.` |
-| `busy` | Another MCP operation of this connection is running | `Another MCP operation is still running.` |
+| `busy` | One call of this connection is running and four more are waiting (see below) | `5 earlier MCP operations of this connection are still running or waiting; retry after one of them replies.` |
+
+**Parallel calls.** A connection runs one operation at a time. Calls that arrive while one runs wait
+in arrival order (up to four) and run when it finishes, so an agent may send several calls without
+waiting; only a fifth waiting call is refused with `busy`. A `notifications/cancelled` for a waiting
+call removes it without a reply. Reusing the ID of a running or waiting call ends the connection.
+Each waiting call is checked against the document when it runs, so a second edit that names the
+revision the first one replaced returns `revision_conflict`.
 
 A revoked authorization closes the connection; no further call reaches Nova Studio.
 
@@ -305,7 +337,8 @@ the canvas left by preceding commands, and the whole batch is one undoable step 
 
 Use `nova.texture.adjust_bulk` to apply up to eight shared operations to 1–64 distinct pack textures.
 It accepts `palette_remap`, `gradient_map`, `hue_saturation`, `levels`, `colorize`, `palette_map`
-and `quantize`. Each target uses its own active visible layer and frame, and an optional per-operation
+and `quantize`, plus `brightness_contrast`, `temperature_tint`, `curves`, `replace_color`, `grayscale`,
+`invert`, `posterize`, `alpha_threshold` and `transparency_cleanup`. Each target uses its own active visible layer and frame, and an optional per-operation
 region clips against that target's selection. For example, pass these fields with `generation` and
 `projectId`:
 
@@ -316,11 +349,19 @@ region clips against that target's selection. For example, pass these fields wit
 
 Use a live revision to require an open document at that revision. The explicit value `current` takes
 the revision at preparation and opens a background tab when needed, within Nova's 32-document opening
-limit. Each asset commits independently in input order. A failed asset leaves its pixels unchanged
+limit. If more `current` targets are not open than tabs are free, the whole call is refused with
+`open_limit` before any asset changes (`details.closedTargets`, `details.freeDocumentSlots`); close
+documents without unsaved changes with `nova.asset.close`, or send fewer targets. Each asset commits
+independently in input order. A failed asset leaves its pixels unchanged
 and may leave a newly opened tab. The remaining assets still run. Results report `committed` or
 `rejected` with an error code such as `revision_conflict`, `open_limit` or `edit_rejected`.
 Cancellation, a project switch or the 30-second deadline stops at an asset boundary and marks the
 remaining targets `not_run`. Earlier commits stay available for individual undo and save.
+
+**Progress.** For `nova.texture.adjust_bulk` and `nova.workflow.execute`, send `_meta.progressToken`
+in the `tools/call` params. Nova then sends `notifications/progress` with that token after each
+target or stage (`progress` counts finished ones, `total` is the number of targets or stages, and
+`message` names the asset path), before the final result.
 
 ## SDK wire measurements
 
@@ -335,6 +376,7 @@ state before and `include: "summary"` after.
 | `tools/list`, expanded schemas before deduplication | 239,176 / 68,282 | 187,042 / 50,371 |
 | `tools/list`, brief preview and workflow operations | 187,042 / 50,371 | 121,095 / not resampled |
 | `tools/list`, trimmed listing, measured by `--dump-tools` (see below) | 121,096 / — | 77,391 / — |
+| `tools/list` after adding 26 registry operations, 8 selection and layer commands, `nova.asset.close` and complete annotations | 77,391 / — | 96,003 / — |
 | One edit reply | 2,868 / 1,148 | 1,513 / 566 |
 | Edit text block | 1,321 / 556 | 458 / 173 |
 | Five-texture recolour requests | 4,060 / 1,815 | 908 / 386 |
@@ -373,8 +415,11 @@ schemas).
   "name": "nova.texture.put_pixels",
   "description": "Write a rectangle of pixels from a palette in one edit. rows[r] has one character per pixel: a palette index (0-9 = 0..9, a-z = 10..35, A-Z = 36..61) or '.' to keep that pixel. Replaces RGBA exactly unless mode is \"over\". Edits the open document in memory; it is not saved.",
   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
     "openWorldHint": false,
-    "readOnlyHint": false
+    "readOnlyHint": false,
+    "title": "Put pixels"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -612,6 +657,9 @@ schemas).
       "revision": {
         "type": "string"
       },
+      "selection": {
+        "type": "object"
+      },
       "transactionId": {
         "type": "string"
       },
@@ -657,8 +705,11 @@ schemas).
   "name": "nova.texture.palette_remap",
   "description": "Replace colours in one edit; unmatched pixels are unchanged and each pixel is matched against its original colour (the first matching mapping wins). #RRGGBB keeps each pixel's alpha. Edits the open document in memory; it is not saved.",
   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
     "openWorldHint": false,
-    "readOnlyHint": false
+    "readOnlyHint": false,
+    "title": "Remap colours"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -907,6 +958,9 @@ schemas).
       "revision": {
         "type": "string"
       },
+      "selection": {
+        "type": "object"
+      },
       "transactionId": {
         "type": "string"
       },
@@ -952,8 +1006,11 @@ schemas).
   "name": "nova.texture.gradient_map",
   "description": "Recolour pixels by luma through a gradient in one edit. Luma is (2126 R + 7152 G + 722 B) / 10000 on encoded 8-bit sRGB, 0-255. Fully transparent pixels are unchanged. Edits the open document in memory; it is not saved.",
   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
     "openWorldHint": false,
-    "readOnlyHint": false
+    "readOnlyHint": false,
+    "title": "Gradient map"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -1218,6 +1275,9 @@ schemas).
       "revision": {
         "type": "string"
       },
+      "selection": {
+        "type": "object"
+      },
       "transactionId": {
         "type": "string"
       },
@@ -1263,8 +1323,11 @@ schemas).
   "name": "nova.texture.erase",
   "description": "Make a region of the active layer transparent in one edit, clipped by the selection, like Nova's eraser: alpha * (255 - coverage) / 255; pixels reaching zero alpha are stored as #00000000. Never deletes files or layers. Edits the open document in memory; it is not saved.",
   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
     "openWorldHint": false,
-    "readOnlyHint": false
+    "readOnlyHint": false,
+    "title": "Erase region"
   },
   "inputSchema": {
     "additionalProperties": false,
@@ -1484,6 +1547,9 @@ schemas).
       },
       "revision": {
         "type": "string"
+      },
+      "selection": {
+        "type": "object"
       },
       "transactionId": {
         "type": "string"

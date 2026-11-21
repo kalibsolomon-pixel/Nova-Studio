@@ -146,6 +146,7 @@ QJsonObject outputSchema(const QString &name) {
             add("projectOverride", "boolean");
             add("limits", "object");
             add("animationMetadata", QJsonArray{"object", "null"});
+            fields["preview"] = QJsonObject{{"type", "object"}}; // only with maxEdge or pixelGrid
         }
     } else if (name == "nova.pack.bootstrap") {
         add("created", "boolean");
@@ -159,6 +160,13 @@ QJsonObject outputSchema(const QString &name) {
             add(key, "string");
         add("opened", "boolean");
         add("document", "object");
+        add("changeSummary", "object");
+    } else if (name == "nova.asset.close") {
+        for (auto key : {"assetId", "path"})
+            add(key, "string");
+        add("closed", "boolean");
+        add("changed", "boolean");
+        add("openDocuments", "integer");
         add("changeSummary", "object");
     } else if (name == "nova.texture.read") {
         for (auto key : {"assetId", "path", "source", "encoding"})
@@ -202,9 +210,15 @@ QJsonObject commandSchema(const QString &name, QJsonObject fields) {
     return objectSchema(fields, QJsonArray::fromStringList(fields.keys()));
 }
 const QStringList &nativeTextureCommands() {
+    // Registry operations an agent can name. The registry's own "fill" is left out: the fill
+    // command is the flood fill.
     static const QStringList commands{"hue_saturation", "levels", "colorize", "quantize", "palette_map",
         "outline", "directional_shading", "resize_image", "seamless", "gen_stone", "gen_bricks",
-        "gen_tiles", "gen_wood", "gen_ore", "gen_metal", "gen_gui_panel", "gen_item", "gen_noise"};
+        "gen_tiles", "gen_wood", "gen_ore", "gen_metal", "gen_gui_panel", "gen_item", "gen_noise",
+        "brightness_contrast", "temperature_tint", "curves", "replace_color", "grayscale", "invert", "posterize",
+        "alpha_threshold", "transparency_cleanup", "hsv_noise", "gradient", "box_blur", "gaussian_blur", "sharpen",
+        "noise", "pixelate", "normal_map", "flip", "rotate", "offset", "align_content", "image_rotate",
+        "image_flip", "resize_canvas", "crop", "trim"};
     return commands;
 }
 QJsonObject nativeTextureSchema(const QString &command, const QJsonObject &uuid) {
@@ -244,14 +258,16 @@ QJsonObject nativeTextureSchema(const QString &command, const QJsonObject &uuid)
             break;
         }
     }
-    QJsonObject fields{{"command", QJsonObject{{"enum", QJsonArray{command}}}},
-                       {"params", objectSchema(params, requiredParams)}};
+    auto parameters = objectSchema(params, requiredParams);
+    if (requiredParams.isEmpty())
+        parameters.remove("required"); // about 60 commands; an empty list says nothing
+    QJsonObject fields{{"command", QJsonObject{{"enum", QJsonArray{command}}}}, {"params", parameters}};
     if (!info.changesSize) {
         fields["layer"] = uuid;
         fields["region"] = objectSchema({{"x", integerField(0, 255)}, {"y", integerField(0, 255)},
             {"width", integerField(1, 256)}, {"height", integerField(1, 256)}}, {"x", "y", "width", "height"});
     }
-    if (command == "directional_shading")
+    if (command == "directional_shading" || command == "normal_map")
         fields["mapLayer"] = uuid;
     auto schema = objectSchema(fields, requiredParams.isEmpty() ? QJsonArray{"command"} : QJsonArray{"command", "params"});
     schema["description"] = info.description;
@@ -272,6 +288,7 @@ QJsonObject editOutputSchema(bool capabilities) {
         add(key, "array");
     add("animated", "boolean");
     add("interpolate", "boolean");
+    add("selection", "object");
     if (capabilities) {
         const auto document = objectSchema(fields, common);
         fields = {};
@@ -311,6 +328,24 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArra
         commandSchema("fill", {{"layer", uuid}, {"x", coord}, {"y", coord}, {"color", color},
                                {"tolerance", integerField(0, 255)}, {"contiguous", boolean},
                                {"opacity", integerField(1, 255)}})};
+    // The selection clips every pixel command; it is part of the document and of its history.
+    const auto selectMode = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"replace", "add", "subtract", "intersect"}}};
+    auto selectCommand = [&](const QString &command, QJsonObject fields, QJsonArray required) {
+        if (!fields.isEmpty()) // a shape combines with the current selection (default replace)
+            fields["mode"] = selectMode;
+        fields["command"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{command}}};
+        required.append("command");
+        return objectSchema(fields, required);
+    };
+    const QJsonObject area{{"x", coord}, {"y", coord}, {"width", integerField(1, 256)}, {"height", integerField(1, 256)}};
+    texture.append(selectCommand("select_rect", area, {"x", "y", "width", "height"}));
+    texture.append(selectCommand("select_ellipse", area, {"x", "y", "width", "height"}));
+    texture.append(selectCommand("select_polygon", {{"points", arrayField(arrayField(
+        QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 256}}, 2, 2), 3, 64)}}, {"points"}));
+    texture.append(selectCommand("select_color", {{"x", coord}, {"y", coord}, {"tolerance", integerField(0, 255)},
+                                                  {"contiguous", boolean}}, {"x", "y"}));
+    for (const auto command : {"select_all", "deselect", "invert_selection"})
+        texture.append(selectCommand(command, {}, {}));
     for (const auto &command : nativeTextureCommands())
         texture.append(nativeTextureSchema(command, uuid));
     const QJsonArray layers{
@@ -320,7 +355,9 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArra
         commandSchema("layer_move", {{"layer", uuid}, {"value", integerField(0, 63)}}),
         commandSchema("layer_visibility", {{"layer", uuid}, {"value", integerField(0, 1)}}),
         commandSchema("layer_opacity", {{"layer", uuid}, {"value", integerField(0, 255)}}),
-        commandSchema("layer_remove", {{"layer", uuid}})};
+        commandSchema("layer_remove", {{"layer", uuid}}),
+        // Drawing commands paint the active layer only; this makes another layer active.
+        commandSchema("layer_select", {{"layer", uuid}})};
     const QJsonArray animation{
         commandSchema("frame_add", {{"frame", uuid}}),
         commandSchema("frame_duplicate", {{"frame", uuid}}),
@@ -419,7 +456,9 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArra
             {"annotations", QJsonObject{{"readOnlyHint", plan}, {"openWorldHint", false}}}});
     }
     const QStringList adjustments{"palette_remap", "gradient_map", "hue_saturation", "levels", "colorize",
-                                  "palette_map", "quantize"};
+                                  "palette_map", "quantize", "brightness_contrast", "temperature_tint", "curves",
+                                  "replace_color", "grayscale", "invert", "posterize", "alpha_threshold",
+                                  "transparency_cleanup"};
     QJsonArray bulkCommands;
     for (const QJsonValue &variant : commands) {
         auto fields = variant["properties"].toObject();
@@ -477,8 +516,8 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArra
                                 "Defaults to 256 for one texture, 128 per contact-sheet tile (maximum 192).");
     image["pixelGrid"] = described(boolean, "Draw boundaries between source texels when the image is enlarged.");
     image["compare"] = described(boolean, "Show before and after the last edit of the requested revision.");
-    image["assetIds"] = described(arrayField(token, 1, 16), "Texture IDs for a labelled contact sheet. Supply this "
-                                 "or assetId with expectedRevision.");
+    image["assetIds"] = described(arrayField(textureAssetField(), 1, 16), "Texture IDs or vanilla:<path> for a "
+                                 "labelled contact sheet. Supply this or assetId with expectedRevision.");
     list.append(QJsonObject{{"name", "nova.asset.preview_image"},
         {"description", "Return a readable PNG of a live texture, animation frame, model viewport or UV. Supports "
                         "before/after comparison and labelled texture contact sheets."},
@@ -497,9 +536,19 @@ void addEditingTools(QJsonArray &list, const QJsonObject &token, const QJsonArra
         {"annotations", QJsonObject{{"readOnlyHint", true}, {"openWorldHint", false}}}});
     auto history = target;
     history["returnPreview"] = boolean;
-    for (const auto &name : {"undo", "redo"})
+    history["steps"] = described(integerField(1, 32), "History entries to move (default 1). Stops early at an entry "
+                                 "this connection did not make; stepsApplied reports how many moved.");
+    for (const auto &name : {"undo", "redo"}) {
         add(QString("nova.edit.") + name, "Move only through this connection's contiguous edits.",
             history, required);
+        auto tool = list.last().toObject();
+        auto output = tool["outputSchema"].toObject();
+        auto results = output["properties"].toObject();
+        results["stepsApplied"] = QJsonObject{{"type", "integer"}};
+        output["properties"] = results;
+        tool["outputSchema"] = output;
+        list.replace(list.size() - 1, tool);
+    }
 }
 // MCP Phase 2: compact texture edits. Each call is one native in-memory edit of an open texture
 // (one history step), committed like nova.texture.edit; the runtime checks that need the canvas
@@ -679,6 +728,32 @@ void pruneSchemaDefs(QJsonObject &schema) {
     else
         schema["$defs"] = kept;
 }
+// Human-readable names for clients that show tools (annotations.title).
+QString toolTitle(const QString &name) {
+    static const QHash<QString, QString> titles{
+        {"nova.project.info", "Project information"}, {"nova.assets.list", "List pack assets"},
+        {"nova.asset.inspect", "Inspect asset"}, {"nova.texture.inspect", "Inspect texture"},
+        {"nova.animation.inspect", "Inspect animation"}, {"nova.model.inspect", "Inspect model"},
+        {"nova.pack.validate", "Validate pack"}, {"nova.assets.context", "Asset relationship graph"},
+        {"nova.assets.inspect_batch", "Inspect several assets"}, {"nova.workflow.prepare", "Prepare workflow"},
+        {"nova.workflow.validate_changes", "Validate edited assets"}, {"nova.edit.capabilities", "Edit capabilities"},
+        {"nova.texture.edit", "Edit texture"}, {"nova.layer.edit", "Edit layers"},
+        {"nova.animation.edit", "Edit animation"}, {"nova.model.edit", "Edit model"}, {"nova.uv.edit", "Edit UVs"},
+        {"nova.workflow.plan", "Plan multi-document edit"}, {"nova.workflow.execute", "Run multi-document edit"},
+        {"nova.texture.adjust_bulk", "Adjust many textures"}, {"nova.asset.create_preview", "Preview asset creation"},
+        {"nova.asset.create", "Create asset"}, {"nova.asset.preview_image", "Preview image"},
+        {"nova.edit.batch", "Edit batch"}, {"nova.edit.preview", "Preview edit batch"}, {"nova.edit.undo", "Undo"},
+        {"nova.edit.redo", "Redo"}, {"nova.guide.list", "List guides"}, {"nova.guide.get", "Read guide"},
+        {"nova.drafts.list", "List open documents"}, {"nova.drafts.adopt", "Adopt open document"},
+        {"nova.drafts.save", "Save document"}, {"nova.drafts.save_all", "Save all documents"},
+        {"nova.texture.put_pixels", "Put pixels"}, {"nova.texture.palette_remap", "Remap colours"},
+        {"nova.texture.gradient_map", "Gradient map"}, {"nova.texture.erase", "Erase region"},
+        {"nova.vanilla.list", "List vanilla textures"}, {"nova.vanilla.texture", "Vanilla texture image"},
+        {"nova.asset.relationships", "Explain asset use"}, {"nova.texture.read", "Read texture pixels"},
+        {"nova.asset.open", "Open asset"}, {"nova.asset.close", "Close document"},
+        {"nova.pack.bootstrap", "Initialize pack"}, {"nova.texture.analyze", "Analyze textures"}};
+    return titles.value(name, name);
+}
 const QJsonArray &tools() {
     static const auto definitions = [] {
         QJsonArray list;
@@ -785,7 +860,11 @@ const QJsonArray &tools() {
                                    "A cached texture path from nova.vanilla.list, such as "
                                    "assets/minecraft/textures/block/stone.png.")},
                 {"include", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"image", "metadata"}},
-                    {"description", "image (default): include the PNG (at most 262144 bytes); metadata: omit it."}}}},
+                    {"description", "image (default): include the PNG (at most 262144 bytes); metadata: omit it."}}},
+                {"maxEdge", described(integerField(16, 512), "Return a copy fitted to this longest edge (nearest "
+                                      "neighbour, so 16 px textures stay sharp) instead of the cached file.")},
+                {"pixelGrid", described(QJsonObject{{"type", "boolean"}}, "Draw texel boundaries on an enlarged copy "
+                                        "(maxEdge defaults to 256).")}},
                {"generation", "projectId", "version", "path"}, true);
         define("nova.asset.relationships",
                "Explain how one resource-pack asset is selected and used: item definitions and blockstates, model parent "
@@ -813,8 +892,13 @@ const QJsonArray &tools() {
                                  "frame of an open draft or the whole saved spritesheet.")},
              {"version", version}, {"identity", identity}}, {"generation", "assetId"});
         define("nova.asset.open",
-            "Open an indexed pack texture or animation in an editor tab and obtain its edit revision. "
+            "Open an indexed pack texture, animation or model in an editor tab and obtain its edit revision. "
             "Requires editing permission. Reuses an existing open document when possible.",
+            {{"generation", current}, {"projectId", project}, {"assetId", asset}},
+            {"generation", "projectId", "assetId"}, false);
+        define("nova.asset.close",
+            "Close the editor tab of a texture, animation or model that has no unsaved changes, freeing one of the "
+            "32 document slots. Refuses a document with unsaved changes (document_dirty); never discards edits.",
             {{"generation", current}, {"projectId", project}, {"assetId", asset}},
             {"generation", "projectId", "assetId"}, false);
         define("nova.pack.bootstrap",
@@ -877,6 +961,16 @@ const QJsonArray &tools() {
                 name == "nova.workflow.plan" || name == "nova.workflow.execute" || name == "nova.texture.adjust_bulk")
                 schema = shareSchemaNodes(schema);
             tool["inputSchema"] = schema;
+            // Edits change open documents in memory and are undoable, so only the two saves, which
+            // overwrite pack files, are destructive. Every mutation except adjust_bulk is pinned to a
+            // revision (or rejects an existing destination), so repeating the call changes nothing more.
+            auto annotations = tool["annotations"].toObject();
+            annotations["title"] = toolTitle(name);
+            if (!annotations["readOnlyHint"].toBool()) {
+                annotations["destructiveHint"] = name.startsWith("nova.drafts.save");
+                annotations["idempotentHint"] = name != "nova.texture.adjust_bulk";
+            }
+            tool["annotations"] = annotations;
             list.replace(i, tool);
         }
         return list;
@@ -952,6 +1046,32 @@ SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QStr
     }
     if (schema.contains("oneOf")) {
         const auto options = schema["oneOf"].toArray();
+        // Command forms are told apart by their constant command, so only that form can match.
+        // Any other oneOf (or a command shared by several forms) checks every form.
+        if (const auto command = value.toObject().value("command"); command.isString()) {
+            QJsonObject only;
+            int named = 0;
+            bool discriminated = true;
+            for (const auto &option : options) {
+                auto form = option.toObject();
+                if (form.contains("$ref"))
+                    form = defs[form["$ref"].toString().mid(8)].toObject();
+                auto field = form["properties"].toObject()["command"].toObject();
+                if (field.contains("$ref"))
+                    field = defs[field["$ref"].toString().mid(8)].toObject();
+                const auto names = field["enum"].toArray();
+                if (names.isEmpty() || !form["required"].toArray().contains("command")) {
+                    discriminated = false;
+                    break;
+                }
+                if (names.contains(command) && ++named == 1)
+                    only = form;
+            }
+            if (discriminated && named == 0)
+                return fail(QString("unknown command \"%1\".").arg(command.toString().left(48)));
+            if (discriminated && named == 1)
+                return check(value, only, pointer, defs);
+        }
         int matches = 0;
         for (const auto &option : options)
             matches += check(value, option.toObject(), pointer, defs).isEmpty();
@@ -1031,10 +1151,54 @@ SchemaError check(const QJsonValue &value, const QJsonObject &schema, const QStr
         return fail(expected(schema, QString("expected at most %1 characters.").arg(schema["maxLength"].toInt())));
     if (!schema.contains("pattern"))
         return {};
-    const auto match = QRegularExpression(schema["pattern"].toString()).match(string);
+    // Compiling a pattern costs far more than matching it; the schemas use a few dozen.
+    thread_local QHash<QString, QRegularExpression> compiled;
+    const auto source = schema["pattern"].toString();
+    auto pattern = compiled.find(source);
+    if (pattern == compiled.end())
+        pattern = compiled.insert(source, QRegularExpression(source));
+    const auto match = pattern->match(string);
     if (match.hasMatch() && match.capturedLength() == string.size())
         return {};
     return fail(expected(schema, "expected a value of the form " + schema["pattern"].toString() + '.'));
+}
+// Workflow starters (prompts/list, prompts/get): user-chosen task templates that name the tools in
+// the order that works best. They grant nothing; every call they lead to is checked as usual.
+struct Prompt {
+    QString name, title, description;
+    QStringList arguments; // all optional
+    QString text;          // {argument} placeholders are replaced
+};
+const QList<Prompt> &prompts() {
+    static const QList<Prompt> list{
+        {"retexture", "Retexture an asset",
+         "Edit one pack texture in Nova, checking it against vanilla and validating before saving.",
+         {"asset", "goal"},
+         "Retexture {asset} in the authorized Nova resource pack. Goal: {goal}.\n"
+         "1. nova.project.info for generation, projectId and the Minecraft version; read nova://project/style-notes.\n"
+         "2. nova.assets.list (search) for the assetId, then nova.asset.open for its revision.\n"
+         "3. Compare with vanilla: nova.asset.preview_image with assetIds [assetId, \"vanilla:<path>\"], "
+         "pixelGrid true; nova.texture.read for exact pixels.\n"
+         "4. Edit with nova.edit.batch (select_* to limit the area, layer_select for the layer) or "
+         "nova.texture.put_pixels; pass returnPreview true to see each result.\n"
+         "5. nova.workflow.validate_changes, then ask the user before nova.drafts.save."},
+        {"audit-pack", "Audit the pack",
+         "Validate the pack and summarize problems with their next steps, without editing anything.",
+         {"focus"},
+         "Audit the authorized Nova resource pack{focus}. Use nova.pack.validate, then nova.asset.relationships "
+         "and nova.texture.analyze for the assets with findings. Report each problem with its rule, evidence and "
+         "next step; do not edit or save."},
+        {"recolor-set", "Recolour a set of textures",
+         "Apply one colour adjustment to several textures as separate undoable edits.",
+         {"search", "adjustment"},
+         "Recolour the pack textures matching \"{search}\": {adjustment}.\n"
+         "1. nova.project.info, then nova.assets.list with that search.\n"
+         "2. Preview the plan on one texture with nova.edit.preview.\n"
+         "3. nova.texture.adjust_bulk with expectedRevision \"current\" for up to 64 targets (send "
+         "_meta.progressToken to follow progress); each target is its own undo step.\n"
+         "4. nova.asset.preview_image with assetIds for a contact sheet of the results, then "
+         "nova.workflow.validate_changes."}};
+    return list;
 }
 bool validId(const QJsonValue &value) {
     if (value.isString())
@@ -1068,6 +1232,12 @@ QJsonObject toolError(const QString &code, const QString &message, const QJsonOb
     if (!details.isEmpty())
         error["details"] = details;
     return {{"error", error}};
+}
+QJsonObject progressNotification(const QJsonValue &token, int progress, int total, const QString &message) {
+    QJsonObject params{{"progressToken", token}, {"progress", progress}, {"total", total}};
+    if (!message.isEmpty())
+        params["message"] = message.left(200);
+    return {{"jsonrpc", "2.0"}, {"method", "notifications/progress"}, {"params", params}};
 }
 QJsonObject resourceReply(const QJsonValue &id, const QString &uri, const QString &mimeType, const QString &text) {
     return reply(id, {{"contents", QJsonArray{QJsonObject{{"uri", uri}, {"mimeType", mimeType}, {"text", text}}}}});
@@ -1202,16 +1372,70 @@ Request Protocol::receive(const QByteArray &line) {
         client = info["name"].toString().left(80).simplified();
         state = State::AwaitingNotification;
         result.response = reply(result.id, {{"protocolVersion", Version},
-            {"capabilities", QJsonObject{{"tools", QJsonObject{}}, {"resources", QJsonObject{}}}},
+            {"capabilities", QJsonObject{{"tools", QJsonObject{}}, {"resources", QJsonObject{}},
+                                         {"prompts", QJsonObject{}}, {"completions", QJsonObject{}}}},
             {"serverInfo", QJsonObject{{"name", "Nova Studio"}, {"version", nova::AppVersion}}},
             {"instructions", guides::instructions()}});
     } else if (method == "ping") {
         result.response = reply(result.id, {});
     } else if (method != "tools/list" && method != "tools/call" && method != "resources/list" &&
-               method != "resources/read" && method != "resources/templates/list") {
+               method != "resources/read" && method != "resources/templates/list" && method != "prompts/list" &&
+               method != "prompts/get" && method != "completion/complete") {
         return fail(-32601, "Method not found");
     } else if (state != State::Ready) {
         return fail(-32002, "Initialize the session first");
+    } else if (method == "prompts/list") {
+        if (params.contains("cursor"))
+            return fail(-32602, "Unknown prompts cursor");
+        QJsonArray list;
+        for (const auto &prompt : prompts()) {
+            QJsonArray arguments;
+            for (const auto &argument : prompt.arguments)
+                arguments.append(QJsonObject{{"name", argument}, {"required", false}});
+            list.append(QJsonObject{{"name", prompt.name}, {"title", prompt.title},
+                                    {"description", prompt.description}, {"arguments", arguments}});
+        }
+        result.response = reply(result.id, {{"prompts", list}});
+    } else if (method == "prompts/get") {
+        const auto name = params["name"].toString();
+        const auto found = std::find_if(prompts().cbegin(), prompts().cend(),
+                                        [&](const Prompt &prompt) { return prompt.name == name; });
+        if (found == prompts().cend())
+            return fail(-32602, "Unknown prompt; prompts/list names them");
+        static const QHash<QString, QString> unset{{"asset", "the texture the user names"},
+            {"goal", "as the user describes"}, {"search", "the user's choice"}, {"adjustment", "as the user describes"}};
+        const auto values = params["arguments"].toObject();
+        auto text = found->text;
+        for (const auto &argument : found->arguments) {
+            auto value = values[argument].toString().left(200).simplified();
+            if (argument == "focus")
+                value = value.isEmpty() ? QString() : ", focusing on " + value;
+            else if (value.isEmpty())
+                value = unset.value(argument);
+            text.replace('{' + argument + '}', value);
+        }
+        result.response = reply(result.id, {{"description", found->description},
+            {"messages", QJsonArray{QJsonObject{{"role", "user"},
+                {"content", QJsonObject{{"type", "text"}, {"text", text}}}}}}});
+    } else if (method == "completion/complete") {
+        // Completes the nova://rules/{version}/{topic} template and prompt arguments that have a
+        // fixed set of values. Anything else completes to nothing.
+        const auto ref = params["ref"].toObject();
+        const auto argument = params["argument"].toObject();
+        const auto prefix = argument["value"].toString().left(64);
+        QStringList candidates;
+        if (ref["type"] == "ref/resource" && ref["uri"] == "nova://rules/{version}/{topic}") {
+            if (argument["name"] == "version")
+                candidates = guides::guideVersions();
+            else if (argument["name"] == "topic")
+                candidates = guides::topics();
+        }
+        QJsonArray values;
+        for (const auto &candidate : std::as_const(candidates))
+            if (candidate.startsWith(prefix, Qt::CaseInsensitive) && values.size() < 100)
+                values.append(candidate);
+        result.response = reply(result.id, {{"completion", QJsonObject{{"values", values},
+            {"total", values.size()}, {"hasMore", false}}}});
     } else if (method == "resources/list" || method == "resources/templates/list") {
         if (params.contains("cursor"))
             return fail(-32602, "Unknown resources cursor");
@@ -1271,6 +1495,8 @@ Request Protocol::receive(const QByteArray &line) {
             }
             result.tool = name;
             result.arguments = args;
+            if (const auto token = params["_meta"].toObject()["progressToken"]; validId(token))
+                result.progressToken = token;
             return result;
         }
         return fail(-32602, "Unknown tool");
