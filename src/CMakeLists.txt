@@ -18,7 +18,7 @@ target_include_directories(nova-models PUBLIC models)
 target_link_libraries(nova-models PUBLIC nova-core nova-asset-index Qt6::Gui)
 
 add_library(nova-application STATIC app/settings.cpp app/settings.h app/session.cpp app/session.h app/session_edit.cpp app/playback.cpp app/playback.h app/material_playback.cpp app/material_playback.h app/animation_export.cpp app/animation_export.h app/presets.cpp app/presets.h app/batch.cpp app/batch.h app/native_batch.cpp app/native_batch.h app/project.cpp app/project.h app/recovery.cpp app/recovery.h
-  app/project_config.cpp app/project_config.h app/baseline_reset.cpp app/baseline_reset.h)
+  app/project_config.cpp app/project_config.h app/baseline_reset.cpp app/baseline_reset.h app/updates.cpp app/updates.h)
 target_link_libraries(nova-application PUBLIC nova-core nova-asset-index)
 target_include_directories(nova-application PUBLIC app)
 # ResourceSource::fromBaseline exposes the verified baseline cache as a model source.
@@ -124,7 +124,7 @@ add_library(nova-workspace STATIC
   ui/workflow_review.cpp
   ui/model_materials.cpp
   ui/refinements.cpp
-  ui/support.cpp
+  ui/support.cpp ui/updater.cpp ui/updater.h
   ui/baseline_ui.cpp ui/baseline_ui.h
   ui/legal.cpp ui/legal.h
   rendering/canvas.cpp rendering/canvas.h rendering/onion.cpp rendering/cube.cpp rendering/cube.h

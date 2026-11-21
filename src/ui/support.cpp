@@ -3,6 +3,7 @@
 #include "build_identity.h"
 #include "diagnostics.h"
 #include "legal.h"
+#include "updater.h"
 #include <QtWidgets>
 
 namespace nova {
@@ -75,6 +76,11 @@ void Window::buildSupportMenu() {
         else
             statusBar()->showMessage("Diagnostics saved locally · review before sharing", 5000);
     });
+    updater = new Updater(this, settings.fileName());
+    auto updates = help->addAction("Check for Updates…");
+    updates->setObjectName("checkUpdatesCommand");
+    updates->setStatusTip("Look for a newer Nova Studio release on GitHub");
+    connect(updates, &QAction::triggered, updater, [this] { updater->check(true); });
     auto licenses = help->addAction("Licenses and Source Code…");
     licenses->setObjectName("licensesCommand");
     licenses->setStatusTip("Nova Studio's license (GNU GPL v3 or later), third-party notices and source code");
@@ -95,5 +101,10 @@ void Window::buildSupportMenu() {
         connect(more, &QPushButton::clicked, this, [this] { legal::createLicensesDialog(this)->show(); });
         box->open();
     });
+}
+
+void Window::startUpdates() {
+    // After the first paint, so the check never delays startup.
+    QTimer::singleShot(3000, updater, [this] { updater->startup(preferences.checkUpdates); });
 }
 }

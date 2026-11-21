@@ -9,12 +9,12 @@ Compare the SHA-256 checksum of the file you downloaded with the published `SHA2
 In PowerShell:
 
 ```powershell
-Get-FileHash .\nova-studio-0.1.2-windows-x64-mingw.exe -Algorithm SHA256
+Get-FileHash .\nova-studio-0.1.3-windows-x64-mingw.exe -Algorithm SHA256
 ```
 
 ## Install
 
-1. Run `nova-studio-0.1.2-windows-x64-mingw.exe`.
+1. Run `nova-studio-0.1.3-windows-x64-mingw.exe`.
 2. The installer is not code-signed. If Windows SmartScreen appears, choose **More info**, confirm
    the file name and checksum, then **Run anyway**. Do not disable SmartScreen or other Windows
    security features.
@@ -24,10 +24,10 @@ Get-FileHash .\nova-studio-0.1.2-windows-x64-mingw.exe -Algorithm SHA256
 4. Finish, and start Nova Studio from the Start menu.
 
 Setup installs for your Windows account only. It needs no administrator rights, adds no service,
-driver, scheduled task, file association, PATH entry or automatic updater, and does not change
-any AI agent's settings.
+driver, scheduled task, file association or PATH entry, and does not change any AI agent's
+settings.
 
-Silent install (for scripting): `nova-studio-0.1.2-windows-x64-mingw.exe /S`
+Silent install (for scripting): `nova-studio-0.1.3-windows-x64-mingw.exe /S`
 (add `/D=C:\Path\To\Folder` as the last argument to choose the folder).
 
 ## Upgrade or reinstall
@@ -38,6 +38,22 @@ Nova Studio and any AI agent connected to it first; Setup waits and asks you to 
 still running. AI agents keep working after an upgrade because nova-mcp.exe stays in the same place.
 
 Only one installation per Windows user is supported. To move it, uninstall first.
+
+## Updates
+
+A few seconds after it starts, Nova Studio asks GitHub for the latest release of
+`kalibsolomon-pixel/Nova-Studio`. When a newer version exists, Nova downloads its installer to
+`%LOCALAPPDATA%\Nova Studio\updates` and checks it against the release's `SHA256SUMS.txt`.
+Nothing is installed until you choose **Install and Restart**: Nova then closes (asking about
+unsaved work first), the installer upgrades the installation without showing its pages and starts
+Nova Studio again. **Later** asks again at the next start; **Skip This Version** waits for the
+version after it. If the installation does not finish, Nova says so at the next start and offers
+to run the installer with its pages, which show the reason.
+
+**Help › Check for Updates…** checks at any time. Turn off the startup check in
+**Edit › Preferences › Startup**. The portable ZIP and builds from source only show the release
+page. The checksum comes from the same release as the installer, so it detects a damaged download,
+not a compromised release; the installer is not code-signed.
 
 ## Uninstall
 
@@ -61,7 +77,7 @@ To remove all Nova Studio data as well, delete `%LOCALAPPDATA%\Nova Studio` afte
 
 ## Portable ZIP
 
-`nova-studio-0.1.2-windows-x64-mingw.zip` contains the same files. Extract it to a folder you
+`nova-studio-0.1.3-windows-x64-mingw.zip` contains the same files. Extract it to a folder you
 can write to and run `nova-studio.exe`. Use it for troubleshooting or where installing is not
 wanted. It has no Start menu entry or uninstaller; delete the folder to remove it.
 

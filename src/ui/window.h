@@ -34,6 +34,7 @@
 namespace nova {
 namespace mcp { class Service; struct Snapshot; struct Request; }
 namespace vanilla { struct BaselineEntry; }
+class Updater;
 // The result of saving one document into the pack. `code` is empty on success; `written` lists
 // what reached disk ("pack": PNG, PNG + .png.mcmeta or model JSON; "editable": layered source).
 struct SaveOutcome {
@@ -285,6 +286,7 @@ class Window : public QMainWindow {
     QUuid strokeRefreshDocument; // document whose open stroke has already had its full refresh
     void refreshDockTitles();
     void buildSupportMenu();
+    Updater *updater = nullptr;
     void persist();
     void restore();
     void action(const QString &name);
@@ -345,5 +347,7 @@ class Window : public QMainWindow {
     void qa(const QString &output);
     void startExercise();
     void performanceCycle(const QString &root);
+    // Reports the last update and, unless turned off in Preferences, checks GitHub for a newer release.
+    void startUpdates();
 };
 } // namespace nova

@@ -33,6 +33,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QSet>
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QStyle>
@@ -284,12 +285,18 @@ class PermissionCard final : public QFrame {
 
     void enqueue(const QJsonValue &id, const QJsonObject &params) {
         auto tool = params["toolCall"].toObject();
-        Request next{id, describe(tool), {}};
+        Request next{id, describe(tool), scopeOf(tool), {}};
         for (const auto &entry : params["options"].toArray()) {
             const auto option = entry.toObject();
             const auto optionId = option["optionId"].toString();
             if (!optionId.isEmpty())
                 next.options.append({optionId, option["kind"].toString(), agentDisplayText(option["name"].toString(), 80)});
+        }
+        // Allowed for the rest of the session: Nova answers "allow once" itself.
+        if (const auto once = allowOnce(next); !once.isEmpty() && sessionAllowed.contains(next.scope)) {
+            if (answer)
+                answer(id, once);
+            return;
         }
         queue.append(std::move(next));
         if (queue.size() == 1)
@@ -302,6 +309,12 @@ class PermissionCard final : public QFrame {
         queue.clear();
         refreshActions();
         hide();
+    }
+
+    // A new or ended session asks again for everything.
+    void forgetSession() {
+        sessionAllowed.clear();
+        clear();
     }
 
     // The agent no longer needs an answer to this request.
@@ -320,10 +333,40 @@ class PermissionCard final : public QFrame {
 
   private:
     struct Option { QString id, kind, name; };
-    struct Request { QJsonValue id; QString description; QList<Option> options; };
+    struct Request { QJsonValue id; QString description, scope; QList<Option> options; };
     QLabel *summary, *count;
     QHBoxLayout *actions;
     QList<Request> queue;
+    QSet<QString> sessionAllowed; // scopes allowed until the session ends
+
+    // What "allow for this session" covers: the ACP tool kind, or for an unclassified tool its title.
+    static QString scopeOf(const QJsonObject &tool) {
+        const auto kind = tool["kind"].toString();
+        if (!kind.isEmpty() && kind != "other")
+            return "kind:" + kind;
+        return "title:" + tool["title"].toString().simplified();
+    }
+
+    static QString scopeText(const QString &scope) {
+        static const QMap<QString, QString> kinds{
+            {"kind:read", "file reads"}, {"kind:edit", "file edits"}, {"kind:delete", "deletions"},
+            {"kind:move", "file moves"}, {"kind:search", "searches"}, {"kind:execute", "commands"},
+            {"kind:think", "thinking steps"}, {"kind:fetch", "web fetches"}, {"kind:switch_mode", "mode switches"}};
+        return kinds.value(scope, "this tool");
+    }
+
+    // The request's only "allow once" option; none when there are several, as which one a later
+    // request should get is then unclear.
+    static QString allowOnce(const Request &request) {
+        QString found;
+        for (const auto &option : request.options)
+            if (option.kind == "allow_once") {
+                if (!found.isEmpty())
+                    return {};
+                found = option.id;
+            }
+        return found;
+    }
 
     static QString describe(const QJsonObject &tool) {
         const auto title = agentDisplayText(tool["title"].toString("Tool call"), 160).simplified();
@@ -368,12 +411,25 @@ class PermissionCard final : public QFrame {
 
     void updateCount() { count->setText(queue.size() > 1 ? QString("%1 pending").arg(queue.size()) : QString{}); }
 
-    void choose(const QJsonValue &requestId, const QString &optionId) {
+    void choose(const QJsonValue &requestId, const QString &optionId, bool forSession = false) {
         if (queue.isEmpty() || queue.first().id != requestId)
             return;
-        const auto id = queue.takeFirst().id;
+        const auto request = queue.takeFirst();
         if (answer)
-            answer(id, optionId);
+            answer(request.id, optionId);
+        if (forSession) {
+            sessionAllowed.insert(request.scope);
+            for (qsizetype i = 0; i < queue.size();) {
+                const auto once = allowOnce(queue.at(i));
+                if (queue.at(i).scope != request.scope || once.isEmpty()) {
+                    ++i;
+                    continue;
+                }
+                const auto id = queue.takeAt(i).id;
+                if (answer)
+                    answer(id, once);
+            }
+        }
         showFirst();
     }
 
@@ -398,21 +454,36 @@ class PermissionCard final : public QFrame {
         QMap<QString, int> kinds;
         for (const auto &option : request.options)
             ++kinds[option.kind];
-        const auto addButton = [this, requestId = request.id](const QString &text, const QString &name, const QString &id) {
+        const auto addButton = [this, requestId = request.id](const QString &text, const QString &name, const QString &id,
+                                                              bool forSession = false) {
             auto button = new QPushButton(text, this);
             button->setObjectName(name);
             button->setAutoDefault(false);
             actions->addWidget(button);
-            connect(button, &QPushButton::clicked, this, [this, requestId, id] { choose(requestId, id); });
+            connect(button, &QPushButton::clicked, this,
+                    [this, requestId, id, forSession] { choose(requestId, id, forSession); });
+            return button;
         };
+        // Nova's own option: the agent gets "allow once", and Nova gives the same answer to later
+        // requests in this scope.
+        const auto once = allowOnce(request);
+        const auto sessionText = "Allow " + scopeText(request.scope) + " for this session";
+        const auto sessionTip = "Nova also allows later requests for " + scopeText(request.scope) +
+            ", once each, until this agent session ends";
         if (request.options.isEmpty()) {
             addButton("Dismiss request", "acpPermissionDismiss", {});
         } else if (request.options.size() > 4 || kinds.size() != request.options.size() ||
                    kinds.contains(QString{})) {
             auto picker = new QComboBox(this);
             picker->setAccessibleName("Tool permission options");
-            for (const auto &option : request.options)
+            for (const auto &option : request.options) {
                 picker->addItem(label(option, true), option.id);
+                if (option.id == once) {
+                    picker->addItem(sessionText, option.id);
+                    picker->setItemData(picker->count() - 1, true, Qt::UserRole + 1);
+                    picker->setItemData(picker->count() - 1, sessionTip, Qt::ToolTipRole);
+                }
+            }
             picker->setPlaceholderText("Choose a decision");
             picker->setCurrentIndex(-1);
             actions->addWidget(picker, 1);
@@ -422,15 +493,18 @@ class PermissionCard final : public QFrame {
             actions->addWidget(apply);
             connect(picker, &QComboBox::currentIndexChanged, apply, [apply](int index) { apply->setEnabled(index >= 0); });
             connect(apply, &QPushButton::clicked, this, [this, picker, requestId = request.id] {
-                choose(requestId, picker->currentData().toString());
+                choose(requestId, picker->currentData().toString(), picker->currentData(Qt::UserRole + 1).toBool());
             });
             return;
         } else {
             static const QMap<QString, QString> buttonNames{
                 {"allow_once", "acpPermissionAllow"}, {"allow_always", "acpPermissionAllowAlways"},
                 {"reject_once", "acpPermissionReject"}, {"reject_always", "acpPermissionRejectAlways"}};
-            for (const auto &option : request.options)
+            for (const auto &option : request.options) {
                 addButton(label(option, false), buttonNames.value(option.kind), option.id);
+                if (option.id == once)
+                    addButton(sessionText, "acpPermissionAllowSession", once, true)->setToolTip(sessionTip);
+            }
         }
         actions->addStretch();
     }
@@ -998,6 +1072,7 @@ void Window::showAgentSession() {
         dialog->grant = mcpService->grantSerial();
         auto session = new acp::Session(dialog);
         dialog->session = session;
+        dialog->permission->forgetSession();
         output->clear();
         connect(session, &acp::Session::agentOutputChanged, output, outputChanged);
         connect(session, &acp::Session::modesChanged, dialog, showSettings);
@@ -1017,7 +1092,7 @@ void Window::showAgentSession() {
             if (session->state() == acp::Session::State::Stopping)
                 dialog->permission->clear();
             if (session->state() == acp::Session::State::Ended) {
-                dialog->permission->clear();
+                dialog->permission->forgetSession();
                 dialog->conversation->finishTurn();
                 dialog->authRow->hide();
                 release();

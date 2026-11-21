@@ -13,6 +13,8 @@
 ;   * Upgrade and reinstall run the installed copy's own uninstaller first. It deletes only the
 ;     files its version installed, then the new files are copied.
 ;   * Running copies of nova-studio.exe or nova-mcp.exe in the folder stop the installation.
+;   * /UPDATE: Nova Studio's updater started Setup and is closing. Setup waits up to 30 seconds for
+;     it to exit and, when silent, starts Nova Studio again afterwards, also when it stops early.
 ;   * Uninstall deletes only the files listed below and folders left empty, never recursively.
 
 !define INST_DIR "@CPACK_TEMPORARY_DIRECTORY@"
@@ -86,11 +88,22 @@ VIAddVersionKey "LegalCopyright" "@CPACK_NOVA_COPYRIGHT@. Licensed under @CPACK_
 !insertmacro MUI_LANGUAGE "English"
 
 Var Problem
+Var Updating ; 1 with /UPDATE
+
+; Silent update: start Nova Studio again, the new version or, after a failure, the one still installed.
+!macro RelaunchAfterUpdate
+  ${If} $Updating == 1
+  ${AndIf} ${Silent}
+  ${AndIf} ${FileExists} "$INSTDIR\${APP_EXE}"
+    Exec '"$INSTDIR\${APP_EXE}"'
+  ${EndIf}
+!macroend
 
 ; ---------------------------------------------------------------- shared checks
 !macro RunningCheck un
 Function ${un}RunningCheck
   ; A running image cannot be opened for writing. Also covers nova-mcp.exe started by an AI agent.
+  StrCpy $R9 0
   ${Do}
     StrCpy $Problem ""
     ${If} ${FileExists} "$INSTDIR\${APP_EXE}"
@@ -115,8 +128,16 @@ Function ${un}RunningCheck
     ${If} $Problem == ""
       ${Break}
     ${EndIf}
+    ; The updater's Nova Studio is still exiting.
+    ${If} $Updating == 1
+    ${AndIf} $R9 < 60
+      IntOp $R9 $R9 + 1
+      Sleep 500
+      ${Continue}
+    ${EndIf}
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$Problem$\r$\n$\r$\nClose ${APP_NAME} and any AI agent connected to it, then choose Retry." /SD IDCANCEL IDRETRY retry
     SetErrorLevel 5
+    !insertmacro RelaunchAfterUpdate
     Quit
     retry:
   ${Loop}
@@ -166,6 +187,12 @@ FunctionEnd
 Function .onInit
   SetShellVarContext current
   SetRegView 64
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/UPDATE" $1
+  ${IfNot} ${Errors}
+    StrCpy $Updating 1
+  ${EndIf}
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "${APP_NAME} requires 64-bit Windows." /SD IDOK
     SetErrorLevel 3
@@ -199,6 +226,7 @@ Section "-Install"
   ${If} $Problem != ""
     MessageBox MB_OK|MB_ICONSTOP "$Problem" /SD IDOK
     SetErrorLevel 4
+    !insertmacro RelaunchAfterUpdate
     Quit
   ${EndIf}
   Call RunningCheck
@@ -225,6 +253,7 @@ Section "-Install"
     ${If} $0 != 0
       MessageBox MB_OK|MB_ICONSTOP "The installed version could not be removed (code $0). Nothing else was changed." /SD IDOK
       SetErrorLevel 6
+      !insertmacro RelaunchAfterUpdate
       Quit
     ${EndIf}
     ${EndIf}
@@ -254,6 +283,7 @@ Section "-Install"
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${PRODUCT_KEY}" "EstimatedSize" "$0"
   DetailPrint "Installed ${APP_NAME} ${VERSION} in $INSTDIR"
+  !insertmacro RelaunchAfterUpdate
 SectionEnd
 
 ; ---------------------------------------------------------------- uninstall
